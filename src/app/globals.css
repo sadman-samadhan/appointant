@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+:root {
+  /* Light mode warm luxury schema */
+  --background: #FAF6F0;
+  --foreground: #362E28;
+  --primary: #8B3A3A;
+  --primary-hover: #6F2C2C;
+  --primary-light: #F3E4DE;
+  --primary-ring: rgba(139, 58, 58, 0.15);
+  --card: #FFFFFF;
+  --card-foreground: #362E28;
+  --muted: #F1EAE1;
+  --muted-foreground: #7A6F62;
+  --border: #EAE1D5;
+  --border-strong: #D9CCB8;
+
+  /* Theme Customization Studio overrides */
+  --theme-primary: var(--primary);
+  --theme-secondary: #BE123C;
+  --theme-accent: #059669;
+}
+
+.dark {
+  /* Dark mode warm luxury schema */
+  --background: #17130F;
+  --foreground: #F0E9E0;
+  --primary: #A84A41;
+  --primary-hover: #C15D52;
+  --primary-light: rgba(168, 74, 65, 0.12);
+  --primary-ring: rgba(168, 74, 65, 0.25);
+  --card: #211B16;
+  --card-foreground: #F0E9E0;
+  --muted: #241D17;
+  --muted-foreground: #A69A8C;
+  --border: #2C241D;
+  --border-strong: #3D3226;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  min-height: 100vh;
+}
+
+/* Glassmorphism & Elevation Utilities */
+.glass-card {
+  background-color: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 20px -2px rgba(54, 46, 40, 0.05);
+}
+
+.btn-primary {
+  background-color: var(--theme-primary, var(--primary));
+  color: #FFFFFF;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn-primary:hover {
+  filter: brightness(0.9);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+/* Micro Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--muted);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
