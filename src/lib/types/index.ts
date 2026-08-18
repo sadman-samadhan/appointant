@@ -17,6 +17,7 @@ export interface UserProfile {
   userid: string;
   email?: string;
   mobile?: string;
+  phone?: string;
   status?: string;
   image?: string;
   roleName?: string;
@@ -94,6 +95,8 @@ export type BookingStatus =
 export interface BookingListItemDto {
   bookingId: string;
   customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
   serviceName: string;
   staffName?: string;
   startTime: string;

@@ -3,7 +3,8 @@
 import React from 'react';
 import Link from 'next/link';
 import { useTheme } from '@/context/ThemeContext';
-import { Scissors, Calendar, MapPin, Phone, Star, ShieldCheck, Clock, ArrowRight } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { Scissors, Calendar, MapPin, Phone, Star, ShieldCheck, Clock, ArrowRight, User, LogOut, LayoutDashboard } from 'lucide-react';
 
 const BDIAMOND_SERVICES_PREVIEW = [
   { name: 'Haircut Service', price: '$23.00 CAD', duration: '30 mins' },
@@ -16,6 +17,7 @@ const BDIAMOND_SERVICES_PREVIEW = [
 
 export default function PublicLandingPage() {
   const { settings } = useTheme();
+  const { user, isAuthenticated, logout } = useAuth();
 
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] animate-fade-in">
@@ -43,19 +45,57 @@ export default function PublicLandingPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <Link
-              href="/login"
-              className="px-4 py-2 rounded-xl text-xs font-bold text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
-            >
-              Sign In
-            </Link>
-            <Link
-              href="/customer/book"
-              className="btn-primary px-5 py-2.5 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5"
-            >
-              <Calendar className="w-4 h-4" />
-              <span>Book Appointment</span>
-            </Link>
+            {isAuthenticated && user ? (
+              <>
+                {user.role === 'ADMIN' ? (
+                  <Link
+                    href="/admin/dashboard"
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--primary-light)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white transition-all flex items-center gap-1.5 border border-[var(--primary-ring)]"
+                  >
+                    <LayoutDashboard className="w-3.5 h-3.5" />
+                    <span>Admin Dashboard</span>
+                  </Link>
+                ) : (
+                  <Link
+                    href="/customer/profile"
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--primary-light)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white transition-all flex items-center gap-1.5 border border-[var(--primary-ring)]"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span>My Profile ({user.name})</span>
+                  </Link>
+                )}
+                <Link
+                  href="/customer/book"
+                  className="btn-primary px-5 py-2.5 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5"
+                >
+                  <Calendar className="w-4 h-4" />
+                  <span>Book Appointment</span>
+                </Link>
+                <button
+                  onClick={logout}
+                  title="Sign Out"
+                  className="p-2 rounded-xl text-xs font-bold text-[var(--muted-foreground)] hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/customer/book"
+                  className="btn-primary px-5 py-2.5 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5"
+                >
+                  <Calendar className="w-4 h-4" />
+                  <span>Book Appointment</span>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>

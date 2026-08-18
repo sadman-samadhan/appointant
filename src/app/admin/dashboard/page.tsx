@@ -46,18 +46,18 @@ export default function AdminDashboardPage() {
       const payRes = await apiRequest<any>('/api/v1/payments');
       const payList = payRes.items || payRes.payments || [];
       const totalRev = payList.reduce((acc: number, p: any) => acc + (p.amount || 0), 0);
-      setTodayRevenue(totalRev > 0 ? totalRev : 1850);
+      setTodayRevenue(totalRev);
 
       // Fetch Invoices
       const invRes = await apiRequest<any>('/api/v1/billing/invoices');
       const invList = invRes.items || invRes.invoices || [];
       const unpaid = invList.filter((inv: any) => inv.status !== 'PAID').length;
-      setPendingInvoicesCount(unpaid > 0 ? unpaid : 3);
+      setPendingInvoicesCount(unpaid);
     } catch {
-      // Fallback display if core backend endpoint returns 404 or empty
-      setTodayRevenue(1850);
-      setStaffCount(6);
-      setPendingInvoicesCount(3);
+      // In case of network error, set clean zero values
+      setTodayRevenue(0);
+      setStaffCount(0);
+      setPendingInvoicesCount(0);
     } finally {
       setIsLoading(false);
     }
@@ -76,38 +76,6 @@ export default function AdminDashboardPage() {
       showError('Action Failed', err.message || `Failed to update status to ${action}`);
     }
   };
-
-  const defaultMockBookings: BookingListItemDto[] = [
-    {
-      bookingId: 'bk-101',
-      customerName: 'Sarah Jenkins',
-      serviceName: 'Haircut & Beard Trim Combo',
-      staffName: 'Elena Rostova',
-      startTime: new Date().toISOString(),
-      status: 'CONFIRMED',
-      totalAmount: 38.0,
-    },
-    {
-      bookingId: 'bk-102',
-      customerName: 'Michael Vance',
-      serviceName: 'Fade Haircut Service',
-      staffName: 'James Carter',
-      startTime: new Date(Date.now() + 3600000).toISOString(),
-      status: 'CHECKED_IN',
-      totalAmount: 25.0,
-    },
-    {
-      bookingId: 'bk-103',
-      customerName: 'David Miller',
-      serviceName: 'Hot Towel Shave',
-      staffName: 'Sophia Martinez',
-      startTime: new Date(Date.now() + 7200000).toISOString(),
-      status: 'SCHEDULED',
-      totalAmount: 25.0,
-    },
-  ];
-
-  const displayList = bookings.length > 0 ? bookings : defaultMockBookings;
 
   return (
     <div className="space-y-6">
@@ -143,7 +111,7 @@ export default function AdminDashboardPage() {
 
         <KPICard
           label="Total Appointments"
-          value={displayList.length}
+          value={bookings.length}
           sub="Scheduled for today"
           icon={CalendarDays}
           accentColor="text-[var(--primary)]"
@@ -184,20 +152,27 @@ export default function AdminDashboardPage() {
           </div>
 
           <div className="glass-card rounded-2xl overflow-hidden divide-y divide-[var(--border)]">
-            {displayList.map((apt) => (
-              <div
-                key={apt.bookingId}
-                className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--muted)]/50 transition-colors"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center shrink-0 border border-[var(--primary-ring)]">
-                    <Scissors className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-black text-[var(--foreground)]">{apt.customerName}</h3>
-                    <p className="text-xs font-semibold text-[var(--primary)]">{apt.serviceName}</p>
-                    <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--muted-foreground)] font-medium">
-                      <span className="flex items-center gap-1">
+            {bookings.length === 0 ? (
+              <div className="p-8 text-center space-y-2">
+                <CalendarDays className="w-8 h-8 text-[var(--muted-foreground)] mx-auto opacity-50" />
+                <p className="text-xs font-bold text-[var(--foreground)]">No appointments scheduled today</p>
+                <p className="text-[11px] text-[var(--muted-foreground)]">New customer bookings will appear here in real-time.</p>
+              </div>
+            ) : (
+              bookings.map((apt) => (
+                <div
+                  key={apt.bookingId}
+                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--muted)]/50 transition-colors"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center shrink-0 border border-[var(--primary-ring)]">
+                      <Scissors className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-black text-[var(--foreground)]">{apt.customerName}</h3>
+                      <p className="text-xs font-semibold text-[var(--primary)]">{apt.serviceName}</p>
+                      <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--muted-foreground)] font-medium">
+                        <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3 text-[var(--muted-foreground)]" />
                         {new Date(apt.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
@@ -246,19 +221,20 @@ export default function AdminDashboardPage() {
                       </button>
                     )}
 
-                    {apt.status !== 'COMPLETED' && apt.status !== 'CANCELLED' && (
-                      <button
-                        onClick={() => handleStatusUpdate(apt.bookingId, 'cancel')}
-                        className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                        title="Cancel Appointment"
-                      >
-                        <XCircle className="w-4 h-4" />
-                      </button>
-                    )}
+                      {apt.status !== 'COMPLETED' && apt.status !== 'CANCELLED' && (
+                        <button
+                          onClick={() => handleStatusUpdate(apt.bookingId, 'cancel')}
+                          className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                          title="Cancel Appointment"
+                        >
+                          <XCircle className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 

@@ -41,27 +41,7 @@ export default function AdminAppointmentsPage() {
       const res = await apiRequest<any>('/api/v1/bookings');
       setBookings(res.items || res.bookings || []);
     } catch {
-      // Mock fallback if empty backend
-      setBookings([
-        {
-          bookingId: 'bk-201',
-          customerName: 'Alex Mercer',
-          serviceName: 'Fade Haircut Service',
-          staffName: 'James Carter',
-          startTime: new Date().toISOString(),
-          status: 'CONFIRMED',
-          totalAmount: 25.0,
-        },
-        {
-          bookingId: 'bk-202',
-          customerName: 'Robert Vance',
-          serviceName: 'Haircut & Beard Trim Combo',
-          staffName: 'Elena Rostova',
-          startTime: new Date(Date.now() + 86400000).toISOString(),
-          status: 'SCHEDULED',
-          totalAmount: 38.0,
-        },
-      ]);
+      setBookings([]);
     } finally {
       setIsLoading(false);
     }

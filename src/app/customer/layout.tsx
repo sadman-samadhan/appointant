@@ -3,10 +3,12 @@
 import React from 'react';
 import Link from 'next/link';
 import { useTheme } from '@/context/ThemeContext';
-import { Scissors, User, Calendar, Home } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { Scissors, User, Calendar, Home, LogOut } from 'lucide-react';
 
 export default function CustomerLayout({ children }: { children: React.ReactNode }) {
   const { settings } = useTheme();
+  const { user, isAuthenticated, logout } = useAuth();
 
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] flex flex-col">
@@ -41,7 +43,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
               className="text-xs font-bold text-[var(--muted-foreground)] hover:text-[var(--foreground)] flex items-center gap-1"
             >
               <User className="w-3.5 h-3.5" />
-              <span>My Profile</span>
+              <span>{user ? user.name : 'My Profile'}</span>
             </Link>
             <Link
               href="/customer/book"
@@ -50,6 +52,15 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
               <Calendar className="w-3.5 h-3.5" />
               <span>Book</span>
             </Link>
+            {isAuthenticated && (
+              <button
+                onClick={logout}
+                title="Sign Out"
+                className="p-1.5 rounded-lg text-xs font-bold text-[var(--muted-foreground)] hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </header>

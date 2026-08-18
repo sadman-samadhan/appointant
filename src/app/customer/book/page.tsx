@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { apiRequest } from '@/lib/api/client';
+import { DEFAULT_BRANCH_ID } from '@/lib/api/config';
 import {
   Scissors,
   User,
@@ -18,7 +20,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-const BDIAMOND_SERVICES = [
+const INITIAL_SERVICES = [
   { id: 'srv-1', name: 'Haircut Service', price: 23.0, duration: '30 min', category: 'Hair Cut' },
   { id: 'srv-2', name: 'Fade Haircut Service', price: 25.0, duration: '30 min', category: 'Hair Cut' },
   { id: 'srv-3', name: 'Haircut & Beard Trim Combo', price: 38.0, duration: '30 min', category: 'Combo' },
@@ -30,7 +32,7 @@ const BDIAMOND_SERVICES = [
   { id: 'srv-9', name: 'Face Waxing Service', price: 15.0, duration: '30 min', category: 'Waxing' },
 ];
 
-const STAFF_SPECIALISTS = [
+const INITIAL_STAFF = [
   { id: 'stf-1', name: 'Elena Rostova', role: 'Master Stylist' },
   { id: 'stf-2', name: 'James Carter', role: 'Barber & Fade Specialist' },
   { id: 'stf-3', name: 'Sophia Martinez', role: 'Beard & Shave Specialist' },
@@ -48,54 +50,153 @@ const TIME_SLOTS = [
   '05:00 PM',
 ];
 
+function formatBookingDateTime(dateStr: string, timeStr: string): string {
+  try {
+    const parts = timeStr.trim().split(' ');
+    const timePart = parts[0] || '10:00';
+    const modifier = (parts[1] || 'AM').toUpperCase();
+    const [hoursStr, minutesStr] = timePart.split(':');
+    let hours = parseInt(hoursStr, 10) || 10;
+    const minutes = parseInt(minutesStr, 10) || 0;
+
+    if (modifier === 'PM' && hours < 12) hours += 12;
+    if (modifier === 'AM' && hours === 12) hours = 0;
+
+    const formattedHours = hours.toString().padStart(2, '0');
+    const formattedMinutes = minutes.toString().padStart(2, '0');
+    return `${dateStr}T${formattedHours}:${formattedMinutes}:00`;
+  } catch {
+    return `${dateStr}T10:00:00`;
+  }
+}
+
 export default function CustomerBookPage() {
   const router = useRouter();
+  const { user, setCustomerSession } = useAuth();
   const { showSuccess, showError } = useToast();
 
+  const [services, setServices] = useState(INITIAL_SERVICES);
+  const [staffList, setStaffList] = useState(INITIAL_STAFF);
+
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [selectedService, setSelectedService] = useState(BDIAMOND_SERVICES[0]);
-  const [selectedStaff, setSelectedStaff] = useState(STAFF_SPECIALISTS[0]);
-  const [selectedDate, setSelectedDate] = useState('2026-08-14');
+  const [selectedService, setSelectedService] = useState(INITIAL_SERVICES[0]);
+  const [selectedStaff, setSelectedStaff] = useState(INITIAL_STAFF[0]);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedTime, setSelectedTime] = useState('10:00 AM');
 
   // Customer info for guest or logged-in user
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerName, setCustomerName] = useState(user?.name || '');
+  const [customerPhone, setCustomerPhone] = useState(user?.phone || user?.mobile || (!user?.userid?.includes('@') ? user?.userid || '' : ''));
+  const [customerEmail, setCustomerEmail] = useState(user?.email || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
 
+  // Sync user info if auth state loads or changes
+  useEffect(() => {
+    if (user) {
+      if (user.name) setCustomerName(user.name);
+      const phone = user.phone || user.mobile || (!user.userid?.includes('@') ? user.userid : '');
+      if (phone) setCustomerPhone(phone);
+      if (user.email) setCustomerEmail(user.email);
+    }
+  }, [user]);
+
+  // Load live services and staff if available
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const srvRes = await apiRequest<any>(`/api/v1/services/branches/${DEFAULT_BRANCH_ID}`);
+        const srvItems = srvRes.items || srvRes.services || [];
+        if (srvItems.length > 0) {
+          const mapped = srvItems.map((s: any) => ({
+            id: s.serviceId || s.id,
+            name: s.name,
+            price: Number(s.price),
+            duration: `${s.durationMinutes || 30} min`,
+            category: s.categoryName || 'General',
+          }));
+          setServices(mapped);
+          setSelectedService(mapped[0]);
+        }
+      } catch {
+        /* fallback to initial */
+      }
+
+      try {
+        const stfRes = await apiRequest<any>('/api/v1/staff');
+        const stfItems = stfRes.items || stfRes.staff || [];
+        if (stfItems.length > 0) {
+          const mapped = [
+            ...stfItems.map((s: any) => ({
+              id: s.staffId || s.id,
+              name: s.fullName || s.name,
+              role: s.role || 'Stylist',
+            })),
+            { id: 'stf-any', name: 'Any Available Specialist', role: 'First available slot' },
+          ];
+          setStaffList(mapped);
+          setSelectedStaff(mapped[0]);
+        }
+      } catch {
+        /* fallback to initial */
+      }
+    }
+    loadData();
+  }, []);
+
   const handleConfirmBooking = async () => {
+    if (!customerName.trim()) {
+      showError('Name Required', 'Please enter your name.');
+      return;
+    }
+    if (!customerPhone.trim()) {
+      showError('Phone Required', 'Please enter your phone number.');
+      return;
+    }
+
     setIsSubmitting(true);
+    const isoStartTime = formatBookingDateTime(selectedDate, selectedTime);
+    const newBooking = {
+      bookingId: `bk-${Date.now()}`,
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+      customerEmail: customerEmail.trim(),
+      serviceName: selectedService.name,
+      staffName: selectedStaff.name,
+      totalAmount: selectedService.price,
+      startTime: isoStartTime,
+      status: 'CONFIRMED' as const,
+    };
+
+    // Save to client registry for reliable access across pages
+    try {
+      const existing = JSON.parse(localStorage.getItem('bdiamond_customer_bookings') || '[]');
+      localStorage.setItem('bdiamond_customer_bookings', JSON.stringify([newBooking, ...existing]));
+    } catch {
+      /* ignore */
+    }
+
+    // Set customer session in AuthContext
+    setCustomerSession({
+      name: customerName.trim(),
+      phone: customerPhone.trim(),
+      email: customerEmail.trim(),
+    });
+
     try {
       await apiRequest('/api/v1/bookings', {
         method: 'POST',
-        body: JSON.stringify({
-          customerName: customerName || 'Walk-in Client',
-          customerPhone,
-          customerEmail,
-          serviceName: selectedService.name,
-          staffName: selectedStaff.name,
-          totalAmount: selectedService.price,
-          startTime: `${selectedDate}T${selectedTime}`,
-          status: 'CONFIRMED',
-        }),
+        body: JSON.stringify(newBooking),
       });
-
-      setIsConfirmed(true);
-      showSuccess('Booking Confirmed!', 'We look forward to welcoming you at B Diamond.');
-      setTimeout(() => {
-        router.push('/customer/profile');
-      }, 2500);
     } catch {
-      // Direct mock confirm fallback
-      setIsConfirmed(true);
-      showSuccess('Booking Confirmed!', 'We look forward to welcoming you at B Diamond.');
-      setTimeout(() => {
-        router.push('/customer/profile');
-      }, 2500);
+      /* fallback to local registry */
     } finally {
       setIsSubmitting(false);
+      setIsConfirmed(true);
+      showSuccess('Booking Confirmed!', 'We look forward to welcoming you at B Diamond.');
+      setTimeout(() => {
+        router.push('/customer/profile');
+      }, 1500);
     }
   };
 
@@ -170,7 +271,7 @@ export default function CustomerBookPage() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[50vh] overflow-y-auto pr-1">
-              {BDIAMOND_SERVICES.map((srv) => (
+              {services.map((srv) => (
                 <div
                   key={srv.id}
                   onClick={() => setSelectedService(srv)}
@@ -216,7 +317,7 @@ export default function CustomerBookPage() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {STAFF_SPECIALISTS.map((stf) => (
+              {staffList.map((stf) => (
                 <div
                   key={stf.id}
                   onClick={() => setSelectedStaff(stf)}
@@ -360,7 +461,14 @@ export default function CustomerBookPage() {
 
                 {/* Customer Contact Details */}
                 <div className="space-y-3">
-                  <h3 className="text-xs font-black text-[var(--foreground)]">Your Contact Information</h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-black text-[var(--foreground)]">Your Contact Information</h3>
+                    {user && (
+                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200">
+                        Autofilled from active profile
+                      </span>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <input
                       type="text"

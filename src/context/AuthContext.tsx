@@ -15,6 +15,7 @@ interface AuthContextType {
   branchId: string;
   login: (userid: string, password: string, targetRole?: 'ADMIN' | 'CUSTOMER') => Promise<void>;
   logout: () => void;
+  setCustomerSession: (customer: { name: string; phone?: string; email?: string }) => void;
   setUserRole: (role: 'ADMIN' | 'CUSTOMER' | 'STAFF') => void;
 }
 
@@ -31,8 +32,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const t = getStoredToken();
     const u = localStorage.getItem('bdiamond_user_info');
-    if (t && u) {
+    if (t) {
       setToken(t);
+    }
+    if (u) {
       try {
         setUser(JSON.parse(u));
       } catch {
@@ -88,6 +91,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const setCustomerSession = (customer: { name: string; phone?: string; email?: string }) => {
+    const profile: UserProfile = {
+      name: customer.name,
+      userid: customer.phone || customer.email || customer.name,
+      phone: customer.phone,
+      mobile: customer.phone,
+      email: customer.email || '',
+      role: 'CUSTOMER',
+    };
+    setUser(profile);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('bdiamond_user_info', JSON.stringify(profile));
+    }
+  };
+
   const logout = () => {
     removeStoredToken();
     localStorage.removeItem('bdiamond_user_info');
@@ -111,12 +129,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         token,
-        isAuthenticated: !!token,
+        isAuthenticated: !!user || !!token,
         isLoading,
         tenantId,
         branchId,
         login,
         logout,
+        setCustomerSession,
         setUserRole,
       }}
     >
