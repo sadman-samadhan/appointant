@@ -53,19 +53,20 @@ export default function AdminCustomersPage() {
       const list: CustomerDto[] = res.items || res.customers || res || [];
       if (Array.isArray(list)) {
         const normalized = list.map((c: any) => {
+          const cust = c.customer || c;
           const primaryPhone =
-            c.phone || c.contacts?.find((ct: any) => ct.type === 'PHONE')?.value || c.mobile;
+            cust.phone || c.phone || cust.contacts?.find((ct: any) => ct.type === 'PHONE')?.value || c.contacts?.find((ct: any) => ct.type === 'PHONE')?.value || cust.mobile;
           const primaryEmail =
-            c.email || c.contacts?.find((ct: any) => ct.type === 'EMAIL')?.value;
+            cust.email || c.email || cust.contacts?.find((ct: any) => ct.type === 'EMAIL')?.value || c.contacts?.find((ct: any) => ct.type === 'EMAIL')?.value;
           return {
-            customerId: c.customerId || c.id || c.tenantCustomerId,
-            id: c.id || c.customerId,
-            fullName: c.fullName || c.name || 'Client',
+            customerId: cust.customerId || c.customerId || c.id || c.tenantCustomerId,
+            id: cust.id || c.id || cust.customerId || c.customerId,
+            fullName: cust.fullName || c.fullName || cust.name || c.name || 'Client',
             phone: primaryPhone,
             email: primaryEmail,
-            totalVisits: Number(c.totalVisits ?? c.bookingsCount ?? 1),
-            totalSpent: Number(c.totalSpent ?? 0),
-            tags: c.tags || (c.tag ? [c.tag] : ['Salon Client']),
+            totalVisits: Number(c.totalBookings ?? cust.totalBookings ?? c.totalVisits ?? 0),
+            totalSpent: Number(c.totalSpent ?? cust.totalSpent ?? 0),
+            tags: c.customerTags || cust.tags || c.tags || ['Salon Client'],
           };
         });
         setCustomers(normalized);

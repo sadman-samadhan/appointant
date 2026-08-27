@@ -1,0 +1,52 @@
+[
+  {
+    "invoiceId": "e568e29d-a6c4-47e3-af12-4c5f4be0ff3a",
+    "invoiceNumber": "INV-005375",
+    "tenantId": "5c9d3520-65a7-4b84-be2f-acc21ea88bb4",
+    "branchId": "189dc618-8fe1-410f-9ec3-c47026de2206",
+    "customerId": "c2182cc2-2a40-4674-ba01-130db17089d2",
+    "issueDate": "2026-08-27",
+    "dueDate": "2026-08-27",
+    "items": [
+      {
+        "description": "Haircut & Styling Service",
+        "quantity": 1,
+        "unitPrice": 25,
+        "totalPrice": 25
+      }
+    ],
+    "subtotal": 25,
+    "totalAmount": 25,
+    "paidAmount": 25,
+    "status": "PAID",
+    "currency": "CAD",
+    "notes": null,
+    "createdAt": "2026-08-27T08:40:05.376Z",
+    "updatedAt": "2026-08-27T08:47:15.859Z"
+  },
+  {
+    "invoiceId": "7eebd05f-355c-4522-8d54-23fd2fb37bec",
+    "invoiceNumber": "INV-729440",
+    "tenantId": "5c9d3520-65a7-4b84-be2f-acc21ea88bb4",
+    "branchId": "189dc618-8fe1-410f-9ec3-c47026de2206",
+    "customerId": "c2182cc2-2a40-4674-ba01-130db17089d2",
+    "issueDate": "2026-08-27",
+    "dueDate": "2026-08-27",
+    "items": [
+      {
+        "description": "Haircut & Styling Service",
+        "quantity": 1,
+        "unitPrice": 25,
+        "totalPrice": 25
+      }
+    ],
+    "subtotal": 25,
+    "totalAmount": 25,
+    "paidAmount": 25,
+    "status": "PAID",
+    "currency": "CAD",
+    "notes": "Haircut & Styling Service for David",
+    "createdAt": "2026-08-27T08:35:29.440Z",
+    "updatedAt": "2026-08-27T08:36:06.301Z"
+  }
+]

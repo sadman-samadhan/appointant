@@ -58,21 +58,48 @@ export default function AdminInvoicesPage() {
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
+    let loadedCustomers: CustomerDto[] = [];
+
+    try {
+      const custRes = await apiRequest<any>(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers`);
+      const cList = custRes.items || custRes.customers || (Array.isArray(custRes) ? custRes : []);
+      if (Array.isArray(cList)) {
+        loadedCustomers = cList.map((c: any) => {
+          const cust = c.customer || c;
+          return {
+            customerId: cust.customerId || c.customerId || c.id,
+            fullName: cust.fullName || c.fullName || cust.name || c.name || 'Client',
+            customerCode: c.customerCode || cust.customerCode || '',
+          };
+        });
+        setCustomers(loadedCustomers);
+        if (loadedCustomers.length > 0) {
+          setCashCustomerId((prev) => prev || loadedCustomers[0].customerId);
+          setInvoiceCustomerId((prev) => prev || loadedCustomers[0].customerId);
+        }
+      }
+    } catch {
+      setCustomers([]);
+    }
 
     try {
       const invRes = await apiRequest<any>('/api/v1/billing/invoices');
-      const iList: InvoiceDto[] = invRes.items || invRes.invoices || invRes || [];
+      const iList: any[] = invRes.items || invRes.invoices || (Array.isArray(invRes) ? invRes : []);
       if (Array.isArray(iList)) {
         setInvoices(
-          iList.map((inv: any) => ({
-            invoiceId: inv.invoiceId || inv.id,
-            customerName: inv.customerName || inv.customer?.fullName || 'Walk-in Client',
-            customerId: inv.customerId,
-            totalAmount: Number(inv.totalAmount || 0),
-            paidAmount: Number(inv.paidAmount || 0),
-            status: inv.status || 'UNPAID',
-            createdAt: inv.createdAt || inv.issueDate || new Date().toISOString(),
-          }))
+          iList.map((inv: any) => {
+            const matchedCust = loadedCustomers.find((c) => c.customerId === inv.customerId);
+            return {
+              invoiceId: inv.invoiceId || inv.id,
+              invoiceNumber: inv.invoiceNumber || (inv.invoiceId ? `INV-${inv.invoiceId.substring(0, 6).toUpperCase()}` : undefined),
+              customerName: inv.customerName || inv.customer?.fullName || matchedCust?.fullName || 'Client',
+              customerId: inv.customerId,
+              totalAmount: Number(inv.totalAmount || 0),
+              paidAmount: Number(inv.paidAmount || 0),
+              status: inv.status || 'UNPAID',
+              createdAt: inv.createdAt || inv.issueDate || new Date().toISOString(),
+            };
+          })
         );
       }
     } catch {
@@ -81,39 +108,28 @@ export default function AdminInvoicesPage() {
 
     try {
       const payRes = await apiRequest<any>('/api/v1/payments');
-      const pList: PaymentResponseDto[] = payRes.items || payRes.payments || payRes || [];
+      const pList: any[] = payRes.items || payRes.payments || (Array.isArray(payRes) ? payRes : []);
       if (Array.isArray(pList)) {
         setPayments(
-          pList.map((p: any) => ({
-            paymentId: p.paymentId || p.id,
-            invoiceId: p.invoiceId,
-            customerId: p.customerId,
-            customerName: p.customerName || p.customer?.fullName,
-            amount: Number(p.amount || 0),
-            paymentMethod: p.paymentMethod || 'CASH',
-            currency: p.currency || 'CAD',
-            status: p.status || 'COMPLETED',
-            notes: p.notes,
-            createdAt: p.createdAt || p.paymentDate || new Date().toISOString(),
-          }))
+          pList.map((p: any) => {
+            const matchedCust = loadedCustomers.find((c) => c.customerId === p.customerId);
+            return {
+              paymentId: p.paymentId || p.id,
+              invoiceId: p.invoiceId,
+              customerId: p.customerId,
+              customerName: p.customerName || p.customer?.fullName || matchedCust?.fullName || 'Walk-in Client',
+              amount: Number(p.amount || 0),
+              paymentMethod: p.paymentMethod || 'CASH',
+              currency: p.currency || 'CAD',
+              status: p.status || 'COMPLETED',
+              notes: p.notes,
+              createdAt: p.createdAt || p.paymentDate || new Date().toISOString(),
+            };
+          })
         );
       }
     } catch {
       setPayments([]);
-    }
-
-    try {
-      const custRes = await apiRequest<any>(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers`);
-      const cList = custRes.items || custRes.customers || custRes || [];
-      if (Array.isArray(cList)) {
-        setCustomers(cList);
-        if (cList.length > 0) {
-          setCashCustomerId(cList[0].customerId);
-          setInvoiceCustomerId(cList[0].customerId);
-        }
-      }
-    } catch {
-      setCustomers([]);
     }
 
     setIsLoading(false);
@@ -487,11 +503,11 @@ export default function AdminInvoicesPage() {
               <select
                 value={invoiceCustomerId}
                 onChange={(e) => setInvoiceCustomerId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
               >
                 {customers.map((c) => (
                   <option key={c.customerId} value={c.customerId}>
-                    {c.fullName}
+                    {c.fullName} {c.customerCode ? `(${c.customerCode})` : ''}
                   </option>
                 ))}
               </select>

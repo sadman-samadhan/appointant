@@ -558,6 +558,7 @@ export interface CustomerDto {
   customerId: string;
   id?: string;
   userId?: string;
+  customerCode?: string;
   fullName: string;
   email?: string;
   phone?: string;

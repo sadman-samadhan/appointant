@@ -68,28 +68,29 @@ export default function AdminAccountingPage() {
   const loadAccountingData = useCallback(async () => {
     setIsLoading(true);
 
+    let tbList: any[] = [];
     try {
-      const accRes = await apiRequest<any>('/api/v1/accounting/accounts');
-      const aList: AccountDto[] = accRes.items || accRes.accounts || accRes || [];
-      if (Array.isArray(aList)) {
-        const normalized = aList.map((a: any) => ({
-          accountId: a.accountId || a.id,
-          accountCode: a.accountCode || a.code,
-          accountName: a.accountName || a.name,
-          accountType: (a.accountType || a.type || 'ASSET') as AccountType,
-          balance: Number(a.balance || 0),
-          isActive: a.isActive !== false,
-        }));
-        setAccounts(normalized);
-        if (normalized.length >= 2) {
-          setJournalLines([
-            { accountId: normalized[0].accountId, debit: 1000, credit: 0, description: 'Debit Entry' },
-            { accountId: normalized[1].accountId, debit: 0, credit: 1000, description: 'Credit Entry' },
-          ]);
-        }
+      const tbRes = await apiRequest<any>('/api/v1/accounting/trial-balance');
+      const rawTb = Array.isArray(tbRes) ? tbRes : tbRes?.accounts || [];
+      if (Array.isArray(rawTb) && rawTb.length > 0) {
+        tbList = rawTb;
+        const totalDebit = rawTb.reduce((sum: number, a: any) => sum + Number(a.totalDebit || a.debit || 0), 0);
+        const totalCredit = rawTb.reduce((sum: number, a: any) => sum + Number(a.totalCredit || a.credit || 0), 0);
+        setTrialBalance({
+          accounts: rawTb.map((a: any) => ({
+            accountCode: a.accountCode || a.code,
+            accountName: a.accountName || a.name,
+            debit: Number(a.totalDebit || a.debit || 0),
+            credit: Number(a.totalCredit || a.credit || 0),
+          })),
+          totalDebit,
+          totalCredit,
+        });
+      } else {
+        setTrialBalance(null);
       }
     } catch {
-      setAccounts([]);
+      setTrialBalance(null);
     }
 
     try {
@@ -103,14 +104,47 @@ export default function AdminAccountingPage() {
     }
 
     try {
-      const tbRes = await apiRequest<any>('/api/v1/accounting/trial-balance');
-      if (tbRes && Array.isArray(tbRes.accounts)) {
-        setTrialBalance(tbRes);
-      } else {
-        setTrialBalance(null);
+      const accRes = await apiRequest<any>('/api/v1/accounting/accounts');
+      const aList: AccountDto[] = accRes.items || accRes.accounts || accRes || [];
+      if (Array.isArray(aList)) {
+        const balanceMap = new Map<string, number>();
+        tbList.forEach((tb) => {
+          const debit = Number(tb.totalDebit || tb.debit || 0);
+          const credit = Number(tb.totalCredit || tb.credit || 0);
+          const rawBal = tb.balance !== undefined ? Number(tb.balance) : debit - credit;
+          balanceMap.set(tb.accountId, rawBal);
+        });
+
+        const normalized = aList.map((a: any) => {
+          let calculatedBalance = 0;
+          if (balanceMap.has(a.accountId)) {
+            const raw = balanceMap.get(a.accountId)!;
+            // Normal balance sign according to standard GAAP:
+            if (['LIABILITY', 'EQUITY', 'REVENUE'].includes(a.accountType)) {
+              calculatedBalance = -raw;
+            } else {
+              calculatedBalance = raw;
+            }
+          }
+          return {
+            accountId: a.accountId || a.id,
+            accountCode: a.accountCode || a.code,
+            accountName: a.accountName || a.name,
+            accountType: (a.accountType || a.type || 'ASSET') as AccountType,
+            balance: calculatedBalance,
+            isActive: a.isActive !== false,
+          };
+        });
+        setAccounts(normalized);
+        if (normalized.length >= 2) {
+          setJournalLines([
+            { accountId: normalized[0].accountId, debit: 1000, credit: 0, description: 'Debit Entry' },
+            { accountId: normalized[1].accountId, debit: 0, credit: 1000, description: 'Credit Entry' },
+          ]);
+        }
       }
     } catch {
-      setTrialBalance(null);
+      setAccounts([]);
     }
 
     setIsLoading(false);
@@ -359,8 +393,8 @@ export default function AdminAccountingPage() {
                       </span>
                     </div>
                   </div>
-                  <span className="text-sm font-black text-[var(--foreground)]">
-                    ${acc.balance.toFixed(2)} CAD
+                  <span className={`text-sm font-black ${acc.balance < 0 ? 'text-amber-600 dark:text-amber-400' : 'text-[var(--foreground)]'}`}>
+                    {acc.balance < 0 ? '-' : ''}${Math.abs(acc.balance).toFixed(2)} CAD
                   </span>
                 </div>
               ))}
@@ -401,16 +435,21 @@ export default function AdminAccountingPage() {
                     <span className="text-[11px] text-[var(--muted-foreground)] font-bold">{j.entryDate}</span>
                   </div>
 
-                  <div className="rounded-xl bg-[var(--muted)]/50 p-2 text-[11px] space-y-1">
-                    {j.lines?.map((line, idx) => (
-                      <div key={idx} className="flex justify-between font-mono">
-                        <span>Account: {line.accountId.substring(0, 8)}...</span>
-                        <span>
-                          {line.debit > 0 ? `DR $${line.debit.toFixed(2)}` : `CR $${line.credit.toFixed(2)}`}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                    {j.lines?.map((line: any, idx) => {
+                      const debitVal = Number(line.debitAmount ?? line.debit ?? 0);
+                      const creditVal = Number(line.creditAmount ?? line.credit ?? 0);
+                      const matchedAcc = accounts.find((a) => a.accountId === (line.accountId || line.account?.accountId));
+                      const accName = line.account?.accountName || matchedAcc?.accountName || `Account #${(line.accountId || '').substring(0, 8)}`;
+                      const accCode = line.account?.accountCode || matchedAcc?.accountCode || '';
+                      return (
+                        <div key={idx} className="flex justify-between font-mono text-xs">
+                          <span>{accCode ? `${accCode} - ` : ''}{accName}</span>
+                          <span className="font-bold">
+                            {debitVal > 0 ? `DR $${debitVal.toFixed(2)}` : `CR $${creditVal.toFixed(2)}`}
+                          </span>
+                        </div>
+                      );
+                    })}
                 </div>
               ))}
             </div>

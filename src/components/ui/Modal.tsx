@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -18,6 +19,12 @@ export function Modal({
   children,
   maxWidth = 'md',
 }: ModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -32,7 +39,7 @@ export function Modal({
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
   const maxWidthClasses = {
     sm: 'max-w-sm',
@@ -42,13 +49,14 @@ export function Modal({
     '2xl': 'max-w-2xl',
   }[maxWidth];
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex min-h-screen items-center justify-center p-4 sm:p-6 animate-fade-in"
+      className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6"
+      style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh' }}
       onClick={onClose}
     >
       <div
-        className={`relative my-auto w-full ${maxWidthClasses} bg-[var(--card)] border border-[var(--border)] shadow-2xl rounded-3xl overflow-hidden flex flex-col max-h-[88vh]`}
+        className={`relative w-full ${maxWidthClasses} bg-[var(--card)] border border-[var(--border)] shadow-2xl rounded-3xl overflow-hidden flex flex-col max-h-[90vh]`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Sticky Header */}
@@ -69,6 +77,7 @@ export function Modal({
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
