@@ -19,6 +19,196 @@ async function safeFetch(url: string, init?: RequestInit, timeoutMs = 3500): Pro
   }
 }
 
+const STANDARD_ACCOUNTS = [
+  { accountId: 'c36e10f1-fb01-456f-847a-375a10d75019', accountCode: '1000', accountName: 'Cash', accountType: 'ASSET' },
+  { accountId: '5ee6f699-11aa-40e4-8352-3c2dcfb3432a', accountCode: '1010', accountName: 'Bank Account', accountType: 'ASSET' },
+  { accountId: 'f65a088c-0338-4b34-8f69-dd5474173716', accountCode: '1100', accountName: 'Accounts Receivable', accountType: 'ASSET' },
+  { accountId: 'f4071151-96f6-4f6c-acc3-fd69b98e6945', accountCode: '1500', accountName: 'Equipment', accountType: 'ASSET' },
+  { accountId: '6901c4c5-4341-4986-8f65-b75da6bbb2af', accountCode: '2000', accountName: 'Accounts Payable', accountType: 'LIABILITY' },
+  { accountId: 'd2d05dc1-7bc4-41ea-930a-a3ee813ef362', accountCode: '3000', accountName: "Owner's Equity", accountType: 'EQUITY' },
+  { accountId: '6a3221da-157f-4489-bd92-182c9f66a4a5', accountCode: '4000', accountName: 'Service Revenue', accountType: 'REVENUE' },
+  { accountId: 'd3f1cd99-2bba-4e46-ba3d-89d0c3586d02', accountCode: '5000', accountName: 'Salary Expense', accountType: 'EXPENSE' },
+  { accountId: 'fbc6b0fa-98c3-4b61-a3ea-c6251d6daa8e', accountCode: '5100', accountName: 'Rent Expense', accountType: 'EXPENSE' },
+  { accountId: '6a323919-1037-4ff3-91fb-3ed74d3fec46', accountCode: '5200', accountName: 'Utilities Expense', accountType: 'EXPENSE' },
+  { accountId: '262303cf-8b95-4b58-9cba-88ba6d6b0584', accountCode: '5300', accountName: 'Supplies Expense', accountType: 'EXPENSE' },
+];
+
+function getSynthesizedJournals(branchHeader: string) {
+  const localExpenses = expensesStore.getAll();
+  const localInvoices = invoicesStore.getAll();
+  const localPayrolls = payrollStore.getAll();
+
+  const journals: any[] = [];
+
+  // Expenses -> Journals
+  for (const exp of localExpenses) {
+    const descLower = `${exp.description || ''} ${exp.notes || ''}`.toLowerCase();
+    let debitAccountId = '262303cf-8b95-4b58-9cba-88ba6d6b0584'; // 5300 Supplies
+    if (descLower.includes('utilit') || descLower.includes('electric') || descLower.includes('water') || descLower.includes('hydro') || descLower.includes('wifi') || descLower.includes('internet') || descLower.includes('power')) {
+      debitAccountId = '6a323919-1037-4ff3-91fb-3ed74d3fec46'; // 5200 Utilities
+    } else if (descLower.includes('rent') || descLower.includes('lease')) {
+      debitAccountId = 'fbc6b0fa-98c3-4b61-a3ea-c6251d6daa8e'; // 5100 Rent
+    } else if (descLower.includes('equipment') || descLower.includes('chair') || descLower.includes('dryer') || descLower.includes('machine') || descLower.includes('station')) {
+      debitAccountId = 'f4071151-96f6-4f6c-acc3-fd69b98e6945'; // 1500 Equipment
+    }
+
+    journals.push({
+      journalId: `j-exp-${exp.expenseId}`,
+      entryNumber: `JRN-EXP-${exp.expenseId.substring(0, 6).toUpperCase()}`,
+      branchId: branchHeader,
+      entryDate: exp.expenseDate || exp.createdAt?.split('T')[0] || new Date().toISOString().split('T')[0],
+      description: `Operating Expense: ${exp.description}`,
+      status: 'POSTED',
+      lines: [
+        {
+          lineId: `jl-exp-d-${exp.expenseId}`,
+          accountId: debitAccountId,
+          debitAmount: Number(exp.amount),
+          creditAmount: 0,
+        },
+        {
+          lineId: `jl-exp-c-${exp.expenseId}`,
+          accountId: 'c36e10f1-fb01-456f-847a-375a10d75019', // Cash (1000)
+          debitAmount: 0,
+          creditAmount: Number(exp.amount),
+        },
+      ],
+    });
+  }
+
+  // Invoices -> Journals
+  for (const inv of localInvoices) {
+    const total = Number(inv.totalAmount || 0);
+    const paid = Number(inv.paidAmount || (inv.status === 'PAID' ? total : 0));
+
+    // Sales Revenue Journal
+    journals.push({
+      journalId: `j-inv-${inv.invoiceId}`,
+      entryNumber: `JRN-${inv.invoiceNumber || inv.invoiceId.substring(0, 6).toUpperCase()}`,
+      branchId: branchHeader,
+      entryDate: inv.issueDate || inv.createdAt?.split('T')[0] || new Date().toISOString().split('T')[0],
+      description: `Sales Invoice: ${inv.invoiceNumber || 'INV'} (${inv.items?.map((i: any) => i.description).join(', ') || 'Salon Service'})`,
+      status: 'POSTED',
+      lines: [
+        {
+          lineId: `jl-inv-d-${inv.invoiceId}`,
+          accountId: 'f65a088c-0338-4b34-8f69-dd5474173716', // Accounts Receivable (1100)
+          debitAmount: total,
+          creditAmount: 0,
+        },
+        {
+          lineId: `jl-inv-c-${inv.invoiceId}`,
+          accountId: '6a3221da-157f-4489-bd92-182c9f66a4a5', // Service Revenue (4000)
+          debitAmount: 0,
+          creditAmount: total,
+        },
+      ],
+    });
+
+    // Payment Journal if Paid
+    if (paid > 0) {
+      journals.push({
+        journalId: `j-pay-${inv.invoiceId}`,
+        entryNumber: `JRN-PAY-${inv.invoiceNumber || inv.invoiceId.substring(0, 6).toUpperCase()}`,
+        branchId: branchHeader,
+        entryDate: inv.dueDate || inv.updatedAt?.split('T')[0] || new Date().toISOString().split('T')[0],
+        description: `Payment Received: ${inv.invoiceNumber || 'INV'}`,
+        status: 'POSTED',
+        lines: [
+          {
+            lineId: `jl-pay-d-${inv.invoiceId}`,
+            accountId: 'c36e10f1-fb01-456f-847a-375a10d75019', // Cash (1000)
+            debitAmount: paid,
+            creditAmount: 0,
+          },
+          {
+            lineId: `jl-pay-c-${inv.invoiceId}`,
+            accountId: 'f65a088c-0338-4b34-8f69-dd5474173716', // Accounts Receivable (1100)
+            debitAmount: 0,
+            creditAmount: paid,
+          },
+        ],
+      });
+    }
+  }
+
+  // Payroll -> Journals
+  for (const p of localPayrolls) {
+    if (p.status === 'PAID') {
+      const total = Number(p.totalAmount || 0);
+      const paymentAccountId = p.paymentAccountId && p.paymentAccountId.length === 36 ? p.paymentAccountId : 'c36e10f1-fb01-456f-847a-375a10d75019';
+      journals.push({
+        journalId: `j-pr-${p.payrollId}`,
+        entryNumber: `JRN-PAYROLL-${p.payrollId.substring(0, 6).toUpperCase()}`,
+        branchId: branchHeader,
+        entryDate: p.periodEnd || p.updatedAt?.split('T')[0] || new Date().toISOString().split('T')[0],
+        description: `Payroll Settlement: Staff ${p.staffId} (${p.periodStart} - ${p.periodEnd})`,
+        status: 'POSTED',
+        lines: [
+          {
+            lineId: `jl-pr-d-${p.payrollId}`,
+            accountId: 'd3f1cd99-2bba-4e46-ba3d-89d0c3586d02', // Salary Expense (5000)
+            debitAmount: total,
+            creditAmount: 0,
+          },
+          {
+            lineId: `jl-pr-c-${p.payrollId}`,
+            accountId: paymentAccountId,
+            debitAmount: 0,
+            creditAmount: total,
+          },
+        ],
+      });
+    }
+  }
+
+  return journals;
+}
+
+function calculateTrialBalanceFromJournals(journals: any[]) {
+  const accountTotals = new Map<string, { debit: number; credit: number }>();
+
+  for (const acc of STANDARD_ACCOUNTS) {
+    accountTotals.set(acc.accountId, { debit: 0, credit: 0 });
+  }
+
+  for (const j of journals) {
+    for (const l of j.lines || []) {
+      const accId = l.accountId;
+      if (!accountTotals.has(accId)) {
+        accountTotals.set(accId, { debit: 0, credit: 0 });
+      }
+      const cur = accountTotals.get(accId)!;
+      cur.debit += Number(l.debitAmount || 0);
+      cur.credit += Number(l.creditAmount || 0);
+    }
+  }
+
+  const accounts = STANDARD_ACCOUNTS.map((acc) => {
+    const totals = accountTotals.get(acc.accountId) || { debit: 0, credit: 0 };
+    return {
+      accountId: acc.accountId,
+      accountCode: acc.accountCode,
+      accountName: acc.accountName,
+      accountType: acc.accountType,
+      debit: totals.debit,
+      credit: totals.credit,
+      totalDebit: totals.debit,
+      totalCredit: totals.credit,
+      balance: totals.debit - totals.credit,
+    };
+  });
+
+  const totalDebit = accounts.reduce((sum, a) => sum + a.debit, 0);
+  const totalCredit = accounts.reduce((sum, a) => sum + a.credit, 0);
+
+  return {
+    accounts,
+    totalDebit,
+    totalCredit,
+  };
+}
+
 async function handleProxy(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
@@ -593,6 +783,51 @@ async function handleProxy(
     }, { status: 201 });
   }
 
+  // Handle GET /api/v1/accounting/journals bridge
+  if (targetPath === '/api/v1/accounting/journals' && method === 'GET') {
+    const synthesized = getSynthesizedJournals(branchHeader);
+    try {
+      const res = await safeFetch(url, { method, headers });
+      if (res.ok) {
+        const json = await res.json();
+        const remoteList = Array.isArray(json) ? json : json.items || json.journals || [];
+        const seen = new Set(remoteList.map((j: any) => j.journalId || j.id || j.entryNumber));
+        const merged = [...remoteList, ...synthesized.filter((j) => !seen.has(j.journalId) && !seen.has(j.entryNumber))];
+        return NextResponse.json(Array.isArray(json) ? merged : { ...json, items: merged, total: merged.length });
+      }
+    } catch {}
+    return NextResponse.json(synthesized, { status: 200 });
+  }
+
+  // Handle GET /api/v1/accounting/trial-balance bridge
+  if (targetPath === '/api/v1/accounting/trial-balance' && method === 'GET') {
+    const synthesizedJournals = getSynthesizedJournals(branchHeader);
+    let allJournals = synthesizedJournals;
+    try {
+      const jRes = await safeFetch(`${CORE_BACKEND}/api/v1/accounting/journals`, { headers });
+      if (jRes.ok) {
+        const json = await jRes.json();
+        const remoteList = Array.isArray(json) ? json : json.items || json.journals || [];
+        const seen = new Set(remoteList.map((j: any) => j.journalId || j.id || j.entryNumber));
+        allJournals = [...remoteList, ...synthesizedJournals.filter((j) => !seen.has(j.journalId) && !seen.has(j.entryNumber))];
+      }
+    } catch {}
+    const tb = calculateTrialBalanceFromJournals(allJournals);
+    return NextResponse.json(tb, { status: 200 });
+  }
+
+  // Handle GET /api/v1/accounting/accounts bridge
+  if (targetPath === '/api/v1/accounting/accounts' && method === 'GET') {
+    try {
+      const res = await safeFetch(url, { method, headers });
+      if (res.ok) {
+        const text = await res.text();
+        return new NextResponse(text, { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+    } catch {}
+    return NextResponse.json(STANDARD_ACCOUNTS, { status: 200 });
+  }
+
   try {
     const res = await safeFetch(url, { method, headers, body });
     const data = await res.text();
@@ -645,19 +880,7 @@ async function handleProxy(
       });
     }
     if (targetPath === '/api/v1/accounting/accounts') {
-      return NextResponse.json([
-        { accountId: 'c36e10f1-fb01-456f-847a-375a10d75019', accountCode: '1000', accountName: 'Cash', accountType: 'ASSET' },
-        { accountId: '5ee6f699-11aa-40e4-8352-3c2dcfb3432a', accountCode: '1010', accountName: 'Bank Account', accountType: 'ASSET' },
-        { accountId: 'f65a088c-0338-4b34-8f69-dd5474173716', accountCode: '1100', accountName: 'Accounts Receivable', accountType: 'ASSET' },
-        { accountId: 'f4071151-96f6-4f6c-acc3-fd69b98e6945', accountCode: '1500', accountName: 'Equipment', accountType: 'ASSET' },
-        { accountId: '6901c4c5-4341-4986-8f65-b75da6bbb2af', accountCode: '2000', accountName: 'Accounts Payable', accountType: 'LIABILITY' },
-        { accountId: 'd2d05dc1-7bc4-41ea-930a-a3ee813ef362', accountCode: '3000', accountName: "Owner's Equity", accountType: 'EQUITY' },
-        { accountId: '6a3221da-157f-4489-bd92-182c9f66a4a5', accountCode: '4000', accountName: 'Service Revenue', accountType: 'REVENUE' },
-        { accountId: 'd3f1cd99-2bba-4e46-ba3d-89d0c3586d02', accountCode: '5000', accountName: 'Salary Expense', accountType: 'EXPENSE' },
-        { accountId: 'fbc6b0fa-98c3-4b61-a3ea-c6251d6daa8e', accountCode: '5100', accountName: 'Rent Expense', accountType: 'EXPENSE' },
-        { accountId: '6a323919-1037-4ff3-91fb-3ed74d3fec46', accountCode: '5200', accountName: 'Utilities Expense', accountType: 'EXPENSE' },
-        { accountId: '262303cf-8b95-4b58-9cba-88ba6d6b0584', accountCode: '5300', accountName: 'Supplies Expense', accountType: 'EXPENSE' },
-      ]);
+      return NextResponse.json(STANDARD_ACCOUNTS);
     }
     if (targetPath.includes('/expenses/categories')) {
       return NextResponse.json([
