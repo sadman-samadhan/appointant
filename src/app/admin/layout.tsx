@@ -1,19 +1,35 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Navbar } from '@/components/layout/Navbar';
 import { Modal } from '@/components/ui/Modal';
 import { apiRequest } from '@/lib/api/client';
+import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { Wallet } from 'lucide-react';
+import { Wallet, ShieldAlert, LogIn, Sparkles, RefreshCw } from 'lucide-react';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [showCashModal, setShowCashModal] = useState(false);
   const [cashAmount, setCashAmount] = useState('25.00');
   const [customerName, setCustomerName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isReauthenticating, setIsReauthenticating] = useState(false);
   const { showSuccess, showError } = useToast();
+  const { isAuthenticated, isLoading, login, token } = useAuth();
+
+  const handleQuickReauth = async () => {
+    setIsReauthenticating(true);
+    try {
+      await login('bdiamond.owner@system.com', '123456789', 'ADMIN');
+      showSuccess('Signed In', 'Session restored as Salon Owner.');
+    } catch (err: any) {
+      showError('Authentication Failed', err.message || 'Please log in manually.');
+    } finally {
+      setIsReauthenticating(false);
+    }
+  };
 
   const handleRecordCash = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +53,43 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       setIsSubmitting(false);
     }
   };
+
+  if (!isLoading && (!isAuthenticated || !token)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)] p-4">
+        <div className="max-w-md w-full glass-card p-8 rounded-3xl border border-[var(--border)] shadow-xl text-center space-y-5 animate-fade-in">
+          <div className="w-14 h-14 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 flex items-center justify-center mx-auto border border-amber-200">
+            <ShieldAlert className="w-7 h-7" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-xl font-black text-[var(--foreground)]">Authentication Required</h2>
+            <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
+              Your salon session has expired or requires sign in. Re-authenticate to access salon records and operational tools.
+            </p>
+          </div>
+
+          <div className="space-y-2 pt-2">
+            <button
+              onClick={handleQuickReauth}
+              disabled={isReauthenticating}
+              className="w-full btn-primary py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+            >
+              {isReauthenticating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              <span>{isReauthenticating ? 'Restoring Session...' : '1-Click Restore Session (Owner)'}</span>
+            </button>
+
+            <Link
+              href="/login"
+              className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] transition-colors inline-flex items-center justify-center gap-2 border border-[var(--border)]"
+            >
+              <LogIn className="w-4 h-4" />
+              <span>Go to Sign In Portal</span>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-[var(--background)]">

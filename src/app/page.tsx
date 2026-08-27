@@ -6,18 +6,37 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { Scissors, Calendar, MapPin, Phone, Star, ShieldCheck, Clock, ArrowRight, User, LogOut, LayoutDashboard } from 'lucide-react';
 
-const BDIAMOND_SERVICES_PREVIEW = [
-  { name: 'Haircut Service', price: '$23.00 CAD', duration: '30 mins' },
-  { name: 'Fade Haircut Service', price: '$25.00 CAD', duration: '30 mins' },
-  { name: 'Haircut & Beard Trim Combo', price: '$38.00 CAD', duration: '30 mins' },
-  { name: 'Hot Towel Shave', price: '$25.00 CAD', duration: '30 mins' },
-  { name: 'Beard Trim Service', price: '$22.00 CAD', duration: '30 mins' },
-  { name: 'Haircut & Hot Shave Combo', price: '$40.00 CAD', duration: '30 mins' },
-];
+import { ServiceDto } from '@/lib/types';
+import { apiRequest } from '@/lib/api/client';
+import { DEFAULT_BRANCH_ID } from '@/lib/api/config';
 
 export default function PublicLandingPage() {
   const { settings } = useTheme();
   const { user, isAuthenticated, logout } = useAuth();
+  const [liveServices, setLiveServices] = React.useState<ServiceDto[]>([]);
+
+  React.useEffect(() => {
+    async function load() {
+      try {
+        const res = await apiRequest<any>(`/api/v1/services/branches/${DEFAULT_BRANCH_ID}`);
+        const items = res.items || res.services || res || [];
+        if (Array.isArray(items) && items.length > 0) {
+          setLiveServices(
+            items.map((s: any) => ({
+              serviceId: s.serviceId || s.id,
+              name: s.name,
+              price: Number(s.price ?? s.basePrice ?? 0),
+              durationMinutes: Number(s.durationMinutes ?? s.baseDurationMinutes ?? 30),
+              categoryName: s.categoryName,
+            }))
+          );
+        }
+      } catch {
+        /* fallback */
+      }
+    }
+    load();
+  }, []);
 
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] animate-fade-in">
@@ -162,29 +181,37 @@ export default function PublicLandingPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {BDIAMOND_SERVICES_PREVIEW.map((srv) => (
-            <div
-              key={srv.name}
-              className="glass-card p-5 rounded-2xl flex items-center justify-between gap-4 border border-[var(--border)] hover:border-[var(--primary)] transition-all"
-            >
-              <div>
-                <h3 className="text-xs font-black text-[var(--foreground)]">{srv.name}</h3>
-                <span className="text-[11px] text-[var(--muted-foreground)] font-medium flex items-center gap-1 mt-0.5">
-                  <Clock className="w-3 h-3 text-[var(--primary)]" />
-                  {srv.duration}
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-sm font-black text-[var(--foreground)] block">{srv.price}</span>
-                <Link
-                  href="/customer/book"
-                  className="text-[11px] font-bold text-[var(--primary)] hover:underline"
-                >
-                  Book →
-                </Link>
-              </div>
+          {liveServices.length === 0 ? (
+            <div className="col-span-full p-8 text-center glass-card rounded-2xl border border-[var(--border)] text-xs text-[var(--muted-foreground)]">
+              Services will appear here once configured in the salon catalog.
             </div>
-          ))}
+          ) : (
+            liveServices.map((srv) => (
+              <div
+                key={srv.serviceId}
+                className="glass-card p-5 rounded-2xl flex items-center justify-between gap-4 border border-[var(--border)] hover:border-[var(--primary)] transition-all"
+              >
+                <div>
+                  <h3 className="text-xs font-black text-[var(--foreground)]">{srv.name}</h3>
+                  <span className="text-[11px] text-[var(--muted-foreground)] font-medium flex items-center gap-1 mt-0.5">
+                    <Clock className="w-3 h-3 text-[var(--primary)]" />
+                    {srv.durationMinutes} mins {srv.categoryName ? `· ${srv.categoryName}` : ''}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-sm font-black text-[var(--foreground)] block">
+                    ${srv.price.toFixed(2)} CAD
+                  </span>
+                  <Link
+                    href="/customer/book"
+                    className="text-[11px] font-bold text-[var(--primary)] hover:underline"
+                  >
+                    Book →
+                  </Link>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </section>
 

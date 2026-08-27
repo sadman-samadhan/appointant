@@ -11,7 +11,7 @@ interface NavbarProps {
 }
 
 export function Navbar({ onOpenCashModal }: NavbarProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const { settings, toggleDarkMode } = useTheme();
 
   return (
@@ -75,8 +75,10 @@ export function Navbar({ onOpenCashModal }: NavbarProps) {
               {user?.name ? user.name.charAt(0).toUpperCase() : <Shield className="w-4 h-4" />}
             </div>
             <div className="hidden md:block text-left">
-              <p className="text-xs font-bold text-[var(--foreground)] leading-tight">{user?.name || 'Admin User'}</p>
-              <p className="text-[10px] text-[var(--muted-foreground)] font-medium">Salon Owner</p>
+              <p className="text-xs font-bold text-[var(--foreground)] leading-tight">{user?.name || (isAdmin ? 'Admin User' : 'Specialist')}</p>
+              <p className="text-[10px] text-[var(--muted-foreground)] font-medium">
+                {isAdmin ? 'Salon Owner / Admin' : (user?.roleName || 'Staff Specialist')}
+              </p>
             </div>
             <button
               onClick={logout}

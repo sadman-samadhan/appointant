@@ -43,24 +43,31 @@ export function Modal({
   }[maxWidth];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex min-h-screen items-center justify-center p-4 sm:p-6 animate-fade-in"
+      onClick={onClose}
+    >
       <div
-        className={`bg-[var(--card)] border border-[var(--border)] shadow-2xl rounded-2xl w-full ${maxWidthClasses} overflow-hidden flex flex-col max-h-[90vh]`}
+        className={`relative my-auto w-full ${maxWidthClasses} bg-[var(--card)] border border-[var(--border)] shadow-2xl rounded-3xl overflow-hidden flex flex-col max-h-[88vh]`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Modal Header */}
-        <div className="p-4 sm:p-5 border-b border-[var(--border)] flex items-center justify-between">
-          <h3 className="text-base font-bold text-[var(--foreground)]">{title}</h3>
+        {/* Modal Sticky Header */}
+        <div className="sticky top-0 z-20 bg-[var(--card)]/95 backdrop-blur-md px-6 py-4 border-b border-[var(--border)] flex items-center justify-between shrink-0">
+          <h3 className="text-base font-black text-[var(--foreground)] tracking-tight">{title}</h3>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            aria-label="Close modal"
+            className="w-8 h-8 rounded-full bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--border)] transition-colors flex items-center justify-center shrink-0 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-4">{children}</div>
+        {/* Modal Scrollable Body */}
+        <div className="p-5 sm:p-6 overflow-y-auto flex-1 overscroll-contain">
+          {children}
+        </div>
       </div>
     </div>
   );

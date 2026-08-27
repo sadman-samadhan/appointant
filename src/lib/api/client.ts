@@ -21,10 +21,18 @@ export function removeStoredToken() {
   }
 }
 
+export function generateIdempotencyKey(): string {
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+}
+
 export interface ApiRequestOptions extends RequestInit {
   isAuthService?: boolean;
   tenantId?: string;
   branchId?: string;
+}
+
+export function getActiveTenantId(): string {
+  return DEFAULT_TENANT_ID;
 }
 
 export async function apiRequest<T>(
@@ -39,10 +47,19 @@ export async function apiRequest<T>(
     ...restOptions
   } = options;
 
+  const effectiveTenantId = tenantId || DEFAULT_TENANT_ID;
   const baseUrl = isAuthService ? AUTH_API_URL : CORE_API_URL;
   const url = `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
 
-  const token = getStoredToken();
+  let token = getStoredToken();
+
+  // If access token is absent but refresh token exists, attempt refresh first
+  if (!token && typeof window !== 'undefined' && localStorage.getItem(REFRESH_TOKEN_KEY) && !isAuthService) {
+    const refreshed = await refreshAuthToken();
+    if (refreshed) {
+      token = getStoredToken();
+    }
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -54,19 +71,29 @@ export async function apiRequest<T>(
   }
 
   if (!isAuthService) {
-    if (tenantId) headers['x-tenant-id'] = tenantId;
-    if (branchId) headers['x-branch-id'] = branchId;
+    if (effectiveTenantId) {
+      headers['x-tenant-id'] = effectiveTenantId;
+      headers['X-Tenant-Id'] = effectiveTenantId;
+    }
+    if (branchId) {
+      headers['x-branch-id'] = branchId;
+      headers['X-Branch-Id'] = branchId;
+    }
   }
 
   let res = await fetch(url, { ...restOptions, headers });
 
-  // Handle 401 Unauthorized - attempt silent token refresh
+  // Handle 401 Unauthorized - attempt silent token refresh and retry
   if (res.status === 401 && !isAuthService) {
     const refreshed = await refreshAuthToken();
     if (refreshed) {
       const newToken = getStoredToken();
       if (newToken) headers['Authorization'] = `Bearer ${newToken}`;
       res = await fetch(url, { ...restOptions, headers });
+    } else {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('auth:expired'));
+      }
     }
   }
 
@@ -94,7 +121,10 @@ export async function apiRequest<T>(
 export async function refreshAuthToken(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
   const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-  if (!refreshToken) return false;
+  if (!refreshToken) {
+    removeStoredToken();
+    return false;
+  }
 
   try {
     const res = await fetch(`${AUTH_API_URL}/auth/refresh`, {
@@ -110,13 +140,17 @@ export async function refreshAuthToken(): Promise<boolean> {
         if (data.refresh_token) {
           localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
         }
+        window.dispatchEvent(
+          new CustomEvent('auth:refreshed', { detail: { token: data.access_token } })
+        );
         return true;
       }
     }
   } catch {
-    /* ignore */
+    /* network or parsing failure */
   }
 
   removeStoredToken();
+  window.dispatchEvent(new CustomEvent('auth:expired'));
   return false;
 }

@@ -1,93 +1,251 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { apiRequest } from '@/lib/api/client';
+import React, { useState, useEffect, useCallback } from 'react';
+import { apiRequest, generateIdempotencyKey } from '@/lib/api/client';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { useToast } from '@/context/ToastContext';
-import { Receipt, Wallet, Plus, Search, DollarSign, CheckCircle2, ShieldCheck } from 'lucide-react';
-import { InvoiceDto, PaymentResponseDto } from '@/lib/types';
+import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
+import {
+  Receipt,
+  Wallet,
+  Plus,
+  Search,
+  DollarSign,
+  CheckCircle2,
+  ShieldCheck,
+  RefreshCw,
+  RotateCcw,
+  PlusCircle,
+  Trash2,
+} from 'lucide-react';
+import { InvoiceDto, PaymentResponseDto, CustomerDto } from '@/lib/types';
 
 export default function AdminInvoicesPage() {
-  const [invoices, setInvoices] = useState<InvoiceDto[]>([]);
-  const [payments, setPayments] = useState<PaymentResponseDto[]>([]);
-  const [activeTab, setActiveTab] = useState<'invoices' | 'payments'>('invoices');
-  const [showCashModal, setShowCashModal] = useState(false);
-  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDto | null>(null);
-
-  // Cash modal state
-  const [cashAmount, setCashAmount] = useState('38.00');
-  const [customerName, setCustomerName] = useState('');
   const { showSuccess, showError } = useToast();
 
-  const loadData = async () => {
+  const [invoices, setInvoices] = useState<InvoiceDto[]>([]);
+  const [payments, setPayments] = useState<PaymentResponseDto[]>([]);
+  const [customers, setCustomers] = useState<CustomerDto[]>([]);
+  const [activeTab, setActiveTab] = useState<'invoices' | 'payments'>('invoices');
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Collect Cash Modal
+  const [showCashModal, setShowCashModal] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDto | null>(null);
+  const [cashAmount, setCashAmount] = useState('38.00');
+  const [cashCustomerId, setCashCustomerId] = useState('');
+  const [cashCustomerName, setCashCustomerName] = useState('');
+  const [paymentNotes, setPaymentNotes] = useState('Collected at salon cash register');
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+
+  // Create Manual Invoice Modal
+  const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
+  const [invoiceCustomerId, setInvoiceCustomerId] = useState('');
+  const [invoiceDueDate, setInvoiceDueDate] = useState(new Date().toISOString().split('T')[0]);
+  const [invoiceNotes, setInvoiceNotes] = useState('');
+  const [invoiceItems, setInvoiceItems] = useState([
+    { description: 'Haircut & Styling Service', quantity: 1, unitPrice: 25.0 },
+  ]);
+  const [isSubmittingInvoice, setIsSubmittingInvoice] = useState(false);
+
+  // Refund Modal
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState<PaymentResponseDto | null>(null);
+  const [refundAmount, setRefundAmount] = useState('0.00');
+  const [refundReason, setRefundReason] = useState('Customer cash return requested');
+  const [isSubmittingRefund, setIsSubmittingRefund] = useState(false);
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+
     try {
       const invRes = await apiRequest<any>('/api/v1/billing/invoices');
-      setInvoices(invRes.items || invRes.invoices || []);
+      const iList: InvoiceDto[] = invRes.items || invRes.invoices || invRes || [];
+      if (Array.isArray(iList)) {
+        setInvoices(
+          iList.map((inv: any) => ({
+            invoiceId: inv.invoiceId || inv.id,
+            customerName: inv.customerName || inv.customer?.fullName || 'Walk-in Client',
+            customerId: inv.customerId,
+            totalAmount: Number(inv.totalAmount || 0),
+            paidAmount: Number(inv.paidAmount || 0),
+            status: inv.status || 'UNPAID',
+            createdAt: inv.createdAt || inv.issueDate || new Date().toISOString(),
+          }))
+        );
+      }
     } catch {
-      setInvoices([
-        { invoiceId: 'INV-1001', customerName: 'Sarah Jenkins', totalAmount: 38.0, paidAmount: 38.0, status: 'PAID', createdAt: new Date().toISOString() },
-        { invoiceId: 'INV-1002', customerName: 'Michael Vance', totalAmount: 25.0, paidAmount: 0.0, status: 'UNPAID', createdAt: new Date().toISOString() },
-        { invoiceId: 'INV-1003', customerName: 'Alex Mercer', totalAmount: 40.0, paidAmount: 0.0, status: 'UNPAID', createdAt: new Date().toISOString() },
-      ]);
+      setInvoices([]);
     }
 
     try {
       const payRes = await apiRequest<any>('/api/v1/payments');
-      setPayments(payRes.items || payRes.payments || []);
+      const pList: PaymentResponseDto[] = payRes.items || payRes.payments || payRes || [];
+      if (Array.isArray(pList)) {
+        setPayments(
+          pList.map((p: any) => ({
+            paymentId: p.paymentId || p.id,
+            invoiceId: p.invoiceId,
+            customerId: p.customerId,
+            customerName: p.customerName || p.customer?.fullName,
+            amount: Number(p.amount || 0),
+            paymentMethod: p.paymentMethod || 'CASH',
+            currency: p.currency || 'CAD',
+            status: p.status || 'COMPLETED',
+            notes: p.notes,
+            createdAt: p.createdAt || p.paymentDate || new Date().toISOString(),
+          }))
+        );
+      }
     } catch {
-      setPayments([
-        { paymentId: 'PAY-801', amount: 38.0, paymentMethod: 'CASH', currency: 'CAD', status: 'COMPLETED', createdAt: new Date().toISOString() },
-      ]);
+      setPayments([]);
     }
-  };
+
+    try {
+      const custRes = await apiRequest<any>(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers`);
+      const cList = custRes.items || custRes.customers || custRes || [];
+      if (Array.isArray(cList)) {
+        setCustomers(cList);
+        if (cList.length > 0) {
+          setCashCustomerId(cList[0].customerId);
+          setInvoiceCustomerId(cList[0].customerId);
+        }
+      }
+    } catch {
+      setCustomers([]);
+    }
+
+    setIsLoading(false);
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
+  // Handle Record Cash Payment
   const handleRecordCashPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmittingPayment(true);
     try {
+      const targetCustomerId = selectedInvoice?.customerId || cashCustomerId || `walkin-${Date.now()}`;
       await apiRequest('/api/v1/payments', {
         method: 'POST',
         body: JSON.stringify({
-          invoiceId: selectedInvoice?.invoiceId,
+          customerId: targetCustomerId,
+          invoiceId: selectedInvoice?.invoiceId || undefined,
           amount: parseFloat(cashAmount),
-          paymentMethod: 'CASH',
           currency: 'CAD',
-          customerName: customerName || selectedInvoice?.customerName || 'Walk-in Client',
+          paymentMethod: 'CASH',
+          paymentDate: new Date().toISOString().split('T')[0],
+          idempotencyKey: generateIdempotencyKey(),
+          notes: `${cashCustomerName ? `Client: ${cashCustomerName} · ` : ''}${paymentNotes}`,
         }),
       });
-      showSuccess('Cash Registered', `$${cashAmount} CAD cash entry recorded.`);
+
+      showSuccess('Cash Registered', `$${cashAmount} CAD recorded in cash register.`);
       setShowCashModal(false);
       setSelectedInvoice(null);
       loadData();
     } catch (err: any) {
       showError('Payment Failed', err.message || 'Could not record cash payment');
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
+
+  // Handle Create Manual Invoice
+  const handleCreateInvoiceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmittingInvoice(true);
+    try {
+      await apiRequest('/api/v1/billing/invoices', {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId: invoiceCustomerId || `cust-${Date.now()}`,
+          issueDate: new Date().toISOString().split('T')[0],
+          dueDate: invoiceDueDate,
+          currency: 'CAD',
+          notes: invoiceNotes.trim() || 'Manual salon service invoice',
+          items: invoiceItems.map((item) => ({
+            description: item.description,
+            quantity: Number(item.quantity) || 1,
+            unitPrice: Number(item.unitPrice) || 0,
+          })),
+        }),
+      });
+      showSuccess('Invoice Created', 'New invoice added to ledger.');
+      setShowCreateInvoiceModal(false);
+      loadData();
+    } catch (err: any) {
+      showError('Invoice Failed', err.message || 'Could not create invoice');
+    } finally {
+      setIsSubmittingInvoice(false);
+    }
+  };
+
+  // Handle Payment Refund
+  const handleRefundSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPayment) return;
+    setIsSubmittingRefund(true);
+    try {
+      await apiRequest(`/api/v1/payments/${selectedPayment.paymentId}/refund`, {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: parseFloat(refundAmount),
+          reason: refundReason,
+        }),
+      });
+      showSuccess('Refund Processed', `$${refundAmount} CAD refunded in cash.`);
+      setShowRefundModal(false);
+      setSelectedPayment(null);
+      loadData();
+    } catch (err: any) {
+      showError('Refund Failed', err.message || 'Could not process refund');
+    } finally {
+      setIsSubmittingRefund(false);
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight">Invoices & Cash Pay Register</h1>
           <p className="text-xs text-[var(--muted-foreground)] mt-0.5 font-medium">
-            Record cash register settlements enforcing Phase 1 Cash-Only processing.
+            Record cash register settlements enforcing Phase 1 Cash-Only processing and multi-tenant ledger integrity.
           </p>
         </div>
-        <button
-          onClick={() => {
-            setSelectedInvoice(null);
-            setShowCashModal(true);
-          }}
-          className="btn-primary px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm self-start"
-        >
-          <Wallet className="w-4 h-4" />
-          <span>Open Cash Register</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadData}
+            className="p-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)]"
+            title="Refresh Ledger"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setShowCreateInvoiceModal(true)}
+            className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)] flex items-center gap-1.5"
+          >
+            <Receipt className="w-4 h-4 text-[var(--primary)]" />
+            <span>Create Invoice</span>
+          </button>
+          <button
+            onClick={() => {
+              setSelectedInvoice(null);
+              setCashAmount('38.00');
+              setCashCustomerName('');
+              setShowCashModal(true);
+            }}
+            className="btn-primary px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm"
+          >
+            <Wallet className="w-4 h-4" />
+            <span>Open Cash Register</span>
+          </button>
+        </div>
       </div>
 
       {/* Navigation Tabs */}
@@ -96,103 +254,157 @@ export default function AdminInvoicesPage() {
           onClick={() => setActiveTab('invoices')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             activeTab === 'invoices'
-              ? 'bg-[var(--primary)] text-white shadow-sm'
+              ? 'bg-[var(--primary)] text-white shadow-sm font-black'
               : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
           }`}
         >
-          Invoices Ledger
+          Invoices Ledger ({invoices.length})
         </button>
         <button
           onClick={() => setActiveTab('payments')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             activeTab === 'payments'
-              ? 'bg-[var(--primary)] text-white shadow-sm'
+              ? 'bg-[var(--primary)] text-white shadow-sm font-black'
               : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
           }`}
         >
-          Cash Payment History
+          Cash Payment Receipts ({payments.length})
         </button>
       </div>
 
       {/* Invoices Tab Content */}
       {activeTab === 'invoices' && (
         <div className="glass-card rounded-2xl overflow-hidden border border-[var(--border)]">
-          <div className="divide-y divide-[var(--border)]">
-            {invoices.map((inv) => (
-              <div
-                key={inv.invoiceId}
-                className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--muted)]/50 transition-colors"
+          {isLoading ? (
+            <div className="p-12 text-center text-xs text-[var(--muted-foreground)]">Loading invoices ledger...</div>
+          ) : invoices.length === 0 ? (
+            <div className="p-12 text-center space-y-3">
+              <Receipt className="w-10 h-10 text-[var(--muted-foreground)] mx-auto opacity-40" />
+              <h3 className="text-sm font-bold text-[var(--foreground)]">No invoices on record</h3>
+              <p className="text-xs text-[var(--muted-foreground)] max-w-sm mx-auto">
+                Completed bookings and manual billing will populate invoices here.
+              </p>
+              <button
+                onClick={() => setShowCreateInvoiceModal(true)}
+                className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
               >
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200">
-                    <Receipt className="w-5 h-5" />
+                <Plus className="w-4 h-4" />
+                <span>Create First Invoice</span>
+              </button>
+            </div>
+          ) : (
+            <div className="divide-y divide-[var(--border)]">
+              {invoices.map((inv) => (
+                <div
+                  key={inv.invoiceId}
+                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--muted)]/50 transition-colors"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200">
+                      <Receipt className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-black text-[var(--foreground)]">#{inv.invoiceId}</h3>
+                      <p className="text-xs font-bold text-[var(--primary)]">{inv.customerName || 'Walk-in Client'}</p>
+                      <span className="text-[11px] text-[var(--muted-foreground)] block mt-0.5">
+                        {new Date(inv.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-xs font-black text-[var(--foreground)]">{inv.invoiceId}</h3>
-                    <p className="text-xs font-bold text-[var(--primary)]">{inv.customerName || 'Walk-in Client'}</p>
-                    <span className="text-[11px] text-[var(--muted-foreground)] block mt-0.5">
-                      {new Date(inv.createdAt).toLocaleDateString()}
-                    </span>
+
+                  <div className="flex items-center justify-between sm:justify-end gap-4">
+                    <div className="text-right">
+                      <span className="text-sm font-black text-[var(--foreground)] block">
+                        ${inv.totalAmount.toFixed(2)} CAD
+                      </span>
+                      <Badge variant={inv.status} />
+                    </div>
+
+                    {inv.status !== 'PAID' && (
+                      <button
+                        onClick={() => {
+                          setSelectedInvoice(inv);
+                          setCashAmount(inv.totalAmount.toString());
+                          setCashCustomerName(inv.customerName || '');
+                          setShowCashModal(true);
+                        }}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center gap-1"
+                      >
+                        <Wallet className="w-3.5 h-3.5" />
+                        <span>Collect Cash</span>
+                      </button>
+                    )}
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between sm:justify-end gap-4">
-                  <div className="text-right">
-                    <span className="text-sm font-black text-[var(--foreground)] block">
-                      ${inv.totalAmount.toFixed(2)} CAD
-                    </span>
-                    <Badge variant={inv.status} />
-                  </div>
-
-                  {inv.status !== 'PAID' && (
-                    <button
-                      onClick={() => {
-                        setSelectedInvoice(inv);
-                        setCashAmount(inv.totalAmount.toString());
-                        setShowCashModal(true);
-                      }}
-                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
-                    >
-                      Collect Cash
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* Payments History Content */}
       {activeTab === 'payments' && (
         <div className="glass-card rounded-2xl overflow-hidden border border-[var(--border)]">
-          <div className="divide-y divide-[var(--border)]">
-            {payments.map((pay) => (
-              <div key={pay.paymentId} className="p-4 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-                    <DollarSign className="w-5 h-5" />
+          {isLoading ? (
+            <div className="p-12 text-center text-xs text-[var(--muted-foreground)]">Loading cash payments...</div>
+          ) : payments.length === 0 ? (
+            <div className="p-12 text-center space-y-3">
+              <DollarSign className="w-10 h-10 text-[var(--muted-foreground)] mx-auto opacity-40" />
+              <h3 className="text-sm font-bold text-[var(--foreground)]">No payments recorded</h3>
+              <p className="text-xs text-[var(--muted-foreground)] max-w-sm mx-auto">
+                In-person cash entries recorded at checkout will appear here.
+              </p>
+              <button
+                onClick={() => setShowCashModal(true)}
+                className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
+              >
+                <Wallet className="w-4 h-4" />
+                <span>Open Cash Register</span>
+              </button>
+            </div>
+          ) : (
+            <div className="divide-y divide-[var(--border)]">
+              {payments.map((pay) => (
+                <div key={pay.paymentId} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200">
+                      <DollarSign className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-black text-[var(--foreground)]">#{pay.paymentId}</h3>
+                      <span className="text-xs font-bold text-emerald-600 block">Enforced CASH Entry</span>
+                      <span className="text-[11px] text-[var(--muted-foreground)] block">
+                        {new Date(pay.createdAt).toLocaleString()} {pay.notes ? `· ${pay.notes}` : ''}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-xs font-black text-[var(--foreground)]">{pay.paymentId}</h3>
-                    <span className="text-xs font-bold text-emerald-600 block">Enforced CASH Entry</span>
-                    <span className="text-[11px] text-[var(--muted-foreground)] block">
-                      {new Date(pay.createdAt).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
 
-                <div className="text-right">
-                  <span className="text-sm font-black text-[var(--foreground)] block">
-                    ${pay.amount.toFixed(2)} {pay.currency || 'CAD'}
-                  </span>
-                  <span className="text-[10px] font-bold text-emerald-600 uppercase bg-emerald-50 px-2 py-0.5 rounded-full">
-                    {pay.status || 'COMPLETED'}
-                  </span>
+                  <div className="flex items-center justify-between sm:justify-end gap-3">
+                    <div className="text-right">
+                      <span className="text-sm font-black text-[var(--foreground)] block">
+                        ${pay.amount.toFixed(2)} {pay.currency || 'CAD'}
+                      </span>
+                      <span className="text-[10px] font-bold text-emerald-600 uppercase bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200">
+                        {pay.status || 'COMPLETED'}
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setSelectedPayment(pay);
+                        setRefundAmount(pay.amount.toString());
+                        setShowRefundModal(true);
+                      }}
+                      className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-amber-600 hover:bg-amber-50"
+                      title="Issue Refund"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -200,11 +412,11 @@ export default function AdminInvoicesPage() {
       <Modal
         isOpen={showCashModal}
         onClose={() => setShowCashModal(false)}
-        title={selectedInvoice ? `Cash Payment for ${selectedInvoice.invoiceId}` : 'Manual Cash Entry'}
+        title={selectedInvoice ? `Cash Settlement — Invoice #${selectedInvoice.invoiceId}` : 'Cash Register Payment Entry'}
         maxWidth="sm"
       >
         <form onSubmit={handleRecordCashPayment} className="space-y-4">
-          <div className="p-3 rounded-xl bg-emerald-50 text-xs font-semibold text-emerald-800 flex items-center gap-2">
+          <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-2 border border-emerald-200">
             <ShieldCheck className="w-4 h-4 shrink-0" />
             <span>Enforced Cash Register Payment Entry</span>
           </div>
@@ -222,13 +434,23 @@ export default function AdminInvoicesPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Customer / Reference Note</label>
+            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Customer / Reference Name</label>
             <input
               type="text"
-              placeholder="Walk-in Client Name"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder="e.g. John Doe / Walk-in"
+              value={cashCustomerName}
+              onChange={(e) => setCashCustomerName(e.target.value)}
               className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Notes</label>
+            <input
+              type="text"
+              value={paymentNotes}
+              onChange={(e) => setPaymentNotes(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)] focus:outline-none"
             />
           </div>
 
@@ -240,12 +462,204 @@ export default function AdminInvoicesPage() {
             >
               Cancel
             </button>
-            <button type="submit" className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700">
-              Confirm Cash Payment
+            <button
+              type="submit"
+              disabled={isSubmittingPayment}
+              className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {isSubmittingPayment ? 'Processing...' : 'Confirm Cash Payment'}
             </button>
           </div>
         </form>
       </Modal>
+
+      {/* Create Manual Invoice Modal */}
+      <Modal
+        isOpen={showCreateInvoiceModal}
+        onClose={() => setShowCreateInvoiceModal(false)}
+        title="Create Billing Invoice"
+        maxWidth="md"
+      >
+        <form onSubmit={handleCreateInvoiceSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold mb-1">Customer</label>
+              <select
+                value={invoiceCustomerId}
+                onChange={(e) => setInvoiceCustomerId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
+              >
+                {customers.map((c) => (
+                  <option key={c.customerId} value={c.customerId}>
+                    {c.fullName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold mb-1">Due Date</label>
+              <input
+                type="date"
+                value={invoiceDueDate}
+                onChange={(e) => setInvoiceDueDate(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
+              />
+            </div>
+          </div>
+
+          {/* Invoice line items */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black">Line Items</label>
+              <button
+                type="button"
+                onClick={() =>
+                  setInvoiceItems((prev) => [
+                    ...prev,
+                    { description: 'Additional Styling / Product', quantity: 1, unitPrice: 20.0 },
+                  ])
+                }
+                className="text-[11px] font-bold text-[var(--primary)] hover:underline flex items-center gap-1"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                <span>Add Item</span>
+              </button>
+            </div>
+
+            {invoiceItems.map((item, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  required
+                  placeholder="Description"
+                  value={item.description}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setInvoiceItems((prev) =>
+                      prev.map((it, i) => (i === idx ? { ...it, description: val } : it))
+                    );
+                  }}
+                  className="flex-1 px-3 py-1.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
+                />
+                <input
+                  type="number"
+                  required
+                  placeholder="Qty"
+                  value={item.quantity}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10) || 1;
+                    setInvoiceItems((prev) =>
+                      prev.map((it, i) => (i === idx ? { ...it, quantity: val } : it))
+                    );
+                  }}
+                  className="w-16 px-2 py-1.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="Price"
+                  value={item.unitPrice}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value) || 0;
+                    setInvoiceItems((prev) =>
+                      prev.map((it, i) => (i === idx ? { ...it, unitPrice: val } : it))
+                    );
+                  }}
+                  className="w-24 px-2 py-1.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
+                />
+                {invoiceItems.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setInvoiceItems((prev) => prev.filter((_, i) => i !== idx))}
+                    className="p-1 text-rose-600"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold mb-1">Invoice Notes</label>
+            <input
+              type="text"
+              placeholder="e.g. In-salon styling and product invoice"
+              value={invoiceNotes}
+              onChange={(e) => setInvoiceNotes(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
+            <button
+              type="button"
+              onClick={() => setShowCreateInvoiceModal(false)}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmittingInvoice}
+              className="btn-primary px-5 py-2 rounded-xl text-xs font-bold disabled:opacity-50"
+            >
+              {isSubmittingInvoice ? 'Generating...' : 'Create Invoice'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Refund Modal */}
+      {selectedPayment && (
+        <Modal
+          isOpen={showRefundModal}
+          onClose={() => setShowRefundModal(false)}
+          title={`Process Cash Refund — #${selectedPayment.paymentId}`}
+          maxWidth="sm"
+        >
+          <form onSubmit={handleRefundSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold mb-1">Refund Amount (CAD $)</label>
+              <input
+                type="number"
+                step="0.01"
+                required
+                value={refundAmount}
+                onChange={(e) => setRefundAmount(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold mb-1">Refund Reason</label>
+              <input
+                type="text"
+                required
+                value={refundReason}
+                onChange={(e) => setRefundReason(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
+              <button
+                type="button"
+                onClick={() => setShowRefundModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmittingRefund}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+              >
+                {isSubmittingRefund ? 'Processing...' : 'Execute Cash Refund'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

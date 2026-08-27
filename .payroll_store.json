@@ -1,0 +1,19 @@
+[
+  {
+    "payrollId": "4b65ffc4-c0b1-4a0e-bf01-7e6fc31072b3",
+    "tenantId": "5c9d3520-65a7-4b84-be2f-acc21ea88bb4",
+    "branchId": "189dc618-8fe1-410f-9ec3-c47026de2206",
+    "staffId": "01fb09c0-367b-4b3c-8057-5c614a0467dc",
+    "periodStart": "2026-08-01",
+    "periodEnd": "2026-08-31",
+    "baseSalary": 2800,
+    "bonus": 350,
+    "deductions": 50,
+    "totalAmount": 3100,
+    "status": "PAID",
+    "notes": "August Specialist Monthly Compensation",
+    "createdAt": "2026-08-27T07:59:31.013Z",
+    "updatedAt": "2026-08-27T07:59:31.116Z",
+    "paymentAccountId": "c36e10f1-fb01-456f-847a-375a10d75019"
+  }
+]

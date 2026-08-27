@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { Palette, Image as ImageIcon, RotateCcw, Check, Sun, Moon } from 'lucide-react';
 
@@ -14,6 +16,7 @@ const PRESET_SWATCHES = [
 
 export default function AdminSettingsPage() {
   const { settings, updateSettings, resetDefaults, toggleDarkMode } = useTheme();
+  const { isAdmin, isLoading: isAuthLoading } = useAuth();
   const { showSuccess } = useToast();
 
   const [primaryColor, setPrimaryColor] = useState(settings.primaryColor);
@@ -49,6 +52,28 @@ export default function AdminSettingsPage() {
     });
     showSuccess('Preset Applied', `Applied ${swatch.name} palette.`);
   };
+
+  if (!isAuthLoading && !isAdmin) {
+    return (
+      <div className="p-8 max-w-lg mx-auto text-center space-y-4 pt-16 animate-fade-in">
+        <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 dark:bg-amber-950/50 flex items-center justify-center mx-auto border border-amber-200">
+          <Palette className="w-7 h-7" />
+        </div>
+        <h2 className="text-lg font-black text-[var(--foreground)]">Administrator Access Required</h2>
+        <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
+          Store branding, theme customization, and salon settings are restricted to Salon Owners and Administrators.
+        </p>
+        <div className="pt-2">
+          <Link
+            href="/admin/dashboard"
+            className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-2"
+          >
+            Back to Dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-4xl">

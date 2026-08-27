@@ -17,6 +17,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 
 const navItems = [
   { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
@@ -24,16 +25,19 @@ const navItems = [
   { label: 'Services', href: '/admin/services', icon: Scissors },
   { label: 'Staff & Shifts', href: '/admin/staff', icon: Users },
   { label: 'Invoices & Cash', href: '/admin/invoices', icon: Receipt },
-  { label: 'Accounting', href: '/admin/accounting', icon: BookOpen },
-  { label: 'Expenses', href: '/admin/expenses', icon: DollarSign },
-  { label: 'Payroll', href: '/admin/payroll', icon: Briefcase },
+  { label: 'Accounting', href: '/admin/accounting', icon: BookOpen, adminOnly: true },
+  { label: 'Expenses', href: '/admin/expenses', icon: DollarSign, adminOnly: true },
+  { label: 'Payroll', href: '/admin/payroll', icon: Briefcase, adminOnly: true },
   { label: 'Customers CRM', href: '/admin/customers', icon: UserCheck },
-  { label: 'Theme Studio', href: '/admin/settings', icon: Palette },
+  { label: 'Theme Studio', href: '/admin/settings', icon: Palette, adminOnly: true },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const { settings } = useTheme();
+  const { isAdmin } = useAuth();
+
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <aside className="w-64 bg-[var(--card)] border-r border-[var(--border)] min-h-screen flex flex-col justify-between p-4 shrink-0 hidden lg:flex transition-colors">
@@ -63,7 +67,7 @@ export function Sidebar() {
 
         {/* Navigation Links */}
         <nav className="space-y-1">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive = pathname === item.href || pathname?.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (
