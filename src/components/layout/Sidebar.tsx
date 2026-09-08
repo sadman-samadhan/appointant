@@ -13,7 +13,6 @@ import {
   DollarSign,
   Briefcase,
   UserCheck,
-  Palette,
   ExternalLink,
 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
@@ -28,8 +27,7 @@ const navItems = [
   { label: 'Accounting', href: '/admin/accounting', icon: BookOpen, adminOnly: true },
   { label: 'Expenses', href: '/admin/expenses', icon: DollarSign, adminOnly: true },
   { label: 'Payroll', href: '/admin/payroll', icon: Briefcase, adminOnly: true },
-  { label: 'Customers CRM', href: '/admin/customers', icon: UserCheck },
-  { label: 'Theme Studio', href: '/admin/settings', icon: Palette, adminOnly: true },
+  { label: 'Customer', href: '/admin/customers', icon: UserCheck },
 ];
 
 export function Sidebar() {

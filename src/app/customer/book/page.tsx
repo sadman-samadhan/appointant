@@ -64,9 +64,17 @@ export default function CustomerBookPage() {
     async function loadCatalog() {
       try {
         const srvRes = await apiRequest<any>(`/api/v1/services/branches/${DEFAULT_BRANCH_ID}`);
-        const srvItems = srvRes.items || srvRes.services || srvRes || [];
+        let srvItems = srvRes.items || srvRes.services || (Array.isArray(srvRes) ? srvRes : []);
+        if (!Array.isArray(srvItems) || srvItems.length === 0) {
+          const allRes = await apiRequest<any>('/api/v1/services');
+          srvItems = allRes.items || allRes.services || (Array.isArray(allRes) ? allRes : []);
+        }
         if (Array.isArray(srvItems) && srvItems.length > 0) {
-          const normalized: ServiceDto[] = srvItems.map((s: any) => ({
+          const activeOnly = srvItems.filter(
+            (s: any) => s.status === 'ACTIVE' || s.isActive === true || (!s.status && s.isActive !== false)
+          );
+          const effective = activeOnly.length > 0 ? activeOnly : srvItems;
+          const normalized: ServiceDto[] = effective.map((s: any) => ({
             serviceId: s.serviceId || s.id,
             name: s.name,
             description: s.description,
@@ -75,7 +83,17 @@ export default function CustomerBookPage() {
             categoryName: s.categoryName || 'General',
           }));
           setServices(normalized);
-          setSelectedService(normalized[0]);
+
+          let preselected = normalized[0];
+          if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const targetId = params.get('serviceId');
+            if (targetId) {
+              const matched = normalized.find((s) => s.serviceId === targetId);
+              if (matched) preselected = matched;
+            }
+          }
+          setSelectedService(preselected);
         }
       } catch {
         /* empty */
@@ -245,10 +263,36 @@ export default function CustomerBookPage() {
     };
 
     try {
-      await apiRequest('/api/v1/bookings', {
+      const bkRes: any = await apiRequest('/api/v1/bookings', {
         method: 'POST',
         body: JSON.stringify(bookingPayload),
       });
+
+      const newBookingId = bkRes?.bookingId || bkRes?.id || bkRes?.booking?.bookingId;
+
+      // Automatically generate draft invoice for online customer booking
+      if (newBookingId) {
+        try {
+          await apiRequest(`/api/v1/bookings/${newBookingId}/invoice-draft`, {
+            method: 'POST',
+            body: JSON.stringify({
+              issueDate: selectedDate,
+              dueDate: selectedDate,
+              notes: `Online Booking Draft for ${customerName.trim()} - ${selectedService.name}`,
+              items: [
+                {
+                  serviceId: selectedService.serviceId,
+                  description: selectedService.name,
+                  quantity: 1,
+                  unitPrice: selectedService.price || 0,
+                },
+              ],
+            }),
+          });
+        } catch {
+          /* ignore if already drafted */
+        }
+      }
 
       setCustomerSession({
         name: customerName.trim(),

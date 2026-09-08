@@ -269,7 +269,15 @@ export default function AdminExpensesPage() {
     }
   };
 
+  const generateReceiptNumber = () => {
+    const d = new Date();
+    const ymd = d.toISOString().slice(0, 10).replace(/-/g, '');
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    return `RCP-${ymd}-${rand}`;
+  };
+
   const openAddExpenseModal = async () => {
+    setReceiptNumber(generateReceiptNumber());
     setShowAddModal(true);
     if (staffList.length === 0) {
       try {
@@ -517,6 +525,11 @@ export default function AdminExpensesPage() {
         maxWidth="md"
       >
         <form onSubmit={handleCreateExpense} className="space-y-4">
+          <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-600 dark:text-blue-400 font-medium flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>Approved expenses automatically sync and post debit/credit journals to the General Ledger.</span>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Expense Description</label>
@@ -610,10 +623,21 @@ export default function AdminExpensesPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Receipt / Invoice Ref #</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-[var(--foreground)]">Receipt / Ref #</label>
+                <button
+                  type="button"
+                  onClick={() => setReceiptNumber(generateReceiptNumber())}
+                  className="text-[10px] text-[var(--primary)] hover:underline flex items-center gap-1 font-semibold"
+                  title="Generate new receipt number"
+                >
+                  <RefreshCw className="w-2.5 h-2.5" />
+                  <span>Auto-Gen</span>
+                </button>
+              </div>
               <input
                 type="text"
-                placeholder="e.g. RCPT-4402"
+                placeholder="e.g. RCP-20260906-4402"
                 value={receiptNumber}
                 onChange={(e) => setReceiptNumber(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)]"

@@ -2,17 +2,15 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { apiRequest, generateIdempotencyKey } from '@/lib/api/client';
+import { apiRequest } from '@/lib/api/client';
 import { KPICard } from '@/components/ui/KPICard';
 import { Badge } from '@/components/ui/Badge';
-import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { DEFAULT_TENANT_ID } from '@/lib/api/config';
 import {
   CalendarDays,
   DollarSign,
-  Users,
   Receipt,
   Plus,
   Wallet,
@@ -23,7 +21,6 @@ import {
   UserCheck,
   RefreshCw,
   ArrowRight,
-  ShieldCheck,
 } from 'lucide-react';
 import { BookingListItemDto, StaffResponseDto, InvoiceDto, PaymentResponseDto } from '@/lib/types';
 
@@ -36,13 +33,6 @@ export default function AdminDashboardPage() {
   const [invoices, setInvoices] = useState<InvoiceDto[]>([]);
   const [payments, setPayments] = useState<PaymentResponseDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-
-  // Quick Cash Payment Modal from Dashboard
-  const [showCashModal, setShowCashModal] = useState(false);
-  const [cashAmount, setCashAmount] = useState('25.00');
-  const [cashCustomer, setCashCustomer] = useState('');
-  const [cashNotes, setCashNotes] = useState('Front desk cash settlement');
-  const [isSubmittingCash, setIsSubmittingCash] = useState(false);
 
   const fetchDashboardData = useCallback(async () => {
     setIsLoading(true);
@@ -126,33 +116,6 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const handleRecordQuickCash = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmittingCash(true);
-    try {
-      await apiRequest('/api/v1/payments', {
-        method: 'POST',
-        body: JSON.stringify({
-          customerId: 'cust-walkin',
-          amount: parseFloat(cashAmount),
-          currency: 'CAD',
-          paymentMethod: 'CASH',
-          paymentDate: new Date().toISOString().split('T')[0],
-          idempotencyKey: generateIdempotencyKey(),
-          notes: `${cashCustomer ? `Client: ${cashCustomer} · ` : ''}${cashNotes}`,
-        }),
-      });
-      showSuccess('Cash Registered', `$${cashAmount} CAD cash entry recorded.`);
-      setShowCashModal(false);
-      setCashCustomer('');
-      fetchDashboardData();
-    } catch (err: any) {
-      showError('Payment Failed', err.message || 'Could not record cash payment');
-    } finally {
-      setIsSubmittingCash(false);
-    }
-  };
-
   // KPI Calculations from Live Backend Data
   const todayStr = new Date().toISOString().split('T')[0];
   const todayRevenue = payments
@@ -179,13 +142,6 @@ export default function AdminDashboardPage() {
           >
             <RefreshCw className="w-4 h-4" />
           </button>
-          <button
-            onClick={() => setShowCashModal(true)}
-            className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm"
-          >
-            <Wallet className="w-3.5 h-3.5" />
-            <span>Quick Cash Pay</span>
-          </button>
           <Link
             href="/admin/appointments"
             className="btn-primary px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm"
@@ -197,7 +153,7 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* KPI Stat Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KPICard
           label="Total Revenue Recorded"
           value={`$${todayRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })} CAD`}
@@ -214,15 +170,6 @@ export default function AdminDashboardPage() {
           icon={CalendarDays}
           accentColor="text-[var(--primary)]"
           iconBgColor="bg-[var(--primary-light)]"
-        />
-
-        <KPICard
-          label="Specialists On Roster"
-          value={staffList.length}
-          sub="Downtown Main Branch"
-          icon={Users}
-          accentColor="text-blue-600 dark:text-blue-400"
-          iconBgColor="bg-blue-50 dark:bg-blue-950/40"
         />
 
         <KPICard
@@ -341,7 +288,7 @@ export default function AdminDashboardPage() {
 
         {/* Side Cash Register Overview */}
         <div className="space-y-4">
-          <h2 className="text-base font-extrabold text-[var(--foreground)]">Cash Terminal & Actions</h2>
+          <h2 className="text-base font-extrabold text-[var(--foreground)]">Cash Terminal Summary</h2>
 
           <div className="glass-card p-5 rounded-2xl space-y-4 border-l-4 border-l-emerald-600 border border-[var(--border)]">
             <div className="flex items-center gap-2 text-sm font-bold text-[var(--foreground)]">
@@ -351,117 +298,24 @@ export default function AdminDashboardPage() {
             <p className="text-xs text-[var(--muted-foreground)] leading-relaxed font-medium">
               In-person cash settlement interface. Recorded payments post directly to General Ledger accounts.
             </p>
-            <div className="p-3 rounded-xl bg-[var(--muted)] space-y-1">
+            <div className="p-4 rounded-xl bg-[var(--muted)] space-y-1">
               <span className="text-[10px] uppercase tracking-wider font-extrabold text-[var(--muted-foreground)] block">
-                Total Cash Receipts
+                Total Cash Receipts Today
               </span>
-              <span className="text-xl font-black text-emerald-600 block">
+              <span className="text-2xl font-black text-emerald-600 block">
                 ${todayRevenue.toFixed(2)} CAD
               </span>
             </div>
-
-            <button
-              onClick={() => setShowCashModal(true)}
-              className="w-full py-2.5 rounded-xl text-xs font-black bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-sm flex items-center justify-center gap-1.5"
+            <Link
+              href="/admin/invoices"
+              className="w-full py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] border border-[var(--border)] transition-colors flex items-center justify-center gap-1.5"
             >
-              <Plus className="w-4 h-4" />
-              <span>Open Cash Register Entry</span>
-            </button>
-          </div>
-
-          <div className="glass-card p-5 rounded-2xl space-y-3 border border-[var(--border)]">
-            <h3 className="text-xs font-black text-[var(--foreground)] uppercase tracking-wider">Quick Links</h3>
-            <div className="space-y-2 text-xs font-bold">
-              <Link
-                href="/admin/invoices"
-                className="p-2.5 rounded-xl bg-[var(--muted)] hover:bg-[var(--border)] transition-colors flex items-center justify-between"
-              >
-                <span>Invoices Ledger</span>
-                <span className="text-amber-600">{pendingInvoicesCount} Pending</span>
-              </Link>
-              <Link
-                href="/admin/services"
-                className="p-2.5 rounded-xl bg-[var(--muted)] hover:bg-[var(--border)] transition-colors flex items-center justify-between"
-              >
-                <span>Services & Addons</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-              <Link
-                href="/admin/staff"
-                className="p-2.5 rounded-xl bg-[var(--muted)] hover:bg-[var(--border)] transition-colors flex items-center justify-between"
-              >
-                <span>Staff Shifts & Hours</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-            </div>
+              <Receipt className="w-4 h-4 text-[var(--primary)]" />
+              <span>Go to Invoices Ledger</span>
+            </Link>
           </div>
         </div>
       </div>
-
-      {/* Quick Cash Payment Modal */}
-      <Modal
-        isOpen={showCashModal}
-        onClose={() => setShowCashModal(false)}
-        title="Record Cash Payment"
-        maxWidth="sm"
-      >
-        <form onSubmit={handleRecordQuickCash} className="space-y-4">
-          <div className="p-3 rounded-xl bg-emerald-50 text-xs font-semibold text-emerald-800 flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 shrink-0" />
-            <span>Enforced Cash Register Payment Entry</span>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold mb-1">Cash Amount (CAD $)</label>
-            <input
-              type="number"
-              step="0.01"
-              required
-              value={cashAmount}
-              onChange={(e) => setCashAmount(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm font-bold focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold mb-1">Customer / Reference Name</label>
-            <input
-              type="text"
-              placeholder="e.g. Walk-in Client"
-              value={cashCustomer}
-              onChange={(e) => setCashCustomer(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold mb-1">Payment Notes</label>
-            <input
-              type="text"
-              value={cashNotes}
-              onChange={(e) => setCashNotes(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold focus:outline-none"
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
-            <button
-              type="button"
-              onClick={() => setShowCashModal(false)}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)]"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmittingCash}
-              className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {isSubmittingCash ? 'Recording...' : 'Confirm Cash Payment'}
-            </button>
-          </div>
-        </form>
-      </Modal>
     </div>
   );
 }

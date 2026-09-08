@@ -31,35 +31,46 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
           </Link>
 
           <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="text-xs font-bold text-[var(--muted-foreground)] hover:text-[var(--foreground)] flex items-center gap-1"
-            >
-              <Home className="w-3.5 h-3.5" />
-              <span>Home</span>
-            </Link>
-            <Link
-              href="/customer/profile"
-              className="text-xs font-bold text-[var(--muted-foreground)] hover:text-[var(--foreground)] flex items-center gap-1"
-            >
-              <User className="w-3.5 h-3.5" />
-              <span>{user ? user.name : 'My Profile'}</span>
-            </Link>
-            <Link
-              href="/customer/book"
-              className="btn-primary px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1"
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Book</span>
-            </Link>
-            {isAuthenticated && (
-              <button
-                onClick={logout}
-                title="Sign Out"
-                className="p-1.5 rounded-lg text-xs font-bold text-[var(--muted-foreground)] hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
+            {isAuthenticated ? (
+              <>
+                <Link
+                  href="/"
+                  className="text-xs font-bold text-[var(--muted-foreground)] hover:text-[var(--foreground)] flex items-center gap-1"
+                >
+                  <Home className="w-3.5 h-3.5" />
+                  <span>Home</span>
+                </Link>
+                <Link
+                  href="/customer/profile"
+                  className="text-xs font-bold text-[var(--muted-foreground)] hover:text-[var(--foreground)] flex items-center gap-1"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>{user ? user.name : 'My Profile'}</span>
+                </Link>
+                <button
+                  onClick={logout}
+                  title="Sign Out"
+                  className="p-1.5 rounded-lg text-xs font-bold text-[var(--muted-foreground)] hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/"
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] border border-[var(--border)] flex items-center gap-1 transition-colors"
+                >
+                  <span>&larr; Back to Home</span>
+                </Link>
+                <Link
+                  href="/login"
+                  className="btn-primary px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>Sign In</span>
+                </Link>
+              </div>
             )}
           </div>
         </div>

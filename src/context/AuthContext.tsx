@@ -23,7 +23,7 @@ interface AuthContextType {
   isStaff: boolean;
   tenantId: string;
   branchId: string;
-  login: (userid: string, password: string, targetRole?: 'ADMIN' | 'CUSTOMER') => Promise<void>;
+  login: (userid: string, password: string, targetRole?: 'ADMIN' | 'CUSTOMER') => Promise<UserProfile>;
   register: (req: RegisterRequest) => Promise<void>;
   forgotPassword: (userid: string) => Promise<any>;
   verifyOtp: (userid: string, otp: string) => Promise<{ resetToken: string }>;
@@ -242,6 +242,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setUser(profile);
       localStorage.setItem('bdiamond_user_info', JSON.stringify(profile));
+      return profile;
     } finally {
       setIsLoading(false);
     }

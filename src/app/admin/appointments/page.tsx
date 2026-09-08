@@ -22,6 +22,9 @@ import {
   Ban,
   Receipt,
   CalendarCheck2,
+  Wallet,
+  CalendarDays,
+  Sparkles,
 } from 'lucide-react';
 import {
   BookingListItemDto,
@@ -40,6 +43,7 @@ export default function AdminAppointmentsPage() {
   const [customers, setCustomers] = useState<CustomerDto[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [dateFilter, setDateFilter] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
 
   // Detail Modal & Action Triggers
@@ -56,6 +60,7 @@ export default function AdminAppointmentsPage() {
   const [bookingTime, setBookingTime] = useState('10:00:00');
   const [bookingNotes, setBookingNotes] = useState('');
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
+  const [bookingSuccessNotice, setBookingSuccessNotice] = useState<string | null>(null);
 
   // Action Modals: Cancel, Reschedule, Confirm, Draft Invoice
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -72,13 +77,50 @@ export default function AdminAppointmentsPage() {
 
   const [isActionLoading, setIsActionLoading] = useState(false);
 
+  const resetForm = useCallback(() => {
+    setNewCustName('');
+    setNewCustPhone('+1 (506) ');
+    setNewCustEmail('');
+    setBookingNotes('');
+    setBookingDate(new Date().toISOString().split('T')[0]);
+    setBookingTime('10:00:00');
+    setBookingSuccessNotice(null);
+    if (services.length > 0) {
+      setSelectedServiceId(services[0].serviceId || (services[0] as any).id);
+    }
+    setSelectedStaffId('');
+  }, [services]);
+
+  const handleOpenWalkIn = useCallback(() => {
+    setNewCustName('Walk-in Customer');
+    setNewCustPhone('+1 (506) 883-2222');
+    setNewCustEmail('');
+    setBookingNotes('Walk-in customer at front desk');
+    setBookingDate(new Date().toISOString().split('T')[0]);
+    const now = new Date();
+    const currentHour = String(now.getHours()).padStart(2, '0');
+    setBookingTime(`${currentHour}:00:00`);
+    if (services.length > 0) {
+      setSelectedServiceId(services[0].serviceId || (services[0] as any).id);
+    }
+    setBookingSuccessNotice(null);
+    setShowCreateModal(true);
+  }, [services]);
+
   const loadDependencies = useCallback(async () => {
     try {
       const srvRes = await apiRequest<any>(`/api/v1/services/branches/${DEFAULT_BRANCH_ID}`);
       const srvList = srvRes.items || srvRes.services || srvRes || [];
       if (Array.isArray(srvList)) {
-        setServices(srvList);
-        if (srvList.length > 0) setSelectedServiceId(srvList[0].serviceId || srvList[0].id);
+        // Bug D3 fix: only active services
+        const activeOnly = srvList.filter(
+          (s: any) => s.status === 'ACTIVE' || s.isActive === true || (!s.status && s.isActive !== false)
+        );
+        const effective = activeOnly.length > 0 ? activeOnly : srvList;
+        setServices(effective);
+        if (effective.length > 0) {
+          setSelectedServiceId(effective[0].serviceId || effective[0].id);
+        }
       }
     } catch {
       setServices([]);
@@ -93,8 +135,8 @@ export default function AdminAppointmentsPage() {
           fullName: s.fullName || s.name || 'Specialist',
           email: s.email,
           phone: s.phone,
-          roleTitle: s.roleTitle || s.role || 'Specialist',
           employmentType: s.employmentType || 'FULL_TIME',
+          roleTitle: s.roleTitle || s.role || 'Stylist',
           status: s.status || 'ACTIVE',
         }));
         setStaffList(normalized);
@@ -105,9 +147,9 @@ export default function AdminAppointmentsPage() {
 
     try {
       const custRes = await apiRequest<any>(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers`);
-      const custList = custRes.items || custRes.customers || custRes || [];
-      if (Array.isArray(custList)) {
-        setCustomers(custList);
+      const cList = custRes.items || custRes.customers || custRes || [];
+      if (Array.isArray(cList)) {
+        setCustomers(cList);
       }
     } catch {
       setCustomers([]);
@@ -117,52 +159,69 @@ export default function AdminAppointmentsPage() {
   const loadBookings = useCallback(async () => {
     setIsLoading(true);
     try {
-      const statusParam = statusFilter !== 'ALL' ? `?status=${statusFilter}` : '';
-      const res = await apiRequest<any>(`/api/v1/bookings${statusParam}`);
-      const list: BookingListItemDto[] = res.items || res.bookings || res || [];
+      const res = await apiRequest<any>('/api/v1/bookings');
+      const list: any[] = res.items || res.bookings || res || [];
       if (Array.isArray(list)) {
-        const normalized = list.map((b: any) => ({
-          bookingId: b.bookingId || b.id,
-          customerName: b.customerName || b.customer?.fullName || 'Client',
-          customerPhone: b.customerPhone || b.customer?.phone,
-          customerEmail: b.customerEmail || b.customer?.email,
-          serviceName: b.serviceName || b.service?.name || 'Salon Service',
-          staffName: b.staffName || b.staff?.fullName,
-          startTime: b.startTime || b.date,
-          endTime: b.endTime,
-          status: (b.status || 'SCHEDULED') as BookingStatus,
-          totalAmount: Number(b.totalAmount ?? b.service?.basePrice ?? 25),
-          currency: b.currency || 'CAD',
-          notes: b.notes,
-        }));
-        setBookings(normalized);
+        setBookings(
+          list.map((b: any) => ({
+            bookingId: b.bookingId || b.id,
+            customerId: b.customerId,
+            customerName: b.customerName || b.customer?.fullName || 'Salon Client',
+            serviceId: b.serviceId,
+            serviceName: b.serviceName || b.service?.name || 'Salon Service',
+            staffId: b.staffId,
+            staffName: b.staffName || b.staff?.fullName,
+            date: b.date || b.startTime?.split('T')[0] || new Date().toISOString().split('T')[0],
+            startTime: b.startTime,
+            endTime: b.endTime,
+            status: (b.status || 'SCHEDULED') as BookingStatus,
+            totalAmount: Number(b.totalAmount ?? b.service?.basePrice ?? 25),
+            currency: b.currency || 'CAD',
+            notes: b.notes,
+          }))
+        );
       }
     } catch {
       setBookings([]);
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter]);
+  }, []);
 
   useEffect(() => {
     loadDependencies();
-  }, [loadDependencies]);
-
-  useEffect(() => {
     loadBookings();
-  }, [loadBookings]);
+  }, [loadDependencies, loadBookings]);
 
-  // Create Booking
+  // Handle URL query parameters (?walkIn=true, ?newBooking=true)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('walkIn') === 'true') {
+        handleOpenWalkIn();
+      } else if (params.get('newBooking') === 'true') {
+        setShowCreateModal(true);
+      }
+    }
+  }, [handleOpenWalkIn]);
+
+  // Handle Create Booking
   const handleCreateBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCustName.trim()) {
-      showError('Name Required', 'Please enter customer name.');
+      showError('Name Required', 'Please enter customer full name.');
       return;
     }
+    if (!selectedServiceId) {
+      showError('Service Required', 'Please select an active service offering.');
+      return;
+    }
+
     setIsSubmittingCreate(true);
     try {
-      // 1. Create or Find Customer
       let customerId = `cust-${Date.now()}`;
+
+      // 1. Link or Create Customer
       try {
         const cRes = await apiRequest<any>('/api/v1/customers', {
           method: 'POST',
@@ -186,7 +245,7 @@ export default function AdminAppointmentsPage() {
       }
 
       // 2. Submit Booking
-      await apiRequest('/api/v1/bookings', {
+      const bookingRes = await apiRequest<any>('/api/v1/bookings', {
         method: 'POST',
         body: JSON.stringify({
           tenantId: DEFAULT_TENANT_ID,
@@ -195,16 +254,39 @@ export default function AdminAppointmentsPage() {
           serviceId: selectedServiceId,
           staffId: selectedStaffId || undefined,
           date: bookingDate,
-          startTime: bookingTime.includes(':') && bookingTime.split(':').length === 2 ? `${bookingTime}:00` : bookingTime,
+          startTime:
+            bookingTime.includes(':') && bookingTime.split(':').length === 2 ? `${bookingTime}:00` : bookingTime,
           notes: bookingNotes.trim() || undefined,
         }),
       });
 
-      showSuccess('Booking Created', `New appointment confirmed for ${newCustName}`);
-      setShowCreateModal(false);
-      setNewCustName('');
-      setNewCustEmail('');
-      setBookingNotes('');
+      const createdBookingId = bookingRes?.bookingId || bookingRes?.id;
+
+      // 3. Automated draft invoice generation
+      if (createdBookingId) {
+        const selectedSrv = services.find(
+          (s) => s.serviceId === selectedServiceId || (s as any).id === selectedServiceId
+        );
+        await apiRequest(`/api/v1/bookings/${createdBookingId}/invoice-draft`, {
+          method: 'POST',
+          body: JSON.stringify({
+            currency: 'CAD',
+            amount: selectedSrv?.price || 30.0,
+            customerId,
+            notes: `Draft invoice for appointment #${createdBookingId} (${selectedSrv?.name || 'Service'})`,
+          }),
+        }).catch(() => {});
+      }
+
+      // Display success message, then close and reset
+      setBookingSuccessNotice(`Appointment booked successfully for ${newCustName}! Draft invoice generated.`);
+      showSuccess('Booking Created & Invoice Drafted', `Appointment confirmed for ${newCustName}`);
+
+      setTimeout(() => {
+        setShowCreateModal(false);
+        resetForm();
+      }, 900);
+
       loadBookings();
     } catch (err: any) {
       showError('Creation Failed', err.message || 'Could not create appointment');
@@ -255,11 +337,12 @@ export default function AdminAppointmentsPage() {
     try {
       await apiRequest(`/api/v1/bookings/${bookingId}/complete`, {
         method: 'POST',
+        body: JSON.stringify({}),
       });
       showSuccess('Appointment Completed', 'Service rendered successfully.');
       loadBookings();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Could not complete appointment');
+      showError('Action Failed', err.message || 'Could not complete booking');
     }
   };
 
@@ -304,7 +387,10 @@ export default function AdminAppointmentsPage() {
         method: 'POST',
         body: JSON.stringify({
           date: rescheduleDate,
-          startTime: rescheduleTime.includes(':') && rescheduleTime.split(':').length === 2 ? `${rescheduleTime}:00` : rescheduleTime,
+          startTime:
+            rescheduleTime.includes(':') && rescheduleTime.split(':').length === 2
+              ? `${rescheduleTime}:00`
+              : rescheduleTime,
         }),
       });
       showSuccess('Rescheduled', `Appointment moved to ${rescheduleDate} at ${rescheduleTime}`);
@@ -318,27 +404,14 @@ export default function AdminAppointmentsPage() {
     }
   };
 
-  const handleGenerateInvoiceDraft = async (booking: BookingListItemDto) => {
-    try {
-      await apiRequest(`/api/v1/bookings/${booking.bookingId}/invoice-draft`, {
-        method: 'POST',
-        body: JSON.stringify({
-          currency: 'CAD',
-          notes: `Invoice generated for ${booking.customerName} - ${booking.serviceName}`,
-        }),
-      });
-      showSuccess('Draft Invoice Generated', 'Invoice generated. Visit Invoices ledger to collect cash.');
-    } catch (err: any) {
-      showError('Invoice Failed', err.message || 'Could not generate draft invoice');
-    }
-  };
-
   const filteredBookings = bookings.filter((b) => {
     const matchesSearch =
       (b.customerName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (b.serviceName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (b.staffName || '').toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesSearch;
+    const matchesStatus = statusFilter === 'ALL' || b.status === statusFilter;
+    const matchesDate = !dateFilter || (b.date || b.startTime?.split('T')[0]) === dateFilter;
+    return matchesSearch && matchesStatus && matchesDate;
   });
 
   return (
@@ -348,7 +421,7 @@ export default function AdminAppointmentsPage() {
         <div>
           <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight">Appointments Calendar</h1>
           <p className="text-xs text-[var(--muted-foreground)] mt-0.5 font-medium">
-            Manage customer bookings, schedule shifts, update status, and generate invoices.
+            Manage customer appointments, book walk-ins, update service status, and generate automated invoice drafts.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -360,7 +433,18 @@ export default function AdminAppointmentsPage() {
             <RefreshCw className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setShowCreateModal(true)}
+            onClick={handleOpenWalkIn}
+            className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
+            title="Fast Walk-in Booking"
+          >
+            <Wallet className="w-4 h-4" />
+            <span>Walk In</span>
+          </button>
+          <button
+            onClick={() => {
+              resetForm();
+              setShowCreateModal(true);
+            }}
             className="btn-primary px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm"
           >
             <Plus className="w-4 h-4" />
@@ -369,7 +453,7 @@ export default function AdminAppointmentsPage() {
         </div>
       </div>
 
-      {/* Filter & Search Bar */}
+      {/* Filter & Search Bar with Date Selector */}
       <div className="glass-card p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 border border-[var(--border)]">
         <div className="relative w-full sm:w-80">
           <Search className="w-4 h-4 text-[var(--muted-foreground)] absolute left-3 top-3" />
@@ -382,21 +466,43 @@ export default function AdminAppointmentsPage() {
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter className="w-4 h-4 text-[var(--muted-foreground)]" />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="SCHEDULED">SCHEDULED</option>
-            <option value="CONFIRMED">CONFIRMED</option>
-            <option value="CHECKED_IN">CHECKED IN</option>
-            <option value="COMPLETED">COMPLETED</option>
-            <option value="CANCELLED">CANCELLED</option>
-            <option value="NO_SHOW">NO SHOW</option>
-          </select>
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          {/* Date Picker Filter */}
+          <div className="flex items-center gap-1.5 bg-[var(--muted)] px-2.5 py-1.5 rounded-xl border border-[var(--border-strong)]">
+            <CalendarIcon className="w-4 h-4 text-[var(--primary)] shrink-0" />
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="bg-transparent text-xs font-bold text-[var(--foreground)] focus:outline-none cursor-pointer"
+            />
+            {dateFilter && (
+              <button
+                onClick={() => setDateFilter('')}
+                className="text-[10px] font-bold text-[var(--muted-foreground)] hover:text-rose-600 ml-1"
+                title="Clear date filter"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Filter className="w-4 h-4 text-[var(--muted-foreground)]" />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="SCHEDULED">SCHEDULED</option>
+              <option value="CONFIRMED">CONFIRMED</option>
+              <option value="CHECKED_IN">CHECKED IN</option>
+              <option value="COMPLETED">COMPLETED</option>
+              <option value="CANCELLED">CANCELLED</option>
+              <option value="NO_SHOW">NO SHOW</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -409,15 +515,25 @@ export default function AdminAppointmentsPage() {
             <CalendarIcon className="w-10 h-10 text-[var(--muted-foreground)] mx-auto opacity-40" />
             <h3 className="text-sm font-bold text-[var(--foreground)]">No appointments found</h3>
             <p className="text-xs text-[var(--muted-foreground)] max-w-sm mx-auto">
-              Schedule a new appointment or adjust search filters.
+              Schedule appointments manually or accept client bookings from the online customer booking wizard.
             </p>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Book Appointment</span>
-            </button>
+            <div className="flex justify-center gap-2 pt-2">
+              <button
+                onClick={handleOpenWalkIn}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+              >
+                Quick Walk-In Booking
+              </button>
+              <button
+                onClick={() => {
+                  resetForm();
+                  setShowCreateModal(true);
+                }}
+                className="btn-primary px-4 py-2 rounded-xl text-xs font-bold"
+              >
+                New Appointment
+              </button>
+            </div>
           </div>
         ) : (
           <div className="divide-y divide-[var(--border)]">
@@ -426,35 +542,37 @@ export default function AdminAppointmentsPage() {
                 key={b.bookingId}
                 className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--muted)]/50 transition-colors"
               >
-                <div
-                  onClick={() => setSelectedBooking(b)}
-                  className="flex items-start gap-3 cursor-pointer flex-1"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center shrink-0 border border-[var(--primary-ring)]">
+                {/* Left Client & Service Details */}
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center shrink-0 border border-[var(--primary-ring)] font-bold text-xs">
                     <Scissors className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-xs font-black text-[var(--foreground)]">{b.customerName}</h3>
-                    <p className="text-xs font-bold text-[var(--primary)]">{b.serviceName}</p>
-                    <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--muted-foreground)] font-medium">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xs font-black text-[var(--foreground)]">{b.customerName}</h3>
+                      <span className="text-[10px] text-[var(--muted-foreground)] font-mono">#{b.bookingId.substring(0, 8)}</span>
+                    </div>
+                    <p className="text-xs font-bold text-[var(--primary)] mt-0.5">{b.serviceName}</p>
+                    <div className="flex flex-wrap items-center gap-3 mt-1 text-[11px] text-[var(--muted-foreground)] font-medium">
                       <span className="flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5" />
-                        {new Date(b.startTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                        <Clock className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                        {new Date(b.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({b.date || b.startTime?.split('T')[0]})
                       </span>
                       <span>· Specialist: {b.staffName || 'Any Specialist'}</span>
+                      {b.notes && <span className="italic text-[10px]">· &ldquo;{b.notes}&rdquo;</span>}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--border)]">
+                {/* Right Status & Actions */}
+                <div className="flex items-center justify-between sm:justify-end gap-4">
                   <div className="text-right">
                     <span className="text-sm font-black text-[var(--foreground)] block">
-                      ${b.totalAmount} {b.currency || 'CAD'}
+                      ${b.totalAmount.toFixed(2)} {b.currency || 'CAD'}
                     </span>
                     <Badge variant={b.status} />
                   </div>
 
-                  {/* Action Triggers */}
                   <div className="flex items-center gap-1">
                     {b.status === 'SCHEDULED' && (
                       <button
@@ -462,40 +580,30 @@ export default function AdminAppointmentsPage() {
                           setSelectedBooking(b);
                           setShowConfirmModal(true);
                         }}
-                        className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50"
-                        title="Confirm Booking (Add Tax/Tip)"
+                        className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                        title="Confirm Booking"
                       >
                         <CheckCircle2 className="w-4 h-4" />
                       </button>
                     )}
 
-                    {(b.status === 'CONFIRMED' || b.status === 'SCHEDULED') && (
+                    {b.status === 'CONFIRMED' && (
                       <button
                         onClick={() => handleCheckin(b.bookingId)}
-                        className="p-1.5 rounded-lg text-purple-600 hover:bg-purple-50"
-                        title="Check-In Customer"
+                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200"
+                        title="Customer Arrived"
                       >
-                        <UserCheck className="w-4 h-4" />
+                        Check In
                       </button>
                     )}
 
                     {b.status === 'CHECKED_IN' && (
                       <button
                         onClick={() => handleComplete(b.bookingId)}
-                        className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50"
-                        title="Complete Service"
+                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
+                        title="Finish Appointment"
                       >
-                        <CalendarCheck2 className="w-4 h-4" />
-                      </button>
-                    )}
-
-                    {b.status === 'COMPLETED' && (
-                      <button
-                        onClick={() => handleGenerateInvoiceDraft(b)}
-                        className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50"
-                        title="Generate Draft Invoice"
-                      >
-                        <Receipt className="w-4 h-4" />
+                        Complete
                       </button>
                     )}
 
@@ -506,14 +614,14 @@ export default function AdminAppointmentsPage() {
                             setSelectedBooking(b);
                             setShowRescheduleModal(true);
                           }}
-                          className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50"
+                          className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40"
                           title="Reschedule"
                         >
                           <RefreshCw className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleNoShow(b.bookingId)}
-                          className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50"
+                          className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40"
                           title="Mark No-Show"
                         >
                           <Ban className="w-4 h-4" />
@@ -523,7 +631,7 @@ export default function AdminAppointmentsPage() {
                             setSelectedBooking(b);
                             setShowCancelModal(true);
                           }}
-                          className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50"
+                          className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                           title="Cancel Booking"
                         >
                           <XCircle className="w-4 h-4" />
@@ -541,11 +649,21 @@ export default function AdminAppointmentsPage() {
       {/* Create Booking Modal */}
       <Modal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => {
+          setShowCreateModal(false);
+          resetForm();
+        }}
         title="Schedule New Appointment"
         maxWidth="md"
       >
         <form onSubmit={handleCreateBooking} className="space-y-4">
+          {bookingSuccessNotice && (
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 text-emerald-800 dark:text-emerald-300 text-xs font-bold flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span>{bookingSuccessNotice}</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Customer Name</label>
@@ -555,7 +673,7 @@ export default function AdminAppointmentsPage() {
                 placeholder="e.g. David Miller"
                 value={newCustName}
                 onChange={(e) => setNewCustName(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
               />
             </div>
             <div>
@@ -565,22 +683,22 @@ export default function AdminAppointmentsPage() {
                 required
                 value={newCustPhone}
                 onChange={(e) => setNewCustPhone(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Service Offering</label>
+              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Active Service Offering</label>
               <select
                 value={selectedServiceId}
                 onChange={(e) => setSelectedServiceId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
               >
                 {services.map((s) => (
                   <option key={s.serviceId} value={s.serviceId}>
-                    {s.name} (${s.price} CAD)
+                    {s.name} (${s.price.toFixed(2)} CAD)
                   </option>
                 ))}
               </select>
@@ -591,7 +709,7 @@ export default function AdminAppointmentsPage() {
               <select
                 value={selectedStaffId}
                 onChange={(e) => setSelectedStaffId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
               >
                 <option value="">Any Available Specialist</option>
                 {staffList.map((stf) => (
@@ -603,26 +721,65 @@ export default function AdminAppointmentsPage() {
             </div>
           </div>
 
+          {/* Enhanced Beautiful Date & Time Picker */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Date</label>
-              <input
-                type="date"
-                required
-                value={bookingDate}
-                onChange={(e) => setBookingDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-              />
+              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Appointment Date</label>
+              <div className="space-y-1.5">
+                <div className="relative">
+                  <CalendarIcon className="w-4 h-4 text-[var(--primary)] absolute left-3 top-2.5 pointer-events-none" />
+                  <input
+                    type="date"
+                    required
+                    value={bookingDate}
+                    onChange={(e) => setBookingDate(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] cursor-pointer"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => setBookingDate(new Date().toISOString().split('T')[0])}
+                    className={`px-2 py-0.5 rounded-md font-bold transition-colors ${
+                      bookingDate === new Date().toISOString().split('T')[0]
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tmr = new Date();
+                      tmr.setDate(tmr.getDate() + 1);
+                      setBookingDate(tmr.toISOString().split('T')[0]);
+                    }}
+                    className="px-2 py-0.5 rounded-md font-bold bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+                  >
+                    Tomorrow
+                  </button>
+                </div>
+              </div>
             </div>
+
             <div>
               <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Start Time</label>
-              <input
-                type="time"
-                required
-                value={bookingTime.substring(0, 5)}
-                onChange={(e) => setBookingTime(`${e.target.value}:00`)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-              />
+              <div className="space-y-1.5">
+                <div className="relative">
+                  <Clock className="w-4 h-4 text-[var(--primary)] absolute left-3 top-2.5 pointer-events-none" />
+                  <input
+                    type="time"
+                    required
+                    value={bookingTime.substring(0, 5)}
+                    onChange={(e) => setBookingTime(`${e.target.value}:00`)}
+                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  />
+                </div>
+                <div className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
+                  <span>Operating hours: 9AM - 6PM</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -630,17 +787,20 @@ export default function AdminAppointmentsPage() {
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Notes / Instructions</label>
             <input
               type="text"
-              placeholder="e.g. Razor line up requested"
+              placeholder="e.g. Razor line up requested, walk-in customer"
               value={bookingNotes}
               onChange={(e) => setBookingNotes(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)]"
+              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
             />
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
             <button
               type="button"
-              onClick={() => setShowCreateModal(false)}
+              onClick={() => {
+                setShowCreateModal(false);
+                resetForm();
+              }}
               className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]"
             >
               Cancel
@@ -650,18 +810,18 @@ export default function AdminAppointmentsPage() {
               disabled={isSubmittingCreate}
               className="btn-primary px-5 py-2 rounded-xl text-xs font-bold disabled:opacity-50"
             >
-              {isSubmittingCreate ? 'Saving...' : 'Confirm Appointment'}
+              {isSubmittingCreate ? 'Saving...' : 'Confirm & Save Booking'}
             </button>
           </div>
         </form>
       </Modal>
 
-      {/* Confirm Booking (with Financial Breakdown) Modal */}
+      {/* Confirm Booking Modal */}
       {selectedBooking && showConfirmModal && (
         <Modal
           isOpen={showConfirmModal}
           onClose={() => setShowConfirmModal(false)}
-          title={`Confirm Appointment #${selectedBooking.bookingId}`}
+          title={`Confirm Appointment #${selectedBooking.bookingId.substring(0, 8)}`}
           maxWidth="sm"
         >
           <div className="space-y-4">

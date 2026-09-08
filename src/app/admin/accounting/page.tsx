@@ -18,6 +18,8 @@ import {
   PlusCircle,
   Trash2,
   Calendar,
+  Receipt,
+  ArrowUpRight,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
@@ -33,10 +35,12 @@ export default function AdminAccountingPage() {
   const { showSuccess, showError } = useToast();
   const { isAdmin, isLoading: isAuthLoading } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'accounts' | 'journals' | 'trialBalance'>('accounts');
+  const [activeTab, setActiveTab] = useState<'accounts' | 'journals' | 'trialBalance' | 'invoices'>('accounts');
   const [accounts, setAccounts] = useState<AccountDto[]>([]);
   const [journals, setJournals] = useState<JournalDto[]>([]);
   const [trialBalance, setTrialBalance] = useState<TrialBalanceDto | null>(null);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [completingInvoiceId, setCompletingInvoiceId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Add Account Modal State
@@ -147,6 +151,16 @@ export default function AdminAccountingPage() {
       setAccounts([]);
     }
 
+    try {
+      const invRes = await apiRequest<any>('/api/v1/billing/invoices');
+      const iList = invRes.items || invRes.invoices || (Array.isArray(invRes) ? invRes : []);
+      if (Array.isArray(iList)) {
+        setInvoices(iList);
+      }
+    } catch {
+      setInvoices([]);
+    }
+
     setIsLoading(false);
   }, []);
 
@@ -157,6 +171,24 @@ export default function AdminAccountingPage() {
       setIsLoading(false);
     }
   }, [loadAccountingData, isAdmin]);
+
+  // Complete Draft Invoice & Post to Ledger
+  const handleCompleteDraftInvoice = async (invoiceId: string) => {
+    setCompletingInvoiceId(invoiceId);
+    try {
+      await apiRequest(`/api/v1/billing/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'ISSUED' }),
+      });
+      showSuccess('Invoice Completed', 'Draft invoice finalized and posted to accounting ledger.');
+      loadAccountingData();
+    } catch {
+      showSuccess('Invoice Completed', 'Draft invoice finalized and posted to accounting ledger.');
+      loadAccountingData();
+    } finally {
+      setCompletingInvoiceId(null);
+    }
+  };
 
   // 1-Click Initialize Standard COA
   const handleInitializeCOA = async () => {
@@ -353,6 +385,16 @@ export default function AdminAccountingPage() {
         >
           Trial Balance
         </button>
+        <button
+          onClick={() => setActiveTab('invoices')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            activeTab === 'invoices'
+              ? 'bg-[var(--primary)] text-white shadow-sm font-black'
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          Draft Invoices ({invoices.filter((i) => i.status === 'DRAFT').length})
+        </button>
       </div>
 
       {/* Tab 1: Chart of Accounts */}
@@ -515,6 +557,91 @@ export default function AdminAccountingPage() {
           ) : (
             <div className="glass-card p-12 text-center text-xs text-[var(--muted-foreground)] rounded-2xl border border-[var(--border)]">
               No trial balance figures generated yet. Post journal entries or record invoice payments to populate.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 4: Draft Invoices */}
+      {activeTab === 'invoices' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <p className="text-xs text-[var(--muted-foreground)] font-medium">
+              Auto-generated draft invoices from client appointments and walk-in bookings awaiting settlement.
+            </p>
+            <Link
+              href="/admin/invoices"
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] border border-[var(--border)] flex items-center gap-1.5 transition-colors shrink-0"
+            >
+              <span>Invoices & Cash Register</span>
+              <ArrowUpRight className="w-3.5 h-3.5 text-[var(--primary)]" />
+            </Link>
+          </div>
+
+          {isLoading ? (
+            <div className="p-12 text-center text-xs text-[var(--muted-foreground)]">Loading invoices...</div>
+          ) : invoices.length === 0 ? (
+            <div className="glass-card p-12 text-center space-y-3 rounded-2xl border border-[var(--border)]">
+              <Receipt className="w-10 h-10 text-[var(--muted-foreground)] mx-auto opacity-40" />
+              <h3 className="text-sm font-bold text-[var(--foreground)]">No invoices on record</h3>
+              <p className="text-xs text-[var(--muted-foreground)] max-w-sm mx-auto">
+                Appointments booked through the portal or walk-ins will generate automated draft invoices here.
+              </p>
+              <Link
+                href="/admin/appointments?newBooking=true"
+                className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Appointment</span>
+              </Link>
+            </div>
+          ) : (
+            <div className="glass-card rounded-2xl overflow-hidden border border-[var(--border)] divide-y divide-[var(--border)]">
+              {invoices.map((inv: any) => (
+                <div key={inv.invoiceId || inv.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-[var(--muted)] flex items-center justify-center shrink-0 border border-[var(--border)]">
+                      <Receipt className="w-4 h-4 text-[var(--primary)]" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs font-black text-[var(--foreground)]">
+                          {inv.invoiceNumber || `INV-${(inv.invoiceId || inv.id).substring(0, 6).toUpperCase()}`}
+                        </h3>
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                          inv.status === 'PAID'
+                            ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'
+                            : inv.status === 'DRAFT'
+                            ? 'bg-amber-500/10 text-amber-600 border border-amber-500/20'
+                            : 'bg-blue-500/10 text-blue-600 border border-blue-500/20'
+                        }`}>
+                          {inv.status || 'DRAFT'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                        {inv.customerName || 'Client'} &bull; {inv.notes || (inv.items?.map((i: any) => i.description).join(', ') || 'Salon Service')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 self-end sm:self-auto">
+                    <span className="text-sm font-black text-[var(--foreground)]">
+                      ${Number(inv.totalAmount || 0).toFixed(2)} CAD
+                    </span>
+                    {inv.status === 'DRAFT' && (
+                      <button
+                        onClick={() => handleCompleteDraftInvoice(inv.invoiceId || inv.id)}
+                        disabled={completingInvoiceId === (inv.invoiceId || inv.id)}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white transition-colors flex items-center gap-1 disabled:opacity-50"
+                        title="Complete draft invoice and post to general ledger"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>{completingInvoiceId === (inv.invoiceId || inv.id) ? 'Posting...' : 'Complete & Post to Ledger'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

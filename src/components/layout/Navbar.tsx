@@ -42,18 +42,17 @@ export function Navbar({ onOpenCashModal }: NavbarProps) {
 
         {/* Right Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {onOpenCashModal && (
-            <button
-              onClick={onOpenCashModal}
-              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-sm"
-            >
-              <Wallet className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Record Cash</span>
-            </button>
-          )}
+          <Link
+            href="/admin/appointments?walkIn=true"
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-sm"
+            title="Create Walk-In Appointment"
+          >
+            <Wallet className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Walk In</span>
+          </Link>
 
           <Link
-            href="/admin/appointments"
+            href="/admin/appointments?newBooking=true"
             className="btn-primary px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm"
           >
             <Plus className="w-3.5 h-3.5" />

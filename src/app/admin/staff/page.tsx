@@ -571,7 +571,7 @@ export default function AdminStaffPage() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
           {staffList
             .filter((stf) =>
               statusFilter === 'ACTIVE'
@@ -586,7 +586,7 @@ export default function AdminStaffPage() {
               return (
                 <div
                   key={stf.staffId}
-                  className={`glass-card p-5 rounded-2xl space-y-4 border hover:shadow-md transition-all flex flex-col justify-between ${
+                  className={`glass-card p-5 rounded-2xl border hover:shadow-md transition-all flex flex-col justify-between h-full ${
                     isStoreAdmin
                       ? 'border-purple-200 dark:border-purple-900/40 bg-purple-50/10'
                       : 'border-[var(--border)]'
@@ -672,7 +672,7 @@ export default function AdminStaffPage() {
                       </div>
                     </div>
 
-                <div className="space-y-1 pt-2 border-t border-[var(--border)] text-xs text-[var(--muted-foreground)] font-semibold">
+                <div className="space-y-1 pt-2 border-t border-[var(--border)] text-xs text-[var(--muted-foreground)] font-semibold min-h-[46px]">
                   <div className="flex items-center gap-2">
                     <Mail className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
                     <span>{stf.email}</span>

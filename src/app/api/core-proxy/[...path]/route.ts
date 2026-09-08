@@ -33,6 +33,117 @@ const STANDARD_ACCOUNTS = [
   { accountId: '262303cf-8b95-4b58-9cba-88ba6d6b0584', accountCode: '5300', accountName: 'Supplies Expense', accountType: 'EXPENSE' },
 ];
 
+const B_DIAMOND_SERVICES = [
+  {
+    serviceId: '42fc6040-ccbd-4f89-ab42-90d85baeeb95',
+    name: 'Haircut Service',
+    description: 'Precision haircut, hair wash, and professional style finish.',
+    price: 30.0,
+    basePrice: 30.0,
+    durationMinutes: 30,
+    baseDurationMinutes: 30,
+    categoryName: 'Haircut',
+    status: 'ACTIVE',
+    isActive: true,
+  },
+  {
+    serviceId: '7ff59032-8458-4084-bc0c-4063ee7e7625',
+    name: 'Fade Haircut Service',
+    description: 'Skin fade, taper fade, or burst fade with razor sharpness.',
+    price: 35.0,
+    basePrice: 35.0,
+    durationMinutes: 35,
+    baseDurationMinutes: 35,
+    categoryName: 'Haircut',
+    status: 'ACTIVE',
+    isActive: true,
+  },
+  {
+    serviceId: '3407d5be-daad-4f3d-845e-88c5087acf42',
+    name: 'Haircut & Beard Trim Combo',
+    description: 'Full custom haircut paired with meticulous beard sculpture and line-up.',
+    price: 48.0,
+    basePrice: 48.0,
+    durationMinutes: 45,
+    baseDurationMinutes: 45,
+    categoryName: 'Combos',
+    status: 'ACTIVE',
+    isActive: true,
+  },
+  {
+    serviceId: '925966df-1d8c-4ca4-a70c-3dc2676d9f65',
+    name: 'Hot Towel Shave',
+    description: 'Traditional steam towel preparation with straight razor smooth shave.',
+    price: 35.0,
+    basePrice: 35.0,
+    durationMinutes: 30,
+    baseDurationMinutes: 30,
+    categoryName: 'Shaves',
+    status: 'ACTIVE',
+    isActive: true,
+  },
+  {
+    serviceId: '139ce2eb-3f4c-454b-a906-6aa87bcfa278',
+    name: 'Haircut & Hot Shave Combo',
+    description: 'The ultimate royal treatment: master haircut and hot steam towel straight razor shave.',
+    price: 60.0,
+    basePrice: 60.0,
+    durationMinutes: 55,
+    baseDurationMinutes: 55,
+    categoryName: 'Combos',
+    status: 'ACTIVE',
+    isActive: true,
+  },
+  {
+    serviceId: '6d21351c-0d62-4caa-a1ff-7338cced85d5',
+    name: 'Beard Trim Service',
+    description: 'Detailed beard trimming, shaping, oil conditioning, and edge detailing.',
+    price: 22.0,
+    basePrice: 22.0,
+    durationMinutes: 20,
+    baseDurationMinutes: 20,
+    categoryName: 'Beard',
+    status: 'ACTIVE',
+    isActive: true,
+  },
+  {
+    serviceId: 'db140e37-f507-406c-b9d2-efdfd3d1b294',
+    name: 'Senior Haircut Service (65+)',
+    description: 'Gentlemen senior haircut with tailored finish at special rate.',
+    price: 25.0,
+    basePrice: 25.0,
+    durationMinutes: 30,
+    baseDurationMinutes: 30,
+    categoryName: 'Haircut',
+    status: 'ACTIVE',
+    isActive: true,
+  },
+  {
+    serviceId: '72b04e93-f457-4b71-bc1c-f770cb627e0c',
+    name: 'Kids Haircut (Age Under 10)',
+    description: 'Patient and fun haircut experience for boys and girls under 10.',
+    price: 22.0,
+    basePrice: 22.0,
+    durationMinutes: 25,
+    baseDurationMinutes: 25,
+    categoryName: 'Kids',
+    status: 'ACTIVE',
+    isActive: true,
+  },
+  {
+    serviceId: '1d13958a-bbdd-4cb0-9fbb-796c2bb04edc',
+    name: 'Face Waxing Service',
+    description: 'Clean ear, nose, and eyebrow facial hair waxing.',
+    price: 18.0,
+    basePrice: 18.0,
+    durationMinutes: 15,
+    baseDurationMinutes: 15,
+    categoryName: 'Waxing',
+    status: 'ACTIVE',
+    isActive: true,
+  },
+];
+
 function getSynthesizedJournals(branchHeader: string) {
   const localExpenses = expensesStore.getAll();
   const localInvoices = invoicesStore.getAll();
@@ -710,6 +821,67 @@ async function handleProxy(
     return NextResponse.json(localInvoices, { status: 200 });
   }
 
+  // Handle POST /api/v1/bookings/[bookingId]/invoice-draft bridge
+  if (targetPath.includes('/bookings/') && targetPath.endsWith('/invoice-draft') && method === 'POST') {
+    const bookingId = targetPath.split('/')[4];
+    const bodyObj = JSON.parse(body || '{}');
+    try {
+      const res = await safeFetch(url, { method, headers, body });
+      if (res.ok) {
+        const text = await res.text();
+        return new NextResponse(text, { status: res.status, headers: { 'Content-Type': 'application/json' } });
+      }
+    } catch {}
+
+    const invoiceId = crypto.randomUUID();
+    const serviceAmount = Number(bodyObj.amount || bodyObj.totalAmount || 30.0);
+    const newDraftInvoice: LocalInvoice = {
+      invoiceId,
+      invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+      tenantId: tenantHeader,
+      branchId: branchHeader,
+      customerId: bodyObj.customerId || 'cust-booking',
+      issueDate: bodyObj.issueDate || new Date().toISOString().split('T')[0],
+      dueDate: bodyObj.dueDate || new Date().toISOString().split('T')[0],
+      items: [
+        {
+          description: bodyObj.notes || `Salon Appointment Service #${bookingId.substring(0, 8)}`,
+          quantity: 1,
+          unitPrice: serviceAmount,
+          totalPrice: serviceAmount,
+        },
+      ],
+      subtotal: serviceAmount,
+      taxAmount: Number(bodyObj.taxAmount || 0),
+      discountAmount: Number(bodyObj.discountAmount || 0),
+      tipAmount: Number(bodyObj.tipAmount || 0),
+      totalAmount: serviceAmount,
+      paidAmount: 0,
+      status: 'DRAFT' as any,
+      currency: bodyObj.currency || 'CAD',
+      notes: bodyObj.notes || `Automated draft invoice for booking #${bookingId}`,
+      terms: bodyObj.terms || 'Payment due upon service completion',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    invoicesStore.add(newDraftInvoice);
+    return NextResponse.json(newDraftInvoice, { status: 201 });
+  }
+
+  // Handle PATCH or PUT /api/v1/billing/invoices/[id]
+  if (targetPath.startsWith('/api/v1/billing/invoices/') && (method === 'PATCH' || method === 'PUT')) {
+    const invId = targetPath.split('/')[5];
+    const bodyObj = JSON.parse(body || '{}');
+    try {
+      await safeFetch(url, { method, headers, body });
+    } catch {}
+    if (invId) {
+      invoicesStore.update(invId, bodyObj);
+    }
+    return NextResponse.json({ success: true, invoiceId: invId, ...bodyObj }, { status: 200 });
+  }
+
   // Handle DELETE /api/v1/billing/invoices/[id]
   if (targetPath.startsWith('/api/v1/billing/invoices/') && method === 'DELETE') {
     const invId = targetPath.split('/')[5];
@@ -838,6 +1010,9 @@ async function handleProxy(
       },
     });
   } catch (err: any) {
+    if (targetPath.includes('/services')) {
+      return NextResponse.json(B_DIAMOND_SERVICES, { status: 200 });
+    }
     if (targetPath.includes('/staff')) {
       return NextResponse.json([
         {

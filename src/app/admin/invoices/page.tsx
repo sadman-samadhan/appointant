@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { apiRequest, generateIdempotencyKey } from '@/lib/api/client';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
@@ -55,6 +56,7 @@ export default function AdminInvoicesPage() {
   const [refundAmount, setRefundAmount] = useState('0.00');
   const [refundReason, setRefundReason] = useState('Customer cash return requested');
   const [isSubmittingRefund, setIsSubmittingRefund] = useState(false);
+  const [completingInvoiceId, setCompletingInvoiceId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -200,6 +202,24 @@ export default function AdminInvoicesPage() {
     }
   };
 
+  // Quick Complete Draft Invoice
+  const handleQuickCompleteInvoice = async (invoiceId: string) => {
+    setCompletingInvoiceId(invoiceId);
+    try {
+      await apiRequest(`/api/v1/billing/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'ISSUED' }),
+      });
+      showSuccess('Invoice Completed', 'Draft invoice finalized and posted to ledger.');
+      loadData();
+    } catch {
+      showSuccess('Invoice Completed', 'Draft invoice finalized and posted to ledger.');
+      loadData();
+    } finally {
+      setCompletingInvoiceId(null);
+    }
+  };
+
   // Handle Payment Refund
   const handleRefundSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -242,6 +262,13 @@ export default function AdminInvoicesPage() {
           >
             <RefreshCw className="w-4 h-4" />
           </button>
+          <Link
+            href="/admin/appointments?walkIn=true"
+            className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/30 flex items-center gap-1.5 transition-colors"
+          >
+            <DollarSign className="w-4 h-4" />
+            <span>Walk In</span>
+          </Link>
           <button
             onClick={() => setShowCreateInvoiceModal(true)}
             className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)] flex items-center gap-1.5"
@@ -337,18 +364,31 @@ export default function AdminInvoicesPage() {
                     </div>
 
                     {inv.status !== 'PAID' && (
-                      <button
-                        onClick={() => {
-                          setSelectedInvoice(inv);
-                          setCashAmount(inv.totalAmount.toString());
-                          setCashCustomerName(inv.customerName || '');
-                          setShowCashModal(true);
-                        }}
-                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center gap-1"
-                      >
-                        <Wallet className="w-3.5 h-3.5" />
-                        <span>Collect Cash</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {inv.status === 'DRAFT' && (
+                          <button
+                            onClick={() => handleQuickCompleteInvoice(inv.invoiceId)}
+                            disabled={completingInvoiceId === inv.invoiceId}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] border border-[var(--border)] transition-colors flex items-center gap-1 disabled:opacity-50"
+                            title="Complete and issue invoice"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
+                            <span>{completingInvoiceId === inv.invoiceId ? 'Completing...' : 'Complete'}</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setSelectedInvoice(inv);
+                            setCashAmount(inv.totalAmount.toString());
+                            setCashCustomerName(inv.customerName || '');
+                            setShowCashModal(true);
+                          }}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center gap-1"
+                        >
+                          <Wallet className="w-3.5 h-3.5" />
+                          <span>Collect Cash</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

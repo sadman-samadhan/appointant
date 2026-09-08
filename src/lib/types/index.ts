@@ -254,6 +254,7 @@ export interface BookingListItemDto {
   serviceName: string;
   staffId?: string;
   staffName?: string;
+  date?: string;
   startTime: string;
   endTime?: string;
   status: BookingStatus;
