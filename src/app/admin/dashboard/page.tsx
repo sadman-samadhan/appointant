@@ -23,6 +23,15 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { BookingListItemDto, StaffResponseDto, InvoiceDto, PaymentResponseDto } from '@/lib/types';
+import { formatMoney, toNumber, toList, todayISO } from '@/lib/format';
+
+// Bookings carry `date` (YYYY-MM-DD) + `startTime` (HH:MM:SS); older shapes used an ISO startTime.
+function bookingStart(b: any): Date | null {
+  const start = typeof b?.startTime === 'string' ? b.startTime : '';
+  const day = typeof b?.date === 'string' ? b.date.substring(0, 10) : '';
+  const d = start.includes('T') ? new Date(start) : day ? new Date(`${day}T${start || '00:00:00'}`) : null;
+  return d && !isNaN(d.getTime()) ? d : null;
+}
 
 export default function AdminDashboardPage() {
   const { showSuccess, showError } = useToast();
@@ -39,41 +48,38 @@ export default function AdminDashboardPage() {
 
     try {
       const bkRes = await apiRequest<any>('/api/v1/bookings');
-      const bList = bkRes.items || bkRes.bookings || bkRes || [];
-      if (Array.isArray(bList)) {
-        setBookings(
-          bList.map((b: any) => ({
-            bookingId: b.bookingId || b.id,
-            customerName: b.customerName || b.customer?.fullName || 'Client',
-            serviceName: b.serviceName || b.service?.name || 'Salon Service',
-            staffName: b.staffName || b.staff?.fullName,
-            startTime: b.startTime || b.date,
-            status: b.status || 'SCHEDULED',
-            totalAmount: Number(b.totalAmount ?? b.service?.basePrice ?? 25),
-            currency: b.currency || 'CAD',
-          }))
-        );
-      }
+      const bList = toList(bkRes, 'bookings');
+      setBookings(
+        bList.map((b: any) => ({
+          bookingId: b.bookingId || b.id,
+          customerName: b.customerName || b.customer?.fullName || 'Client',
+          serviceName: b.serviceName || b.service?.name || 'Salon Service',
+          staffName: b.staffName || b.staff?.fullName,
+          date: b.date,
+          startTime: b.startTime || b.date,
+          status: b.status || 'SCHEDULED',
+          totalAmount: toNumber(b.totalAmount ?? b.totalPrice ?? b.service?.basePrice),
+          currency: b.currency || 'CAD',
+        }))
+      );
     } catch {
       setBookings([]);
     }
 
     try {
       const stfRes = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
-      const sList = stfRes.items || stfRes.staff || stfRes.data || (Array.isArray(stfRes) ? stfRes : []);
-      if (Array.isArray(sList)) {
-        setStaffList(
-          sList.map((s: any) => ({
-            staffId: s.staffId || s.id,
-            fullName: s.fullName || s.name || 'Specialist',
-            roleTitle: s.roleTitle || s.role || 'Specialist',
-            email: s.email || '',
-            phone: s.phone,
-            employmentType: s.employmentType || 'FULL_TIME',
-            status: s.status || 'ACTIVE',
-          }))
-        );
-      }
+      const sList = toList(stfRes, 'staff');
+      setStaffList(
+        sList.map((s: any) => ({
+          staffId: s.staffId || s.id,
+          fullName: s.fullName || s.name || 'Specialist',
+          roleTitle: s.roleTitle || s.role || 'Specialist',
+          email: s.email || '',
+          phone: s.phone,
+          employmentType: s.employmentType || 'FULL_TIME',
+          status: s.status || 'ACTIVE',
+        }))
+      );
     } catch {
       setStaffList([]);
     }
@@ -81,16 +87,14 @@ export default function AdminDashboardPage() {
     if (isAdmin) {
       try {
         const invRes = await apiRequest<any>('/api/v1/billing/invoices');
-        const iList = invRes.items || invRes.invoices || invRes || [];
-        if (Array.isArray(iList)) setInvoices(iList);
+        setInvoices(toList(invRes, 'invoices'));
       } catch {
         setInvoices([]);
       }
 
       try {
         const payRes = await apiRequest<any>('/api/v1/payments');
-        const pList = payRes.items || payRes.payments || payRes || [];
-        if (Array.isArray(pList)) setPayments(pList);
+        setPayments(toList(payRes, 'payments'));
       } catch {
         setPayments([]);
       }
@@ -112,17 +116,21 @@ export default function AdminDashboardPage() {
       showSuccess('Status Updated', `Booking status changed to ${action.toUpperCase()}`);
       fetchDashboardData();
     } catch (err: any) {
-      showError('Action Failed', err.message || `Failed to ${action} booking`);
+      showError('Action Failed', err?.message || `Failed to ${action} booking`);
     }
   };
 
   // KPI Calculations from Live Backend Data
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = todayISO();
+  const totalRevenue = payments.reduce((sum, p) => sum + toNumber(p.amount), 0);
   const todayRevenue = payments
-    .filter((p) => p.createdAt?.startsWith(todayStr) || true)
-    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    .filter((p: any) => String(p.paymentDate || p.createdAt || '').startsWith(todayStr))
+    .reduce((sum, p) => sum + toNumber(p.amount), 0);
 
-  const pendingInvoicesCount = invoices.filter((i) => i.status === 'UNPAID' || i.status === 'PARTIAL').length;
+  // Backend invoice statuses: DRAFT, SENT, PAID, OVERDUE, VOID, CANCELLED, PARTIALLY_PAID
+  const pendingInvoicesCount = invoices.filter((i) =>
+    ['DRAFT', 'SENT', 'OVERDUE', 'PARTIALLY_PAID', 'UNPAID', 'PARTIAL'].includes(String(i.status || '').toUpperCase())
+  ).length;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -131,7 +139,7 @@ export default function AdminDashboardPage() {
         <div>
           <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight">Dashboard Overview</h1>
           <p className="text-xs text-[var(--muted-foreground)] mt-0.5 font-medium">
-            Real-time daily metrics & appointment queue for B Diamond Beauty Salon.
+            Real-time daily metrics & appointment queue for B Diamond Barbershop.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -156,7 +164,7 @@ export default function AdminDashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KPICard
           label="Total Revenue Recorded"
-          value={`$${todayRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })} CAD`}
+          value={`$${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CAD`}
           sub="100% Cash Entry (Phase 1)"
           icon={DollarSign}
           accentColor="text-emerald-600 dark:text-emerald-400"
@@ -222,7 +230,7 @@ export default function AdminDashboardPage() {
                       <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--muted-foreground)] font-medium">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3 text-[var(--muted-foreground)]" />
-                          {new Date(apt.startTime).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}
+                          {bookingStart(apt)?.toLocaleString([], { hour: '2-digit', minute: '2-digit' }) || '—'}
                         </span>
                         <span>· Specialist: {apt.staffName || 'Any Specialist'}</span>
                       </div>
@@ -232,7 +240,7 @@ export default function AdminDashboardPage() {
                   <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--border)]">
                     <div className="text-right">
                       <span className="text-sm font-black text-[var(--foreground)] block">
-                        ${apt.totalAmount} {apt.currency || 'CAD'}
+                        ${formatMoney(apt.totalAmount)} {apt.currency || 'CAD'}
                       </span>
                       <Badge variant={apt.status} />
                     </div>
@@ -303,7 +311,7 @@ export default function AdminDashboardPage() {
                 Total Cash Receipts Today
               </span>
               <span className="text-2xl font-black text-emerald-600 block">
-                ${todayRevenue.toFixed(2)} CAD
+                ${formatMoney(todayRevenue)} CAD
               </span>
             </div>
             <Link

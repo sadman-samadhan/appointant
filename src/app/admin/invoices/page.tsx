@@ -21,6 +21,16 @@ import {
   Trash2,
 } from 'lucide-react';
 import { InvoiceDto, PaymentResponseDto, CustomerDto } from '@/lib/types';
+import { formatMoney, toNumber, toList, todayISO } from '@/lib/format';
+
+function formatDate(value: unknown, withTime = false): string {
+  if (!value) return '—';
+  const d = new Date(String(value));
+  if (isNaN(d.getTime())) return '—';
+  return withTime ? d.toLocaleString() : d.toLocaleDateString();
+}
+
+const CLOSED_INVOICE_STATUSES = ['PAID', 'VOID', 'CANCELLED'];
 
 export default function AdminInvoicesPage() {
   const { showSuccess, showError } = useToast();
@@ -43,7 +53,7 @@ export default function AdminInvoicesPage() {
   // Create Manual Invoice Modal
   const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
   const [invoiceCustomerId, setInvoiceCustomerId] = useState('');
-  const [invoiceDueDate, setInvoiceDueDate] = useState(new Date().toISOString().split('T')[0]);
+  const [invoiceDueDate, setInvoiceDueDate] = useState(todayISO());
   const [invoiceNotes, setInvoiceNotes] = useState('');
   const [invoiceItems, setInvoiceItems] = useState([
     { description: 'Haircut & Styling Service', quantity: 1, unitPrice: 25.0 },
@@ -64,21 +74,19 @@ export default function AdminInvoicesPage() {
 
     try {
       const custRes = await apiRequest<any>(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers`);
-      const cList = custRes.items || custRes.customers || (Array.isArray(custRes) ? custRes : []);
-      if (Array.isArray(cList)) {
-        loadedCustomers = cList.map((c: any) => {
-          const cust = c.customer || c;
-          return {
-            customerId: cust.customerId || c.customerId || c.id,
-            fullName: cust.fullName || c.fullName || cust.name || c.name || 'Client',
-            customerCode: c.customerCode || cust.customerCode || '',
-          };
-        });
-        setCustomers(loadedCustomers);
-        if (loadedCustomers.length > 0) {
-          setCashCustomerId((prev) => prev || loadedCustomers[0].customerId);
-          setInvoiceCustomerId((prev) => prev || loadedCustomers[0].customerId);
-        }
+      const cList = toList<any>(custRes, 'customers').filter(Boolean);
+      loadedCustomers = cList.map((c: any) => {
+        const cust = c.customer || c;
+        return {
+          customerId: cust.customerId || c.customerId || c.id,
+          fullName: cust.fullName || c.fullName || cust.name || c.name || 'Client',
+          customerCode: c.customerCode || cust.customerCode || '',
+        };
+      });
+      setCustomers(loadedCustomers);
+      if (loadedCustomers.length > 0) {
+        setCashCustomerId((prev) => prev || loadedCustomers[0].customerId);
+        setInvoiceCustomerId((prev) => prev || loadedCustomers[0].customerId);
       }
     } catch {
       setCustomers([]);
@@ -86,50 +94,47 @@ export default function AdminInvoicesPage() {
 
     try {
       const invRes = await apiRequest<any>('/api/v1/billing/invoices');
-      const iList: any[] = invRes.items || invRes.invoices || (Array.isArray(invRes) ? invRes : []);
-      if (Array.isArray(iList)) {
-        setInvoices(
-          iList.map((inv: any) => {
-            const matchedCust = loadedCustomers.find((c) => c.customerId === inv.customerId);
-            return {
-              invoiceId: inv.invoiceId || inv.id,
-              invoiceNumber: inv.invoiceNumber || (inv.invoiceId ? `INV-${inv.invoiceId.substring(0, 6).toUpperCase()}` : undefined),
-              customerName: inv.customerName || inv.customer?.fullName || matchedCust?.fullName || 'Client',
-              customerId: inv.customerId,
-              totalAmount: Number(inv.totalAmount || 0),
-              paidAmount: Number(inv.paidAmount || 0),
-              status: inv.status || 'UNPAID',
-              createdAt: inv.createdAt || inv.issueDate || new Date().toISOString(),
-            };
-          })
-        );
-      }
+      const iList: any[] = toList<any>(invRes, 'invoices').filter(Boolean);
+      setInvoices(
+        iList.map((inv: any) => {
+          const matchedCust = loadedCustomers.find((c) => c.customerId === inv.customerId);
+          const invId = String(inv.invoiceId || inv.id || '');
+          return {
+            invoiceId: invId,
+            invoiceNumber: inv.invoiceNumber || (invId ? `INV-${invId.substring(0, 6).toUpperCase()}` : undefined),
+            customerName: inv.customerName || inv.customer?.fullName || matchedCust?.fullName || 'Client',
+            customerId: inv.customerId,
+            totalAmount: toNumber(inv.totalAmount),
+            paidAmount: toNumber(inv.paidAmount),
+            status: inv.status || 'DRAFT',
+            createdAt: inv.createdAt || inv.issueDate || '',
+          };
+        })
+      );
     } catch {
       setInvoices([]);
     }
 
     try {
       const payRes = await apiRequest<any>('/api/v1/payments');
-      const pList: any[] = payRes.items || payRes.payments || (Array.isArray(payRes) ? payRes : []);
-      if (Array.isArray(pList)) {
-        setPayments(
-          pList.map((p: any) => {
-            const matchedCust = loadedCustomers.find((c) => c.customerId === p.customerId);
-            return {
-              paymentId: p.paymentId || p.id,
-              invoiceId: p.invoiceId,
-              customerId: p.customerId,
-              customerName: p.customerName || p.customer?.fullName || matchedCust?.fullName || 'Walk-in Client',
-              amount: Number(p.amount || 0),
-              paymentMethod: p.paymentMethod || 'CASH',
-              currency: p.currency || 'CAD',
-              status: p.status || 'COMPLETED',
-              notes: p.notes,
-              createdAt: p.createdAt || p.paymentDate || new Date().toISOString(),
-            };
-          })
-        );
-      }
+      const pList: any[] = toList<any>(payRes, 'payments').filter(Boolean);
+      setPayments(
+        pList.map((p: any) => {
+          const matchedCust = loadedCustomers.find((c) => c.customerId === p.customerId);
+          return {
+            paymentId: p.paymentId || p.id,
+            invoiceId: p.invoiceId,
+            customerId: p.customerId,
+            customerName: p.customerName || p.customer?.fullName || matchedCust?.fullName || 'Walk-in Client',
+            amount: toNumber(p.amount),
+            paymentMethod: p.paymentMethod || 'CASH',
+            currency: p.currency || 'CAD',
+            status: p.status || 'COMPLETED',
+            notes: p.notes,
+            createdAt: p.createdAt || p.paymentDate || '',
+          };
+        })
+      );
     } catch {
       setPayments([]);
     }
@@ -144,18 +149,22 @@ export default function AdminInvoicesPage() {
   // Handle Record Cash Payment
   const handleRecordCashPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    const targetCustomerId = selectedInvoice?.customerId || cashCustomerId;
+    if (!targetCustomerId) {
+      showError('Customer Required', 'Select a customer before recording a cash payment.');
+      return;
+    }
     setIsSubmittingPayment(true);
     try {
-      const targetCustomerId = selectedInvoice?.customerId || cashCustomerId || `walkin-${Date.now()}`;
       await apiRequest('/api/v1/payments', {
         method: 'POST',
         body: JSON.stringify({
           customerId: targetCustomerId,
           invoiceId: selectedInvoice?.invoiceId || undefined,
-          amount: parseFloat(cashAmount),
+          amount: toNumber(cashAmount),
           currency: 'CAD',
           paymentMethod: 'CASH',
-          paymentDate: new Date().toISOString().split('T')[0],
+          paymentDate: todayISO(),
           idempotencyKey: generateIdempotencyKey(),
           notes: `${cashCustomerName ? `Client: ${cashCustomerName} · ` : ''}${paymentNotes}`,
         }),
@@ -166,7 +175,7 @@ export default function AdminInvoicesPage() {
       setSelectedInvoice(null);
       loadData();
     } catch (err: any) {
-      showError('Payment Failed', err.message || 'Could not record cash payment');
+      showError('Payment Failed', err?.message || 'Could not record cash payment');
     } finally {
       setIsSubmittingPayment(false);
     }
@@ -175,20 +184,24 @@ export default function AdminInvoicesPage() {
   // Handle Create Manual Invoice
   const handleCreateInvoiceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!invoiceCustomerId) {
+      showError('Customer Required', 'Select a customer for this invoice.');
+      return;
+    }
     setIsSubmittingInvoice(true);
     try {
       await apiRequest('/api/v1/billing/invoices', {
         method: 'POST',
         body: JSON.stringify({
-          customerId: invoiceCustomerId || `cust-${Date.now()}`,
-          issueDate: new Date().toISOString().split('T')[0],
+          customerId: invoiceCustomerId,
+          issueDate: todayISO(),
           dueDate: invoiceDueDate,
           currency: 'CAD',
           notes: invoiceNotes.trim() || 'Manual salon service invoice',
           items: invoiceItems.map((item) => ({
             description: item.description,
-            quantity: Number(item.quantity) || 1,
-            unitPrice: Number(item.unitPrice) || 0,
+            quantity: toNumber(item.quantity, 1),
+            unitPrice: toNumber(item.unitPrice),
           })),
         }),
       });
@@ -196,7 +209,7 @@ export default function AdminInvoicesPage() {
       setShowCreateInvoiceModal(false);
       loadData();
     } catch (err: any) {
-      showError('Invoice Failed', err.message || 'Could not create invoice');
+      showError('Invoice Failed', err?.message || 'Could not create invoice');
     } finally {
       setIsSubmittingInvoice(false);
     }
@@ -206,15 +219,15 @@ export default function AdminInvoicesPage() {
   const handleQuickCompleteInvoice = async (invoiceId: string) => {
     setCompletingInvoiceId(invoiceId);
     try {
+      // Backend: PUT /billing/invoices/{id} with status enum DRAFT|SENT|PAID|OVERDUE|VOID|CANCELLED|PARTIALLY_PAID
       await apiRequest(`/api/v1/billing/invoices/${invoiceId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: 'ISSUED' }),
+        method: 'PUT',
+        body: JSON.stringify({ status: 'SENT' }),
       });
       showSuccess('Invoice Completed', 'Draft invoice finalized and posted to ledger.');
       loadData();
-    } catch {
-      showSuccess('Invoice Completed', 'Draft invoice finalized and posted to ledger.');
-      loadData();
+    } catch (err: any) {
+      showError('Invoice Update Failed', err?.message || 'Could not finalize invoice.');
     } finally {
       setCompletingInvoiceId(null);
     }
@@ -229,8 +242,9 @@ export default function AdminInvoicesPage() {
       await apiRequest(`/api/v1/payments/${selectedPayment.paymentId}/refund`, {
         method: 'POST',
         body: JSON.stringify({
-          amount: parseFloat(refundAmount),
+          amount: toNumber(refundAmount),
           reason: refundReason,
+          idempotencyKey: generateIdempotencyKey(),
         }),
       });
       showSuccess('Refund Processed', `$${refundAmount} CAD refunded in cash.`);
@@ -238,7 +252,7 @@ export default function AdminInvoicesPage() {
       setSelectedPayment(null);
       loadData();
     } catch (err: any) {
-      showError('Refund Failed', err.message || 'Could not process refund');
+      showError('Refund Failed', err?.message || 'Could not process refund');
     } finally {
       setIsSubmittingRefund(false);
     }
@@ -350,7 +364,7 @@ export default function AdminInvoicesPage() {
                       <h3 className="text-xs font-black text-[var(--foreground)]">#{inv.invoiceId}</h3>
                       <p className="text-xs font-bold text-[var(--primary)]">{inv.customerName || 'Walk-in Client'}</p>
                       <span className="text-[11px] text-[var(--muted-foreground)] block mt-0.5">
-                        {new Date(inv.createdAt).toLocaleDateString()}
+                        {formatDate(inv.createdAt)}
                       </span>
                     </div>
                   </div>
@@ -358,12 +372,12 @@ export default function AdminInvoicesPage() {
                   <div className="flex items-center justify-between sm:justify-end gap-4">
                     <div className="text-right">
                       <span className="text-sm font-black text-[var(--foreground)] block">
-                        ${inv.totalAmount.toFixed(2)} CAD
+                        ${formatMoney(inv.totalAmount)} CAD
                       </span>
                       <Badge variant={inv.status} />
                     </div>
 
-                    {inv.status !== 'PAID' && (
+                    {!CLOSED_INVOICE_STATUSES.includes(String(inv.status || '').toUpperCase()) && (
                       <div className="flex items-center gap-2">
                         {inv.status === 'DRAFT' && (
                           <button
@@ -379,7 +393,7 @@ export default function AdminInvoicesPage() {
                         <button
                           onClick={() => {
                             setSelectedInvoice(inv);
-                            setCashAmount(inv.totalAmount.toString());
+                            setCashAmount(formatMoney(toNumber(inv.totalAmount) - toNumber(inv.paidAmount)));
                             setCashCustomerName(inv.customerName || '');
                             setShowCashModal(true);
                           }}
@@ -430,7 +444,7 @@ export default function AdminInvoicesPage() {
                       <h3 className="text-xs font-black text-[var(--foreground)]">#{pay.paymentId}</h3>
                       <span className="text-xs font-bold text-emerald-600 block">Enforced CASH Entry</span>
                       <span className="text-[11px] text-[var(--muted-foreground)] block">
-                        {new Date(pay.createdAt).toLocaleString()} {pay.notes ? `· ${pay.notes}` : ''}
+                        {formatDate(pay.createdAt, true)} {pay.notes ? `· ${pay.notes}` : ''}
                       </span>
                     </div>
                   </div>
@@ -438,7 +452,7 @@ export default function AdminInvoicesPage() {
                   <div className="flex items-center justify-between sm:justify-end gap-3">
                     <div className="text-right">
                       <span className="text-sm font-black text-[var(--foreground)] block">
-                        ${pay.amount.toFixed(2)} {pay.currency || 'CAD'}
+                        ${formatMoney(pay.amount)} {pay.currency || 'CAD'}
                       </span>
                       <span className="text-[10px] font-bold text-emerald-600 uppercase bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200">
                         {pay.status || 'COMPLETED'}
@@ -448,7 +462,7 @@ export default function AdminInvoicesPage() {
                     <button
                       onClick={() => {
                         setSelectedPayment(pay);
-                        setRefundAmount(pay.amount.toString());
+                        setRefundAmount(formatMoney(pay.amount));
                         setShowRefundModal(true);
                       }}
                       className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-amber-600 hover:bg-amber-50"
@@ -488,6 +502,25 @@ export default function AdminInvoicesPage() {
               className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm font-bold text-[var(--foreground)] focus:outline-none"
             />
           </div>
+
+          {!selectedInvoice && (
+            <div>
+              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Customer</label>
+              <select
+                required
+                value={cashCustomerId}
+                onChange={(e) => setCashCustomerId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
+              >
+                {customers.length === 0 && <option value="">No customers found</option>}
+                {customers.map((c) => (
+                  <option key={c.customerId} value={c.customerId}>
+                    {c.fullName} {c.customerCode ? `(${c.customerCode})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Customer / Reference Name</label>
@@ -545,6 +578,7 @@ export default function AdminInvoicesPage() {
                 onChange={(e) => setInvoiceCustomerId(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
               >
+                {customers.length === 0 && <option value="">No customers found</option>}
                 {customers.map((c) => (
                   <option key={c.customerId} value={c.customerId}>
                     {c.fullName} {c.customerCode ? `(${c.customerCode})` : ''}

@@ -19,9 +19,9 @@ const DEFAULT_THEME: ThemeSettings = {
   secondaryColor: '#BE123C',
   accentColor: '#059669',
   logoUrl: '/bdiamond-logo.png',
-  featuredImageUrl: '/bdiamond-hero.png',
-  siteName: 'B DIAMOND BEAUTY SALON',
-  tagline: 'Salon & Barber Management OS',
+  featuredImageUrl: '',
+  siteName: 'B DIAMOND BARBERSHOP',
+  tagline: 'Barbershop · Fredericton',
   currency: 'CAD $',
   darkMode: false,
 };

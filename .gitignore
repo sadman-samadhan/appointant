@@ -31,3 +31,6 @@ next-env.d.ts
 *.pem
 .idea
 .vscode
+
+# legacy local mock stores (removed)
+.*_store.json

@@ -21,6 +21,13 @@ import {
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { ExpenseDto, ExpenseCategoryDto, AccountDto, StaffResponseDto } from '@/lib/types';
+import { formatMoney, toNumber, toList, todayISO } from '@/lib/format';
+
+function formatDate(value: unknown): string {
+  if (!value) return '—';
+  const d = new Date(String(value));
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+}
 
 export default function AdminExpensesPage() {
   const { showSuccess, showError } = useToast();
@@ -40,7 +47,7 @@ export default function AdminExpensesPage() {
   const [amount, setAmount] = useState('150.00');
   const [categoryId, setCategoryId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'COMPANY_CARD' | 'BANK_TRANSFER' | 'PERSONAL_CARD'>('CASH');
-  const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [expenseDate, setExpenseDate] = useState(todayISO());
   const [receiptNumber, setReceiptNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
@@ -60,24 +67,22 @@ export default function AdminExpensesPage() {
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
+    let loadedCategories: ExpenseCategoryDto[] = [];
 
     try {
       const catRes = await apiRequest<any>('/api/v1/expenses/categories');
-      const cList: ExpenseCategoryDto[] = catRes.items || catRes.categories || catRes || [];
-      if (Array.isArray(cList)) {
-        setCategories(
-          cList.map((c: any) => ({
-            categoryId: c.categoryId || c.id,
-            categoryName: c.categoryName || c.name,
-            name: c.name || c.categoryName,
-            description: c.description,
-            accountId: c.accountId,
-          }))
-        );
-        if (cList.length > 0) {
-          const firstCat = cList[0] as any;
-          setCategoryId(firstCat.categoryId || firstCat.id || '');
-        }
+      loadedCategories = toList<any>(catRes, 'categories')
+        .filter((c: any) => c && (c.categoryId || c.id))
+        .map((c: any) => ({
+          categoryId: c.categoryId || c.id,
+          categoryName: c.categoryName || c.name,
+          name: c.name || c.categoryName,
+          description: c.description,
+          accountId: c.accountId,
+        }));
+      setCategories(loadedCategories);
+      if (loadedCategories.length > 0) {
+        setCategoryId((prev) => prev || loadedCategories[0].categoryId);
       }
     } catch {
       setCategories([]);
@@ -85,36 +90,35 @@ export default function AdminExpensesPage() {
 
     try {
       const expRes = await apiRequest<any>('/api/v1/expenses');
-      const eList: ExpenseDto[] = expRes.items || expRes.expenses || expRes || [];
-      if (Array.isArray(eList)) {
-        setExpenses(
-          eList.map((e: any) => {
-            const matchedCat = categories.find((c) => c.categoryId === e.categoryId);
-            return {
-              expenseId: e.expenseId || e.id,
-              description: e.description || e.title,
-              title: e.description || e.title,
-              amount: Number(e.amount || 0),
-              currency: e.currency || 'CAD',
-              categoryName: e.categoryName || e.category?.name || matchedCat?.categoryName || 'General Operating',
-              categoryId: e.categoryId,
-              paymentMethod: e.paymentMethod || 'CASH',
-              status: e.status || 'SUBMITTED',
-              receiptNumber: e.receiptNumber,
-              notes: e.notes,
-              createdAt: e.createdAt || e.expenseDate || new Date().toISOString(),
-            };
-          })
-        );
-      }
+      const eList = toList<any>(expRes, 'expenses').filter(Boolean);
+      setExpenses(
+        eList.map((e: any) => {
+          const matchedCat = loadedCategories.find((c) => c.categoryId === e.categoryId);
+          return {
+            expenseId: e.expenseId || e.id,
+            description: e.description || e.title,
+            title: e.description || e.title,
+            amount: toNumber(e.amount),
+            currency: e.currency || 'CAD',
+            categoryName:
+              e.categoryName || e.category?.categoryName || e.category?.name || matchedCat?.categoryName || 'General Operating',
+            categoryId: e.categoryId,
+            paymentMethod: e.paymentMethod || 'CASH',
+            status: e.status || 'SUBMITTED',
+            receiptNumber: e.receiptNumber,
+            notes: e.notes,
+            createdAt: e.expenseDate || e.createdAt || '',
+          };
+        })
+      );
     } catch {
       setExpenses([]);
     }
 
     try {
       const stfRes = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
-      const sList = stfRes.items || stfRes.staff || stfRes.data || (Array.isArray(stfRes) ? stfRes : []);
-      if (Array.isArray(sList) && sList.length > 0) {
+      const sList = toList<any>(stfRes, 'staff').filter((s: any) => s && (s.staffId || s.id));
+      if (sList.length > 0) {
         const validStaff = sList
           .filter((s: any) => s.staffId !== 'c3e2cead-5ad3-41f8-83c2-26c85bbd0648' && s.id !== 'c3e2cead-5ad3-41f8-83c2-26c85bbd0648')
           .filter((s: any) => !s.tenantId || s.tenantId === DEFAULT_TENANT_ID);
@@ -140,8 +144,11 @@ export default function AdminExpensesPage() {
 
     try {
       const accRes = await apiRequest<any>('/api/v1/accounting/accounts');
-      const aList = accRes.items || accRes.accounts || accRes || [];
-      if (Array.isArray(aList)) setAccounts(aList);
+      setAccounts(
+        toList<any>(accRes, 'accounts')
+          .filter((a: any) => a && (a.accountId || a.id))
+          .map((a: any) => ({ ...a, accountId: a.accountId || a.id }))
+      );
     } catch {
       setAccounts([]);
     }
@@ -182,7 +189,7 @@ export default function AdminExpensesPage() {
           staffId: finalStaffId,
           categoryId,
           description: description.trim(),
-          amount: parseFloat(amount),
+          amount: toNumber(amount),
           currency: 'CAD',
           expenseDate,
           paymentMethod,
@@ -196,7 +203,7 @@ export default function AdminExpensesPage() {
       setDescription('');
       loadData();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Could not log expense');
+      showError('Action Failed', err?.message || 'Could not log expense');
     } finally {
       setIsSubmittingExpense(false);
     }
@@ -222,20 +229,31 @@ export default function AdminExpensesPage() {
       setCategoryDescription('');
       loadData();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Could not create category');
+      showError('Action Failed', err?.message || 'Could not create category');
     } finally {
       setIsSubmittingCat(false);
     }
   };
 
   // Workflow Approvals
+  // Newly created expenses may start as DRAFT and must be submitted before approval.
+  const handleSubmitExpense = async (expenseId: string) => {
+    try {
+      await apiRequest(`/api/v1/expenses/${expenseId}/submit`, { method: 'POST' });
+      showSuccess('Expense Submitted', 'Expense submitted for approval.');
+      loadData();
+    } catch (err: any) {
+      showError('Submit Failed', err?.message || 'Could not submit expense');
+    }
+  };
+
   const handleApproveExpense = async (expenseId: string) => {
     try {
       await apiRequest(`/api/v1/expenses/${expenseId}/approve`, { method: 'POST' });
       showSuccess('Expense Approved', 'Expense approved for payment.');
       loadData();
     } catch (err: any) {
-      showError('Approval Failed', err.message || 'Could not approve expense');
+      showError('Approval Failed', err?.message || 'Could not approve expense');
     }
   };
 
@@ -245,7 +263,7 @@ export default function AdminExpensesPage() {
       showSuccess('Expense Paid', 'Expense marked as PAID and settled.');
       loadData();
     } catch (err: any) {
-      showError('Payment Failed', err.message || 'Could not pay expense');
+      showError('Payment Failed', err?.message || 'Could not pay expense');
     }
   };
 
@@ -263,7 +281,7 @@ export default function AdminExpensesPage() {
       setSelectedExpense(null);
       loadData();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Could not reject expense');
+      showError('Action Failed', err?.message || 'Could not reject expense');
     } finally {
       setIsRejecting(false);
     }
@@ -282,8 +300,8 @@ export default function AdminExpensesPage() {
     if (staffList.length === 0) {
       try {
         const stfRes = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
-        const sList = stfRes.items || stfRes.staff || stfRes.data || (Array.isArray(stfRes) ? stfRes : []);
-        if (Array.isArray(sList) && sList.length > 0) {
+        const sList = toList<any>(stfRes, 'staff').filter((s: any) => s && (s.staffId || s.id));
+        if (sList.length > 0) {
           const validStaff = sList
             .filter((s: any) => s.staffId !== 'c3e2cead-5ad3-41f8-83c2-26c85bbd0648' && s.id !== 'c3e2cead-5ad3-41f8-83c2-26c85bbd0648')
             .filter((s: any) => !s.tenantId || s.tenantId === DEFAULT_TENANT_ID);
@@ -424,7 +442,7 @@ export default function AdminExpensesPage() {
                         {exp.categoryName || 'General'} · {exp.paymentMethod || 'CASH'}
                       </span>
                       <span className="text-[11px] text-[var(--muted-foreground)] block">
-                        {new Date(exp.createdAt).toLocaleDateString()}
+                        {formatDate(exp.createdAt)}
                       </span>
                     </div>
                   </div>
@@ -432,13 +450,23 @@ export default function AdminExpensesPage() {
                   <div className="flex items-center justify-between sm:justify-end gap-3">
                     <div className="text-right">
                       <span className="text-sm font-black text-[var(--foreground)] block">
-                        ${exp.amount.toFixed(2)} CAD
+                        ${formatMoney(exp.amount)} CAD
                       </span>
                       <Badge variant={exp.status} />
                     </div>
 
                     {/* Workflow triggers */}
                     <div className="flex items-center gap-1">
+                      {exp.status === 'DRAFT' && (
+                        <button
+                          onClick={() => handleSubmitExpense(exp.expenseId)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] border border-[var(--border)]"
+                          title="Submit for approval"
+                        >
+                          Submit
+                        </button>
+                      )}
+
                       {exp.status === 'SUBMITTED' && (
                         <>
                           <button

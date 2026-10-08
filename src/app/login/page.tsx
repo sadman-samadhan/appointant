@@ -76,7 +76,11 @@ export default function LoginPage() {
     try {
       const userProfile = await login(loginUserid.trim(), loginPassword);
       showSuccess('Authenticated Successfully', `Welcome back to ${settings.siteName}!`);
-      if (userProfile?.role === 'ADMIN' || userProfile?.role === 'STAFF') {
+      const next = new URLSearchParams(window.location.search).get('next');
+      const safeNext = next && next.startsWith('/') && !next.startsWith('//') ? next : null;
+      if (safeNext && (!safeNext.startsWith('/admin') || userProfile.role !== 'CUSTOMER')) {
+        router.push(safeNext);
+      } else if (userProfile.role === 'ADMIN' || userProfile.role === 'STAFF') {
         router.push('/admin/dashboard');
       } else {
         router.push('/customer/profile');

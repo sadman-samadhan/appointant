@@ -21,10 +21,11 @@ import {
   Layers,
 } from 'lucide-react';
 import { ServiceDto, StaffResponseDto, ServiceAddonDto, UnifiedSlotDto } from '@/lib/types';
+import { formatMoney, servicePrice, serviceDuration, toList, todayISO } from '@/lib/format';
 
 export default function CustomerBookPage() {
   const router = useRouter();
-  const { user, setCustomerSession } = useAuth();
+  const { user, setCustomerSession, isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { showSuccess, showError } = useToast();
 
   const [services, setServices] = useState<ServiceDto[]>([]);
@@ -36,7 +37,7 @@ export default function CustomerBookPage() {
   const [selectedService, setSelectedService] = useState<ServiceDto | null>(null);
   const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<StaffResponseDto | null>(null);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(todayISO());
   const [selectedTime, setSelectedTime] = useState('10:00:00');
 
   // Customer contact form
@@ -60,31 +61,35 @@ export default function CustomerBookPage() {
   }, [user]);
 
   // Load live services and staff catalog
+  // The salon server only answers signed-in users, so wait for a session first.
   useEffect(() => {
+    if (!isAuthenticated) return;
     async function loadCatalog() {
       try {
         const srvRes = await apiRequest<any>(`/api/v1/services/branches/${DEFAULT_BRANCH_ID}`);
-        let srvItems = srvRes.items || srvRes.services || (Array.isArray(srvRes) ? srvRes : []);
-        if (!Array.isArray(srvItems) || srvItems.length === 0) {
+        let srvItems = toList(srvRes, 'services').filter(Boolean);
+        if (srvItems.length === 0) {
           const allRes = await apiRequest<any>('/api/v1/services');
-          srvItems = allRes.items || allRes.services || (Array.isArray(allRes) ? allRes : []);
+          srvItems = toList(allRes, 'services').filter(Boolean);
         }
-        if (Array.isArray(srvItems) && srvItems.length > 0) {
+        if (srvItems.length > 0) {
           const activeOnly = srvItems.filter(
             (s: any) => s.status === 'ACTIVE' || s.isActive === true || (!s.status && s.isActive !== false)
           );
           const effective = activeOnly.length > 0 ? activeOnly : srvItems;
-          const normalized: ServiceDto[] = effective.map((s: any) => ({
-            serviceId: s.serviceId || s.id,
-            name: s.name,
-            description: s.description,
-            price: Number(s.price ?? s.basePrice ?? 0),
-            durationMinutes: Number(s.durationMinutes ?? s.baseDurationMinutes ?? 30),
-            categoryName: s.categoryName || 'General',
-          }));
+          const normalized: ServiceDto[] = effective
+            .filter((s: any) => s && (s.serviceId || s.id))
+            .map((s: any) => ({
+              serviceId: s.serviceId || s.id,
+              name: s.name || 'Service',
+              description: s.description,
+              price: servicePrice(s),
+              durationMinutes: serviceDuration(s),
+              categoryName: s.categoryName || s.category?.name || 'General',
+            }));
           setServices(normalized);
 
-          let preselected = normalized[0];
+          let preselected: ServiceDto | undefined = normalized[0];
           if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search);
             const targetId = params.get('serviceId');
@@ -93,7 +98,7 @@ export default function CustomerBookPage() {
               if (matched) preselected = matched;
             }
           }
-          setSelectedService(preselected);
+          setSelectedService(preselected || null);
         }
       } catch {
         /* empty */
@@ -101,8 +106,10 @@ export default function CustomerBookPage() {
 
       try {
         const stfRes = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
-        const stfItems = stfRes.items || stfRes.staff || stfRes.data || (Array.isArray(stfRes) ? stfRes : []);
-        if (Array.isArray(stfItems) && stfItems.length > 0) {
+        const stfItems = toList(stfRes, 'staff').filter(
+          (s: any) => s && (s.staffId || s.id) && s.status !== 'TERMINATED' && s.status !== 'INACTIVE'
+        );
+        if (stfItems.length > 0) {
           const normalized: StaffResponseDto[] = stfItems.map((s: any) => ({
             staffId: s.staffId || s.id,
             fullName: s.fullName || s.name || 'Specialist',
@@ -119,7 +126,7 @@ export default function CustomerBookPage() {
       }
     }
     loadCatalog();
-  }, []);
+  }, [isAuthenticated]);
 
   // Fetch real-time available time slots when date, service, or staff changes
   const fetchAvailableSlots = useCallback(async () => {
@@ -132,18 +139,15 @@ export default function CustomerBookPage() {
       const res = await apiRequest<any>(
         `/api/v1/availability/unified?branchId=${DEFAULT_BRANCH_ID}&serviceId=${selectedService.serviceId}&startDate=${selectedDate}&endDate=${selectedDate}${staffParam}`
       );
-      const items = res.slots || res.items || res || [];
-      if (Array.isArray(items) && items.length > 0) {
-        items.forEach((slot: any) => {
-          if (slot.available !== false) {
-            const timeStr = typeof slot === 'string' ? slot : slot.startTime || slot.time;
-            if (timeStr) {
-              const formatted = timeStr.includes('T') ? timeStr.split('T')[1].substring(0, 8) : timeStr;
-              slots.push(formatted);
-            }
-          }
-        });
-      }
+      const items = toList(res, 'slots', 'availableSlots');
+      items.forEach((slot: any) => {
+        if (!slot || slot.available === false) return;
+        const timeStr = typeof slot === 'string' ? slot : slot.startTime || slot.time;
+        if (typeof timeStr !== 'string' || !timeStr) return;
+        let formatted = timeStr.includes('T') ? timeStr.split('T')[1].substring(0, 8) : timeStr.substring(0, 8);
+        if (/^\d{2}:\d{2}$/.test(formatted)) formatted = `${formatted}:00`;
+        if (/^\d{2}:\d{2}:\d{2}$/.test(formatted) && !slots.includes(formatted)) slots.push(formatted);
+      });
     } catch {
       /* fallback to computed hourly slots between 09:00:00 and 17:00:00 */
     }
@@ -190,7 +194,7 @@ export default function CustomerBookPage() {
     }
 
     setIsSubmitting(true);
-    let customerId = user?.id?.toString() || '';
+    let customerId = '';
 
     // 1. Create/Find Customer in Backend CRM
     try {
@@ -207,7 +211,7 @@ export default function CustomerBookPage() {
         }),
       });
 
-      customerId = custRes?.customerId || custRes?.id || customerId;
+      customerId = custRes?.customerId || custRes?.id || custRes?.customer?.customerId || '';
 
       if (customerId) {
         try {
@@ -223,7 +227,25 @@ export default function CustomerBookPage() {
         }
       }
     } catch {
-      /* continue with booking */
+      /* customer may already exist - look it up below */
+    }
+
+    if (!customerId) {
+      try {
+        const searchRes = await apiRequest<any>(
+          `/api/v1/tenants/${DEFAULT_TENANT_ID}/customers?search=${encodeURIComponent(customerPhone.trim())}`
+        );
+        const match = toList(searchRes, 'customers')[0];
+        customerId = match?.customerId || match?.customer?.customerId || '';
+      } catch {
+        /* handled below */
+      }
+    }
+
+    if (!customerId) {
+      showError('Booking Failed', 'Could not create or find your customer profile. Please try again.');
+      setIsSubmitting(false);
+      return;
     }
 
     // 2. Reserve slot temporarily
@@ -235,7 +257,7 @@ export default function CustomerBookPage() {
           tenantId: DEFAULT_TENANT_ID,
           branchId: DEFAULT_BRANCH_ID,
           serviceId: selectedService.serviceId,
-          customerId: customerId || 'temp-customer',
+          customerId,
           date: selectedDate,
           startTime: selectedTime,
           endTime: calculateEndTime(selectedTime, selectedService.durationMinutes),
@@ -252,7 +274,7 @@ export default function CustomerBookPage() {
     const bookingPayload = {
       tenantId: DEFAULT_TENANT_ID,
       branchId: DEFAULT_BRANCH_ID,
-      customerId: customerId || `cust-${Date.now()}`,
+      customerId,
       serviceId: selectedService.serviceId,
       staffId: selectedStaff?.staffId || undefined,
       date: selectedDate,
@@ -279,14 +301,6 @@ export default function CustomerBookPage() {
               issueDate: selectedDate,
               dueDate: selectedDate,
               notes: `Online Booking Draft for ${customerName.trim()} - ${selectedService.name}`,
-              items: [
-                {
-                  serviceId: selectedService.serviceId,
-                  description: selectedService.name,
-                  quantity: 1,
-                  unitPrice: selectedService.price || 0,
-                },
-              ],
             }),
           });
         } catch {
@@ -306,7 +320,7 @@ export default function CustomerBookPage() {
         router.push('/customer/profile');
       }, 1500);
     } catch (err: any) {
-      showError('Booking Failed', err.message || 'Could not complete appointment booking.');
+      showError('Booking Failed', err?.message || 'Could not complete appointment booking.');
     } finally {
       setIsSubmitting(false);
     }
@@ -336,6 +350,27 @@ export default function CustomerBookPage() {
     } catch {
       return timeStr;
     }
+  }
+
+  if (isAuthLoading) {
+    return <div className="p-12 text-center text-xs text-[var(--muted-foreground)]">Loading...</div>;
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="max-w-md mx-auto glass-card p-8 rounded-3xl border border-[var(--border)] text-center space-y-4 animate-fade-in">
+        <h2 className="text-xl font-black text-[var(--foreground)]">Sign in to book</h2>
+        <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
+          Please sign in or create a free account to book an appointment. It only takes a minute.
+        </p>
+        <Link
+          href="/login?next=/customer/book"
+          className="btn-primary w-full py-3 rounded-xl text-xs font-bold inline-flex items-center justify-center"
+        >
+          Sign In / Create Account
+        </Link>
+      </div>
+    );
   }
 
   return (
@@ -426,7 +461,7 @@ export default function CustomerBookPage() {
                   >
                     <div className="flex justify-between items-start">
                       <h3 className="text-xs font-black text-[var(--foreground)]">{srv.name}</h3>
-                      <span className="text-xs font-black text-[var(--primary)]">${srv.price.toFixed(2)} CAD</span>
+                      <span className="text-xs font-black text-[var(--primary)]">${formatMoney(srv.price)} CAD</span>
                     </div>
                     {srv.description && (
                       <p className="text-[11px] text-[var(--muted-foreground)] line-clamp-1">{srv.description}</p>
@@ -499,7 +534,7 @@ export default function CustomerBookPage() {
                   }`}
                 >
                   <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[var(--primary)] to-rose-400 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                    {stf.fullName.charAt(0)}
+                    {(stf.fullName || '?').charAt(0)}
                   </div>
                   <div>
                     <h3 className="text-xs font-black text-[var(--foreground)]">{stf.fullName}</h3>
@@ -535,7 +570,7 @@ export default function CustomerBookPage() {
             <div className="space-y-1">
               <h2 className="text-lg font-black text-[var(--foreground)]">Select Date & Available Time Slot</h2>
               <p className="text-xs text-[var(--muted-foreground)] font-medium">
-                Live availability engine at Downtown Main Branch (BD-DT01).
+                Live availability engine at Downtown Main Branch.
               </p>
             </div>
 
@@ -543,7 +578,7 @@ export default function CustomerBookPage() {
               <label className="block text-xs font-bold text-[var(--foreground)] mb-1.5">Preferred Date</label>
               <input
                 type="date"
-                min={new Date().toISOString().split('T')[0]}
+                min={todayISO()}
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
@@ -641,7 +676,7 @@ export default function CustomerBookPage() {
                   </div>
                   <div className="flex justify-between text-sm font-black pt-2 border-t border-[var(--border-strong)]">
                     <span>Total Amount:</span>
-                    <span className="text-emerald-600">${(selectedService?.price || 0).toFixed(2)} CAD</span>
+                    <span className="text-emerald-600">${formatMoney(selectedService?.price)} CAD</span>
                   </div>
                 </div>
 

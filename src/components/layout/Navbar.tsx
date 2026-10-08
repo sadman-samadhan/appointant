@@ -34,7 +34,7 @@ export function Navbar({ onOpenCashModal }: NavbarProps) {
             <div className="hidden sm:block">
               <span className="font-extrabold text-sm block leading-tight">{settings.siteName}</span>
               <span className="text-[10px] text-[var(--muted-foreground)] block font-medium">
-                Downtown Main (BD-DT01)
+                Downtown Main Branch
               </span>
             </div>
           </Link>
@@ -50,6 +50,17 @@ export function Navbar({ onOpenCashModal }: NavbarProps) {
             <Wallet className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Walk In</span>
           </Link>
+
+          {onOpenCashModal && (
+            <button
+              onClick={onOpenCashModal}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)] flex items-center gap-1.5 transition-colors"
+              title="Record cash received"
+            >
+              <Plus className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="hidden sm:inline">Cash In</span>
+            </button>
+          )}
 
           <Link
             href="/admin/appointments?newBooking=true"

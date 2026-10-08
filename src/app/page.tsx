@@ -1,652 +1,358 @@
-'use client';
+import Image from 'next/image';
+import { Cormorant_Garamond, Inter } from 'next/font/google';
+import { ArrowRight, Clock, Mail, MapPin, Phone } from 'lucide-react';
+import { HomeNav, BookLink } from '@/components/home/HomeNav';
+import { OpenStatus, HoursTable } from '@/components/home/OpenStatus';
+import { ReviewsCarousel, Stars } from '@/components/home/ReviewsCarousel';
+import { BUSINESS, FULL_ADDRESS } from '@/lib/business';
+import { getPublicServices } from '@/lib/server/publicCatalog';
+import { getPublicReviews, getSetmoreServices } from '@/lib/server/setmore';
 
-import React, { useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
-import { useTheme } from '@/context/ThemeContext';
-import { useAuth } from '@/context/AuthContext';
-import {
-  Scissors,
-  Calendar,
-  MapPin,
-  Phone,
-  Star,
-  ShieldCheck,
-  Clock,
-  ArrowRight,
-  ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
-  User,
-  LogOut,
-  LayoutDashboard,
-  CheckCircle2,
-  Sparkles,
-} from 'lucide-react';
-import { ServiceDto } from '@/lib/types';
-import { apiRequest } from '@/lib/api/client';
-import { DEFAULT_BRANCH_ID } from '@/lib/api/config';
+// Re-read services and reviews at most every 5 minutes.
+export const revalidate = 300;
 
-interface GoogleReview {
-  id: string;
-  author: string;
-  rating: number;
-  date: string;
-  text: string;
-  source: string;
+const display = Cormorant_Garamond({ subsets: ['latin'], weight: ['500', '600'], variable: '--font-display' });
+const sans = Inter({ subsets: ['latin'], variable: '--font-sans' });
+
+interface MenuItem {
+  key: string;
+  name: string;
+  description: string;
+  price: number;
+  durationMinutes: number;
+  category: string;
+  bookHref: string;
+  bookExternal: boolean;
 }
 
-const STATIC_GOOGLE_REVIEWS: GoogleReview[] = [
-  {
-    id: 'rev-1',
-    author: 'Morteza Sultani',
-    rating: 5,
-    date: 'Verified Google Review',
-    text: 'I’m very happy with this barbershop. I’d like to thank Mr. Ghazi for the great haircut. He did an excellent job and cut my hair really well. I’m very satisfied and will definitely come back again!',
-    source: 'Google Maps',
-  },
-  {
-    id: 'rev-2',
-    author: 'Steve',
-    rating: 5,
-    date: 'Verified Google Review',
-    text: 'Best barber in town. Precision fades, respectful staff, and clean shop every single time.',
-    source: 'Google Maps',
-  },
-  {
-    id: 'rev-3',
-    author: 'Joseph Ennis',
-    rating: 5,
-    date: 'Verified Google Review',
-    text: 'Excellent hair cut, hot shave and the only place in town that does ear and nose hair waxing and all so reasonable.',
-    source: 'Google Maps',
-  },
-  {
-    id: 'rev-4',
-    author: 'KILLER X 77',
-    rating: 5,
-    date: 'Verified Google Review',
-    text: 'Very good service. They do a phenomenal job cutting hair and they are extremely polite and professional.',
-    source: 'Google Maps',
-  },
-  {
-    id: 'rev-5',
-    author: 'Mano',
-    rating: 5,
-    date: 'Verified Google Review',
-    text: 'Excellent service, very nice people and friendly. Highly recommended for top tier grooming in Fredericton.',
-    source: 'Google Maps',
-  },
-  {
-    id: 'rev-6',
-    author: 'Maninder Singh',
-    rating: 5,
-    date: 'Verified Google Review',
-    text: 'Awesome haircut and beard trim. Fresh line-ups and warm welcoming atmosphere.',
-    source: 'Google Maps',
-  },
-];
+function formatPrice(price: number) {
+  return Number.isInteger(price) ? `$${price}` : `$${price.toFixed(2)}`;
+}
 
-const DEFAULT_SERVICES_CATALOG: ServiceDto[] = [
-  {
-    serviceId: '42fc6040-ccbd-4f89-ab42-90d85baeeb95',
-    name: 'Haircut Service',
-    description: 'Precision haircut, hair wash, and professional style finish tailored to your personal look.',
-    price: 30.0,
-    durationMinutes: 30,
-    categoryName: 'Haircuts',
-  },
-  {
-    serviceId: '7ff59032-8458-4084-bc0c-4063ee7e7625',
-    name: 'Fade Haircut Service',
-    description: 'High, mid, low skin fade, taper fade, or burst fade finished with straight razor crispness.',
-    price: 35.0,
-    durationMinutes: 35,
-    categoryName: 'Haircuts',
-  },
-  {
-    serviceId: '3407d5be-daad-4f3d-845e-88c5087acf42',
-    name: 'Haircut & Beard Trim Combo',
-    description: 'Full custom haircut paired with meticulous beard sculpting, hot lather, and clean line-up.',
-    price: 48.0,
-    durationMinutes: 45,
-    categoryName: 'Combos',
-  },
-  {
-    serviceId: '925966df-1d8c-4ca4-a70c-3dc2676d9f65',
-    name: 'Hot Towel Shave',
-    description: 'Traditional steam towel relaxation with organic essential oils and straight razor smooth shave.',
-    price: 35.0,
-    durationMinutes: 30,
-    categoryName: 'Shaves',
-  },
-  {
-    serviceId: '139ce2eb-3f4c-454b-a906-6aa87bcfa278',
-    name: 'Haircut & Hot Shave Combo',
-    description: 'The ultimate royal experience: precision master cut plus full hot steam towel straight razor shave.',
-    price: 60.0,
-    durationMinutes: 55,
-    categoryName: 'Combos',
-  },
-  {
-    serviceId: '6d21351c-0d62-4caa-a1ff-7338cced85d5',
-    name: 'Beard Trim Service',
-    description: 'Detailed beard trimming, length shaping, conditioning oils, and razor cheek/neck detailing.',
-    price: 22.0,
-    durationMinutes: 20,
-    categoryName: 'Beard',
-  },
-  {
-    serviceId: 'db140e37-f507-406c-b9d2-efdfd3d1b294',
-    name: 'Senior Haircut Service (65+)',
-    description: 'Classic gentlemen haircut with refined styling and gentle care at a dedicated senior rate.',
-    price: 25.0,
-    durationMinutes: 30,
-    categoryName: 'Haircuts',
-  },
-  {
-    serviceId: '72b04e93-f457-4b71-bc1c-f770cb627e0c',
-    name: 'Kids Haircut (Age Under 10)',
-    description: 'Patient, attentive haircut for boys and girls under 10 in a relaxed, friendly environment.',
-    price: 22.0,
-    durationMinutes: 25,
-    categoryName: 'Kids',
-  },
-  {
-    serviceId: '1d13958a-bbdd-4cb0-9fbb-796c2bb04edc',
-    name: 'Face Waxing Service',
-    description: 'Quick, hygienic facial hair removal for ears, nose, and brow line shaping.',
-    price: 18.0,
-    durationMinutes: 15,
-    categoryName: 'Waxing',
-  },
-];
+// The menu comes from services the owner has published in the salon system. Until any
+// are published there, the shop's live Setmore menu is shown and booking goes there.
+async function loadMenu(): Promise<{ items: MenuItem[]; bookHref: string; bookExternal: boolean }> {
+  const catalog = await getPublicServices();
+  if (catalog.status === 'ok' && catalog.services.length > 0) {
+    return {
+      bookHref: '/customer/book',
+      bookExternal: false,
+      items: catalog.services.map((s) => ({
+        key: s.serviceId,
+        name: s.name,
+        description: s.description,
+        price: s.price,
+        durationMinutes: s.durationMinutes,
+        category: s.category,
+        bookHref: `/customer/book?serviceId=${encodeURIComponent(s.serviceId)}`,
+        bookExternal: false,
+      })),
+    };
+  }
 
-export default function PublicLandingPage() {
-  const { settings } = useTheme();
-  const { user, isAuthenticated, logout } = useAuth();
-  const [liveServices, setLiveServices] = useState<ServiceDto[]>(DEFAULT_SERVICES_CATALOG);
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-
-  // Reviews carousel state
-  const [reviewIndex, setReviewIndex] = useState(0);
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await apiRequest<any>(`/api/v1/services/branches/${DEFAULT_BRANCH_ID}`);
-        const items = res.items || res.services || res || [];
-        if (Array.isArray(items) && items.length > 0) {
-          const activeOnly = items
-            .filter((s: any) => s.status === 'ACTIVE' || s.isActive === true || (!s.status && s.isActive !== false))
-            .map((s: any) => ({
-              serviceId: s.serviceId || s.id,
-              name: s.name,
-              description: s.description || '',
-              price: Number(s.price ?? s.basePrice ?? 0),
-              durationMinutes: Number(s.durationMinutes ?? s.baseDurationMinutes ?? 30),
-              categoryName: s.categoryName || 'General',
-            }));
-          if (activeOnly.length > 0) {
-            setLiveServices(activeOnly);
-          }
-        }
-      } catch {
-        /* fallback to defaults */
-      }
-    }
-    load();
-  }, []);
-
-  const categories = ['All', ...Array.from(new Set(liveServices.map((s) => s.categoryName || 'General')))];
-
-  const filteredServices =
-    selectedCategory === 'All'
-      ? liveServices
-      : liveServices.filter((s) => (s.categoryName || 'General') === selectedCategory);
-
-  // Group services into slides of 3 cards each (or 1 on mobile)
-  const itemsPerSlide = 3;
-  const totalSlides = Math.ceil(filteredServices.length / itemsPerSlide);
-
-  const nextSlide = () => {
-    setCurrentSlideIndex((prev) => (prev + 1) % Math.max(1, totalSlides));
+  const setmore = await getSetmoreServices();
+  return {
+    bookHref: BUSINESS.setmoreUrl,
+    bookExternal: true,
+    items: setmore.map((s) => ({
+      key: s.id,
+      name: s.name,
+      description: s.description,
+      price: s.price,
+      durationMinutes: s.durationMinutes,
+      category: 'Services',
+      bookHref: BUSINESS.setmoreUrl,
+      bookExternal: true,
+    })),
   };
+}
 
-  const prevSlide = () => {
-    setCurrentSlideIndex((prev) => (prev - 1 + totalSlides) % Math.max(1, totalSlides));
-  };
+// Short teaser for the menu: skips a leading line that just repeats the service name,
+// then keeps the first sentence of what's left.
+function teaser(description: string, name: string) {
+  const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const lines = description
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter((l) => l && norm(l) !== norm(name));
+  const first = lines[0] || '';
+  const m = first.match(/^.{20,180}?[.!?](\s|$)/);
+  if (m) return m[0].trim();
+  return first.length > 160 ? `${first.slice(0, 157).trimEnd()}…` : first;
+}
 
-  const nextReview = () => {
-    setReviewIndex((prev) => (prev + 1) % STATIC_GOOGLE_REVIEWS.length);
-  };
+export default async function HomePage() {
+  const [menu, reviewsData] = await Promise.all([loadMenu(), getPublicReviews()]);
+  const categories = Array.from(new Set(menu.items.map((i) => i.category)));
+  const rating = reviewsData ? Math.round(reviewsData.averageRating * 10) / 10 : null;
 
-  const prevReview = () => {
-    setReviewIndex((prev) => (prev - 1 + STATIC_GOOGLE_REVIEWS.length) % STATIC_GOOGLE_REVIEWS.length);
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BarberShop',
+    name: BUSINESS.name,
+    telephone: BUSINESS.phone,
+    email: BUSINESS.email,
+    address: {
+      '@type': 'PostalAddress',
+      streetAddress: BUSINESS.address.street,
+      addressLocality: BUSINESS.address.city,
+      addressRegion: BUSINESS.address.region,
+      postalCode: BUSINESS.address.postalCode,
+      addressCountry: 'CA',
+    },
+    sameAs: [BUSINESS.facebookUrl],
+    ...(reviewsData && {
+      aggregateRating: {
+        '@type': 'AggregateRating',
+        ratingValue: reviewsData.averageRating,
+        reviewCount: reviewsData.reviewCount,
+      },
+    }),
   };
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] animate-fade-in">
-      {/* Navigation Header */}
-      <header className="sticky top-0 z-40 bg-[var(--card)]/90 backdrop-blur-md border-b border-[var(--border)] px-4 sm:px-8 py-3.5">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {settings.logoUrl ? (
-              <img
-                src={settings.logoUrl}
-                alt={settings.siteName}
-                className="w-10 h-10 rounded-xl object-cover border border-[var(--border)]"
+    <div className={`${display.variable} ${sans.variable} home-theme min-h-screen font-sans`}>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <HomeNav bookHref={menu.bookHref} bookExternal={menu.bookExternal} />
+
+      {/* Hero */}
+      <section className="hero-wash relative overflow-hidden pt-28 sm:pt-32">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 pb-20 sm:px-8 lg:grid-cols-[1.15fr_0.85fr] lg:pb-28">
+          <div>
+            <p className="eyebrow">
+              {BUSINESS.address.street.split(',')[0]} · {BUSINESS.address.city}
+            </p>
+            <h1 className="mt-6 font-display text-5xl leading-[1.02] text-[var(--foreground)] sm:text-6xl lg:text-7xl">
+              Precision cuts.
+              <br />
+              <span className="accent-text">Classic shaves.</span>
+            </h1>
+            <p className="mt-6 max-w-xl text-base leading-relaxed text-[var(--muted-foreground)] sm:text-lg">
+              Fades, beard work and hot towel shaves in a laid-back, welcoming shop in downtown Fredericton.
+            </p>
+
+            <div className="mt-9 flex flex-wrap items-center gap-3">
+              <BookLink href={menu.bookHref} external={menu.bookExternal} className="cta-button px-7 py-3.5 text-sm">
+                Book an appointment
+              </BookLink>
+              <a
+                href="#services"
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border-strong)] px-7 py-3.5 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--theme-primary)]/60"
+              >
+                View services <ArrowRight className="h-4 w-4" />
+              </a>
+            </div>
+
+            {reviewsData && rating !== null && (
+              <a href="#reviews" className="mt-10 inline-flex items-center gap-3 text-sm">
+                <Stars rating={reviewsData.averageRating} />
+                <span className="text-[var(--foreground)]">{rating.toFixed(1)}</span>
+                <span className="text-[var(--muted-foreground)]">from {reviewsData.reviewCount} reviews</span>
+              </a>
+            )}
+          </div>
+
+          <div className="relative mx-auto w-full max-w-sm">
+            <div className="absolute inset-6 rounded-full bg-[var(--theme-primary)]/20 blur-3xl" aria-hidden />
+            <div className="relative aspect-square overflow-hidden rounded-[2rem] ring-1 ring-[var(--theme-primary)]/30 shadow-[0_30px_60px_-24px_rgba(54,46,40,0.35)]">
+              <Image
+                src="/bdiamond-logo.png"
+                alt={`${BUSINESS.name} logo`}
+                fill
+                priority
+                sizes="(min-width: 1024px) 384px, 80vw"
+                className="object-cover"
               />
-            ) : (
-              <div className="w-10 h-10 rounded-xl bg-[var(--primary)] text-white flex items-center justify-center font-black">
-                BD
-              </div>
-            )}
-            <div>
-              <h1 className="font-black text-base tracking-tight leading-tight">{settings.siteName}</h1>
-              <span className="text-[10px] font-semibold text-[var(--muted-foreground)] block">
-                593 King St, Downtown Fredericton, NB
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <a
-              href="tel:+15068832222"
-              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] transition-all flex items-center gap-1.5 border border-[var(--border)] shadow-xs"
-              title="Call Salon directly"
-            >
-              <Phone className="w-3.5 h-3.5 text-[var(--primary)]" />
-              <span className="hidden sm:inline">(506) 883-2222</span>
-              <span className="sm:hidden">Call</span>
-            </a>
-
-            {isAuthenticated && user ? (
-              <>
-                {user.role === 'ADMIN' ? (
-                  <Link
-                    href="/admin/dashboard"
-                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[var(--primary-light)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white transition-all flex items-center gap-1.5 border border-[var(--primary-ring)]"
-                  >
-                    <LayoutDashboard className="w-3.5 h-3.5" />
-                    <span className="hidden md:inline">Dashboard</span>
-                  </Link>
-                ) : (
-                  <Link
-                    href="/customer/profile"
-                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[var(--primary-light)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white transition-all flex items-center gap-1.5 border border-[var(--primary-ring)]"
-                  >
-                    <User className="w-3.5 h-3.5" />
-                    <span className="hidden md:inline">{user.name}</span>
-                  </Link>
-                )}
-                <Link
-                  href="/customer/book"
-                  className="btn-primary px-4 py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5"
-                >
-                  <Calendar className="w-4 h-4" />
-                  <span>Book</span>
-                </Link>
-                <button
-                  onClick={logout}
-                  title="Sign Out"
-                  className="p-2 rounded-xl text-xs font-bold text-[var(--muted-foreground)] hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </>
-            ) : (
-              <>
-                <Link
-                  href="/login"
-                  className="px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
-                >
-                  Sign In
-                </Link>
-                <Link
-                  href="/customer/book"
-                  className="btn-primary px-4 py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5"
-                >
-                  <Calendar className="w-4 h-4" />
-                  <span>Book Appointment</span>
-                </Link>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Hero Section */}
-      <section className="relative max-w-7xl mx-auto px-4 sm:px-8 py-10 lg:py-16 grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
-        <div className="space-y-6">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[var(--primary-light)] text-[var(--primary)] text-xs font-extrabold border border-[var(--primary-ring)] shadow-xs">
-            <Star className="w-3.5 h-3.5 fill-[var(--primary)]" />
-            <span>4.8 Rating • 254 Verified Google Reviews</span>
-          </div>
-
-          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-[1.1]">
-            Master Grooming & Modern Styling in Fredericton
-          </h1>
-
-          <p className="text-sm sm:text-base text-[var(--muted-foreground)] font-medium leading-relaxed max-w-xl">
-            Welcome to {settings.siteName}. Experience master barbers, precision skin fades, traditional steam towel hot shaves, and beard sculpting at Downtown Fredericton.
-          </p>
-
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <Link
-              href="/customer/book"
-              className="btn-primary px-7 py-3.5 rounded-2xl text-xs font-black shadow-lg flex items-center gap-2 hover:scale-[1.02] transition-transform"
-            >
-              <span>Book Appointment Online</span>
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-
-            {/* Clickable Call Button */}
-            <a
-              href="tel:+15068832222"
-              className="flex items-center gap-2 px-5 py-3.5 rounded-2xl bg-[var(--card)] hover:bg-[var(--muted)] text-xs font-bold text-[var(--foreground)] border border-[var(--border)] shadow-sm hover:border-[var(--primary)] transition-all"
-            >
-              <Phone className="w-4 h-4 text-[var(--primary)] shrink-0" />
-              <span>Call (506) 883-2222</span>
-            </a>
-          </div>
-
-          <div className="flex items-center gap-6 pt-4 text-xs font-semibold text-[var(--muted-foreground)]">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Walk-ins Welcome</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-[var(--primary)]" />
-              <span>Mon-Sat 9AM - 6PM</span>
             </div>
           </div>
         </div>
 
-        {/* Hero Photo Card */}
-        <div className="glass-card p-3 rounded-3xl overflow-hidden shadow-2xl border border-[var(--border)]">
-          <div className="relative h-80 sm:h-96 rounded-2xl overflow-hidden bg-[var(--muted)] flex items-center justify-center">
-            {settings.featuredImageUrl ? (
-              <img
-                src={settings.featuredImageUrl}
-                alt="B Diamond Salon Studio"
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="text-center p-8 space-y-3">
-                <div className="w-16 h-16 rounded-2xl bg-[var(--primary)] text-white flex items-center justify-center mx-auto shadow-md">
-                  <Scissors className="w-8 h-8" />
-                </div>
-                <h3 className="text-xl font-black text-[var(--foreground)]">{settings.siteName}</h3>
-                <p className="text-xs text-[var(--muted-foreground)]">
-                  593 King Street, Downtown Fredericton, New Brunswick
-                </p>
-              </div>
-            )}
-            <div className="absolute bottom-4 left-4 right-4 p-3 rounded-xl bg-[var(--card)]/90 backdrop-blur-md border border-[var(--border)] flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-bold">
-                <MapPin className="w-4 h-4 text-[var(--primary)]" />
-                <span>Downtown Fredericton Main Branch</span>
-              </div>
-              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 border border-emerald-200">
-                OPEN TODAY
-              </span>
-            </div>
+        {/* Quick facts */}
+        <div className="relative border-t border-[var(--border)] bg-[var(--card)]">
+          <div className="mx-auto grid max-w-6xl gap-px px-5 sm:grid-cols-3 sm:px-8">
+            <a href={BUSINESS.mapsUrl} target="_blank" rel="noopener noreferrer" className="fact">
+              <MapPin className="h-4 w-4 text-[var(--theme-primary)]" />
+              <span className="text-[var(--foreground)]">{BUSINESS.address.street}</span>
+            </a>
+            <a href="#visit" className="fact">
+              <Clock className="h-4 w-4 text-[var(--theme-primary)]" />
+              <OpenStatus />
+            </a>
+            <a href={`tel:${BUSINESS.phone}`} className="fact">
+              <Phone className="h-4 w-4 text-[var(--theme-primary)]" />
+              <span className="text-[var(--foreground)]">{BUSINESS.phoneDisplay}</span>
+            </a>
           </div>
         </div>
       </section>
 
-      {/* Services Section - Full-Viewport Carousel / Slider */}
-      <section className="py-14 bg-[var(--card)]/40 border-y border-[var(--border)]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-8 space-y-8">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      {/* Services */}
+      <section id="services" className="scroll-mt-20 bg-[var(--background)] py-24 sm:py-28">
+        <div className="mx-auto max-w-6xl px-5 sm:px-8">
+          <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-end">
             <div>
-              <div className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[var(--primary)] uppercase tracking-wider mb-1">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Service Catalog</span>
-              </div>
-              <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-[var(--foreground)]">
-                Our Signature Services & Rates
-              </h2>
-              <p className="text-xs sm:text-sm text-[var(--muted-foreground)] font-medium mt-1">
-                Swipe or use arrows to view services. Select any service to reserve your preferred specialist.
+              <p className="eyebrow">The menu</p>
+              <h2 className="mt-4 font-display text-4xl text-[var(--foreground)] sm:text-5xl">Services &amp; prices</h2>
+            </div>
+            <p className="max-w-sm text-sm leading-relaxed text-[var(--muted-foreground)]">
+              All prices in {BUSINESS.currency}. Open six days a week. Book ahead to secure your time.
+            </p>
+          </div>
+
+          {menu.items.length === 0 ? (
+            <div className="mt-14 rounded-3xl border border-[var(--border)] p-10 text-center">
+              <p className="font-display text-2xl text-[var(--foreground)]">Our menu is being updated</p>
+              <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+                Call us at{' '}
+                <a href={`tel:${BUSINESS.phone}`} className="text-[var(--theme-primary)] underline-offset-4 hover:underline">
+                  {BUSINESS.phoneDisplay}
+                </a>{' '}
+                for prices and availability.
               </p>
             </div>
-
-            {/* Carousel Navigation Controls */}
-            <div className="flex items-center gap-2 self-start md:self-auto">
-              <button
-                onClick={prevSlide}
-                className="p-2.5 rounded-xl bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] transition-all border border-[var(--border)] active:scale-95 shadow-xs"
-                title="Previous services slide"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <button
-                onClick={nextSlide}
-                className="p-2.5 rounded-xl bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] transition-all border border-[var(--border)] active:scale-95 shadow-xs"
-                title="Next services slide"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Category Filter Pills */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => {
-                  setSelectedCategory(cat);
-                  setCurrentSlideIndex(0);
-                }}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                  selectedCategory === cat
-                    ? 'bg-[var(--primary)] text-white shadow-md font-black'
-                    : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)]'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          {/* Carousel Slide Track */}
-          <div className="relative overflow-hidden">
-            <div
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 transition-all duration-500 ease-out"
-            >
-              {filteredServices
-                .slice(currentSlideIndex * itemsPerSlide, currentSlideIndex * itemsPerSlide + itemsPerSlide)
-                .map((srv) => (
-                  <div
-                    key={srv.serviceId}
-                    className="glass-card p-6 rounded-3xl flex flex-col justify-between border border-[var(--border)] hover:border-[var(--primary)] hover:shadow-xl transition-all group bg-[var(--card)] relative overflow-hidden"
-                  >
-                    <div className="space-y-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-[var(--primary-light)] text-[var(--primary)] border border-[var(--primary-ring)]">
-                          {srv.categoryName || 'Service'}
-                        </span>
-                        <div className="text-right">
-                          <span className="text-lg font-black text-[var(--foreground)] block leading-tight">
-                            ${srv.price.toFixed(2)}
-                          </span>
-                          <span className="text-[10px] font-bold text-[var(--muted-foreground)]">CAD</span>
-                        </div>
-                      </div>
-
-                      <h3 className="text-base font-black text-[var(--foreground)] group-hover:text-[var(--primary)] transition-colors">
-                        {srv.name}
-                      </h3>
-
-                      <p className="text-xs text-[var(--muted-foreground)] leading-relaxed font-medium line-clamp-2">
-                        {srv.description || 'Master grooming and traditional care by certified stylists.'}
-                      </p>
-                    </div>
-
-                    <div className="pt-5 mt-5 border-t border-[var(--border)] flex items-center justify-between">
-                      <span className="text-xs font-bold text-[var(--muted-foreground)] flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-[var(--primary)]" />
-                        <span>{srv.durationMinutes} mins</span>
-                      </span>
-
-                      <Link
-                        href={`/customer/book?serviceId=${srv.serviceId}`}
-                        className="btn-primary px-4 py-2 rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 group-hover:scale-105 transition-transform"
-                      >
-                        <span>Book Now</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </div>
-
-          {/* Slider Pagination Dots */}
-          {totalSlides > 1 && (
-            <div className="flex items-center justify-center gap-2 pt-2">
-              {Array.from({ length: totalSlides }).map((_, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setCurrentSlideIndex(idx)}
-                  className={`h-2 rounded-full transition-all ${
-                    currentSlideIndex === idx
-                      ? 'w-7 bg-[var(--primary)]'
-                      : 'w-2 bg-[var(--border-strong)] hover:bg-[var(--muted-foreground)]'
-                  }`}
-                  title={`Go to slide ${idx + 1}`}
-                />
+          ) : (
+            <div className="mt-14 space-y-14">
+              {categories.map((cat) => (
+                <div key={cat}>
+                  {categories.length > 1 && (
+                    <h3 className="mb-2 text-xs uppercase tracking-[0.3em] text-[var(--theme-primary)]">{cat}</h3>
+                  )}
+                  <ul className="grid gap-x-14 md:grid-cols-2">
+                    {menu.items
+                      .filter((i) => i.category === cat)
+                      .map((item) => (
+                        <li key={item.key} className="group border-b border-[var(--border)] py-6">
+                          <div className="flex items-baseline gap-4">
+                            <h4 className="font-display text-2xl text-[var(--foreground)]">{item.name}</h4>
+                            <span className="leader" aria-hidden />
+                            <span className="font-display text-2xl text-[var(--theme-primary)]">{formatPrice(item.price)}</span>
+                          </div>
+                          {teaser(item.description, item.name) && (
+                            <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--muted-foreground)]">
+                              {teaser(item.description, item.name)}
+                            </p>
+                          )}
+                          <div className="mt-3 flex items-center justify-between text-xs">
+                            <span className="text-[var(--muted-foreground)]">{item.durationMinutes} min</span>
+                            <BookLink
+                              href={item.bookHref}
+                              external={item.bookExternal}
+                              className="inline-flex items-center gap-1.5 uppercase tracking-[0.2em] text-[var(--theme-primary)] opacity-80 transition-opacity hover:opacity-100"
+                            >
+                              Book <ArrowRight className="h-3 w-3" />
+                            </BookLink>
+                          </div>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
               ))}
             </div>
           )}
         </div>
       </section>
 
-      {/* Google Reviews Section (Static Phase 1 Data) */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-8 py-16 space-y-8">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 text-xs font-extrabold">
-              <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-              <span>Google Maps Verified Reviews</span>
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
-              Loved by Clients Across Fredericton
-            </h2>
-            <p className="text-xs text-[var(--muted-foreground)] font-medium">
-              Over 254 verified reviews with a 4.8 average star rating on Google.
-            </p>
-          </div>
-
-          {/* Review navigation */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={prevReview}
-              className="p-2.5 rounded-xl bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] border border-[var(--border)]"
-              title="Previous review"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              onClick={nextReview}
-              className="p-2.5 rounded-xl bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] border border-[var(--border)]"
-              title="Next review"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Reviews Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {[0, 1, 2].map((offset) => {
-            const rev = STATIC_GOOGLE_REVIEWS[(reviewIndex + offset) % STATIC_GOOGLE_REVIEWS.length];
-            return (
-              <div
-                key={rev.id}
-                className="glass-card p-6 rounded-3xl flex flex-col justify-between border border-[var(--border)] space-y-4 shadow-sm hover:shadow-md transition-shadow"
-              >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1 text-amber-500">
-                      {Array.from({ length: rev.rating }).map((_, i) => (
-                        <Star key={i} className="w-4 h-4 fill-amber-500 text-amber-500" />
-                      ))}
-                    </div>
-                    <span className="text-[10px] font-bold text-[var(--muted-foreground)] bg-[var(--muted)] px-2 py-0.5 rounded-full">
-                      {rev.source}
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-[var(--foreground)] leading-relaxed italic font-medium">
-                    &ldquo;{rev.text}&rdquo;
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-3 pt-3 border-t border-[var(--border)]">
-                  <div className="w-9 h-9 rounded-full bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center font-black text-xs border border-[var(--primary-ring)]">
-                    {rev.author.charAt(0)}
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-black text-[var(--foreground)] leading-tight">{rev.author}</h4>
-                    <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      {rev.date}
-                    </span>
-                  </div>
+      {/* Reviews */}
+      {reviewsData && reviewsData.reviews.length > 0 && (
+        <section id="reviews" className="hero-wash scroll-mt-20 py-24 sm:py-28">
+          <div className="mx-auto grid max-w-6xl gap-14 px-5 sm:px-8 lg:grid-cols-[0.8fr_1.2fr]">
+            <div>
+              <p className="eyebrow">Reviews</p>
+              <h2 className="mt-4 font-display text-4xl text-[var(--foreground)] sm:text-5xl">What clients say</h2>
+              <div className="mt-10 flex items-end gap-4">
+                <span className="font-display text-7xl leading-none text-[var(--foreground)]">{rating?.toFixed(1)}</span>
+                <div className="pb-2">
+                  <Stars rating={reviewsData.averageRating} />
+                  <p className="mt-1.5 text-sm text-[var(--muted-foreground)]">{reviewsData.reviewCount} reviews</p>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Location & Hours Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-8 py-12 border-t border-[var(--border)] grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="glass-card p-6 rounded-3xl space-y-4 border border-[var(--border)]">
-          <h3 className="text-base font-black flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-[var(--primary)]" />
-            Location & Contact
-          </h3>
-          <div className="space-y-2 text-xs font-medium text-[var(--muted-foreground)]">
-            <p className="font-bold text-sm text-[var(--foreground)]">593 King Street, Downtown</p>
-            <p>Fredericton, New Brunswick E3B 1E8</p>
-            <p className="pt-2">
+              <p className="mt-6 max-w-xs text-sm leading-relaxed text-[var(--muted-foreground)]">
+                Recent reviews from Google and verified bookings, shown as written.
+              </p>
               <a
-                href="tel:+15068832222"
-                className="inline-flex items-center gap-2 font-bold text-[var(--primary)] hover:underline text-xs"
+                href={BUSINESS.setmoreReviewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-8 inline-flex items-center gap-2 text-sm text-[var(--theme-primary)] underline-offset-4 hover:underline"
               >
-                <Phone className="w-3.5 h-3.5" />
-                <span>Call +1 (506) 883-2222</span>
+                Been in recently? Leave a review <ArrowRight className="h-4 w-4" />
               </a>
-            </p>
+            </div>
+            <div className="min-w-0">
+              <ReviewsCarousel reviews={reviewsData.reviews} />
+            </div>
           </div>
-        </div>
+        </section>
+      )}
 
-        <div className="glass-card p-6 rounded-3xl space-y-4 border border-[var(--border)]">
-          <h3 className="text-base font-black flex items-center gap-2">
-            <Clock className="w-4 h-4 text-[var(--primary)]" />
-            Working Hours
-          </h3>
-          <div className="space-y-2 text-xs font-medium text-[var(--muted-foreground)]">
-            <div className="flex justify-between py-1 border-b border-[var(--border)]">
-              <span>Monday – Saturday</span>
-              <span className="font-bold text-[var(--foreground)]">09:00 AM – 06:00 PM</span>
+      {/* About & visit */}
+      <section id="visit" className="scroll-mt-20 bg-[var(--background)] py-24 sm:py-28">
+        <div className="mx-auto grid max-w-6xl gap-16 px-5 sm:px-8 lg:grid-cols-2">
+          <div>
+            <p className="eyebrow">The shop</p>
+            <h2 className="mt-4 font-display text-4xl text-[var(--foreground)] sm:text-5xl">Where tradition meets trend</h2>
+            <p className="mt-6 text-base leading-relaxed text-[var(--muted-foreground)]">{BUSINESS.about}</p>
+
+            <ul className="mt-10 space-y-4 text-sm">
+              <li>
+                <a href={BUSINESS.mapsUrl} target="_blank" rel="noopener noreferrer" className="contact-row">
+                  <MapPin className="h-4 w-4 shrink-0 text-[var(--theme-primary)]" />
+                  {FULL_ADDRESS}
+                </a>
+              </li>
+              <li>
+                <a href={`tel:${BUSINESS.phone}`} className="contact-row">
+                  <Phone className="h-4 w-4 shrink-0 text-[var(--theme-primary)]" />
+                  {BUSINESS.phoneDisplay}
+                </a>
+              </li>
+              <li>
+                <a href={`mailto:${BUSINESS.email}`} className="contact-row">
+                  <Mail className="h-4 w-4 shrink-0 text-[var(--theme-primary)]" />
+                  {BUSINESS.email}
+                </a>
+              </li>
+              <li>
+                <a href={BUSINESS.facebookUrl} target="_blank" rel="noopener noreferrer" className="contact-row">
+                  <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 fill-[var(--theme-primary)]" aria-hidden>
+                    <path d="M13.5 21v-7.5h2.5l.4-3h-2.9V8.6c0-.9.3-1.5 1.5-1.5h1.5V4.4c-.3 0-1.2-.1-2.2-.1-2.2 0-3.7 1.3-3.7 3.8v2.4H8.1v3h2.5V21h2.9z" />
+                  </svg>
+                  facebook.com/bdiamondbarbershop
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div className="rounded-3xl border border-[var(--border)] bg-[var(--card)] p-8 sm:p-10">
+            <h3 className="text-xs uppercase tracking-[0.3em] text-[var(--theme-primary)]">Opening hours</h3>
+            <div className="mt-6">
+              <HoursTable />
             </div>
-            <div className="flex justify-between py-1">
-              <span>Sunday</span>
-              <span className="font-bold text-[var(--primary)]">Closed</span>
-            </div>
+            <BookLink
+              href={menu.bookHref}
+              external={menu.bookExternal}
+              className="cta-button mt-8 w-full py-3.5 text-sm"
+            >
+              Book your chair
+            </BookLink>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-[var(--border)] py-6 text-center text-xs text-[var(--muted-foreground)] font-medium">
-        <p>© {new Date().getFullYear()} {settings.siteName} • Downtown Fredericton, NB • All Rights Reserved</p>
+      <footer className="border-t border-[var(--border)] bg-[var(--muted)] py-10">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-5 text-xs text-[var(--muted-foreground)] sm:flex-row sm:px-8">
+          <p>
+            © {new Date().getFullYear()} {BUSINESS.name} · {BUSINESS.address.city}, {BUSINESS.address.region}
+          </p>
+          <div className="flex gap-6">
+            <a href="/login" className="hover:text-[var(--foreground)]">
+              Sign in
+            </a>
+            <a href={`tel:${BUSINESS.phone}`} className="hover:text-[var(--foreground)]">
+              {BUSINESS.phoneDisplay}
+            </a>
+          </div>
+        </div>
       </footer>
     </div>
   );

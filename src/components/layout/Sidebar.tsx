@@ -24,10 +24,16 @@ const navItems = [
   { label: 'Services', href: '/admin/services', icon: Scissors },
   { label: 'Staff & Shifts', href: '/admin/staff', icon: Users },
   { label: 'Invoices & Cash', href: '/admin/invoices', icon: Receipt },
-  { label: 'Accounting', href: '/admin/accounting', icon: BookOpen, adminOnly: true },
+  { label: 'Money Book', href: '/admin/accounting', icon: BookOpen, adminOnly: true },
   { label: 'Expenses', href: '/admin/expenses', icon: DollarSign, adminOnly: true },
   { label: 'Payroll', href: '/admin/payroll', icon: Briefcase, adminOnly: true },
   { label: 'Customer', href: '/admin/customers', icon: UserCheck },
+];
+
+// Pages only the owner/administrator may open (enforced in the admin layout too).
+export const ADMIN_ONLY_ROUTES = [
+  ...navItems.filter((item) => item.adminOnly).map((item) => item.href),
+  '/admin/settings',
 ];
 
 export function Sidebar() {

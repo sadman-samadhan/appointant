@@ -28,6 +28,23 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { StaffResponseDto, ServiceDto, WeeklyScheduleDto, StaffExpertiseDto } from '@/lib/types';
+import { formatMoney, servicePrice, serviceDuration, toList, todayISO } from '@/lib/format';
+
+function normalizeService(s: any): ServiceDto {
+  return {
+    serviceId: s.serviceId || s.id,
+    name: s.name || 'Salon Service',
+    description: s.description,
+    price: servicePrice(s),
+    basePrice: servicePrice(s),
+    durationMinutes: serviceDuration(s),
+    baseDurationMinutes: serviceDuration(s),
+    categoryId: s.categoryId || s.category?.categoryId,
+    categoryName: s.categoryName || s.category?.name,
+    status: s.status || 'ACTIVE',
+    currency: s.currency || 'CAD',
+  };
+}
 
 const DAYS_OF_WEEK = [
   { dayIndex: 1, name: 'Monday' },
@@ -82,20 +99,18 @@ export default function AdminStaffPage() {
     setIsLoading(true);
     try {
       const res = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
-      const list = res.items || res.staff || res.data || (Array.isArray(res) ? res : []);
-      if (Array.isArray(list)) {
-        const normalized: StaffResponseDto[] = list.map((s: any) => ({
-          staffId: s.staffId || s.id,
-          userId: s.userId || s.user?.id || s.user_id,
-          fullName: s.fullName || s.name || 'Specialist',
-          email: s.email,
-          phone: s.phone,
-          roleTitle: s.roleTitle || s.role || 'Barber Specialist',
-          employmentType: s.employmentType || 'FULL_TIME',
-          status: s.status || 'ACTIVE',
-        }));
-        setStaffList(normalized);
-      }
+      const list = toList<any>(res, 'staff').filter((s: any) => s && (s.staffId || s.id));
+      const normalized: StaffResponseDto[] = list.map((s: any) => ({
+        staffId: s.staffId || s.id,
+        userId: s.userId || s.user?.id || s.user_id,
+        fullName: s.fullName || s.name || 'Specialist',
+        email: s.email || '',
+        phone: s.phone,
+        roleTitle: s.roleTitle || s.role || 'Barber Specialist',
+        employmentType: s.employmentType || 'FULL_TIME',
+        status: s.status || 'ACTIVE',
+      }));
+      setStaffList(normalized);
     } catch {
       setStaffList([]);
     } finally {
@@ -106,25 +121,12 @@ export default function AdminStaffPage() {
   const loadServices = useCallback(async () => {
     try {
       const res = await apiRequest<any>(`/api/v1/services/branches/${DEFAULT_BRANCH_ID}`);
-      const list = res.items || res.services || res || [];
-      if (Array.isArray(list)) {
-        const normalized: ServiceDto[] = list.map((s: any) => ({
-          serviceId: s.serviceId || s.id,
-          name: s.name || 'Salon Service',
-          description: s.description,
-          price: Number(s.price ?? s.basePrice ?? 0),
-          basePrice: Number(s.basePrice ?? s.price ?? 0),
-          durationMinutes: Number(s.durationMinutes ?? s.baseDurationMinutes ?? 30),
-          baseDurationMinutes: Number(s.baseDurationMinutes ?? s.durationMinutes ?? 30),
-          categoryId: s.categoryId,
-          categoryName: s.categoryName || s.category?.name,
-          status: s.status || 'ACTIVE',
-          currency: s.currency || 'CAD',
-        }));
-        setServices(normalized);
-        if (normalized.length > 0) {
-          setSelectedServiceId(normalized[0].serviceId);
-        }
+      const normalized: ServiceDto[] = toList<any>(res, 'services')
+        .filter((s: any) => s && (s.serviceId || s.id))
+        .map(normalizeService);
+      setServices(normalized);
+      if (normalized.length > 0) {
+        setSelectedServiceId(normalized[0].serviceId);
       }
     } catch {
       setServices([]);
@@ -215,7 +217,7 @@ export default function AdminStaffPage() {
             phone: phone.trim(),
             roleTitle: roleTitle.trim(),
             employmentType,
-            hireDate: new Date().toISOString().split('T')[0],
+            hireDate: todayISO(),
             userId: registeredUserId || undefined,
           }),
         });
@@ -247,7 +249,7 @@ export default function AdminStaffPage() {
       setEmail('');
       loadStaff();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Could not register staff');
+      showError('Action Failed', err?.message || 'Could not register staff');
     } finally {
       setIsSubmittingStaff(false);
     }
@@ -274,7 +276,7 @@ export default function AdminStaffPage() {
       }
       loadStaff();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Could not toggle archive state');
+      showError('Action Failed', err?.message || 'Could not toggle archive state');
     }
   };
 
@@ -293,16 +295,19 @@ export default function AdminStaffPage() {
       defaultActives[d.dayIndex] = d.dayIndex !== 0; // Sunday off by default
     });
 
+    setWeeklySchedules([]);
     try {
       const res = await apiRequest<any>(
         `/api/v1/availability/weekly-schedules?entityType=STAFF&entityId=${staff.staffId}`
       );
-      const items: WeeklyScheduleDto[] = res.items || res.schedules || res || [];
-      if (Array.isArray(items) && items.length > 0) {
+      const items = toList<WeeklyScheduleDto>(res, 'schedules').filter(
+        (item) => item && (!item.entityId || item.entityId === staff.staffId)
+      );
+      if (items.length > 0) {
         setWeeklySchedules(items);
         items.forEach((item) => {
-          defaultStarts[item.dayOfWeek] = item.startTime;
-          defaultEnds[item.dayOfWeek] = item.endTime;
+          if (item.startTime) defaultStarts[item.dayOfWeek] = item.startTime;
+          if (item.endTime) defaultEnds[item.dayOfWeek] = item.endTime;
           defaultActives[item.dayOfWeek] = item.isActive !== false;
         });
       }
@@ -324,23 +329,34 @@ export default function AdminStaffPage() {
         const startTime = shiftStartTimes[day.dayIndex] || '09:00:00';
         const endTime = shiftEndTimes[day.dayIndex] || '18:00:00';
 
-        await apiRequest('/api/v1/availability/weekly-schedules', {
-          method: 'POST',
-          body: JSON.stringify({
-            entityType: 'STAFF',
-            entityId: selectedStaffForSchedule.staffId,
-            branchId: DEFAULT_BRANCH_ID,
-            dayOfWeek: day.dayIndex,
-            startTime,
-            endTime,
-            isActive,
-          }),
-        });
+        const payload = {
+          entityType: 'STAFF',
+          entityId: selectedStaffForSchedule.staffId,
+          branchId: DEFAULT_BRANCH_ID,
+          dayOfWeek: day.dayIndex,
+          startTime,
+          endTime,
+          isActive: !!isActive,
+        };
+        // Update the existing row for this day instead of creating duplicates on every save.
+        const existing = weeklySchedules.find((w) => w.dayOfWeek === day.dayIndex);
+        const existingId = existing?.scheduleId || existing?.id;
+        if (existingId) {
+          await apiRequest(`/api/v1/availability/weekly-schedules/${existingId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+          });
+        } else {
+          await apiRequest('/api/v1/availability/weekly-schedules', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+        }
       }
       showSuccess('Schedule Saved', `Weekly shifts updated for ${selectedStaffForSchedule.fullName}`);
       setShowScheduleModal(false);
     } catch (err: any) {
-      showError('Schedule Failed', err.message || 'Could not update schedule');
+      showError('Schedule Failed', err?.message || 'Could not update schedule');
     } finally {
       setIsSubmittingSchedule(false);
     }
@@ -355,21 +371,9 @@ export default function AdminStaffPage() {
     if (currentServices.length === 0) {
       try {
         const sRes = await apiRequest<any>(`/api/v1/services/branches/${DEFAULT_BRANCH_ID}`);
-        const sList = sRes.items || sRes.services || sRes || [];
-        if (Array.isArray(sList) && sList.length > 0) {
-          currentServices = sList.map((s: any) => ({
-            serviceId: s.serviceId || s.id,
-            name: s.name || 'Salon Service',
-            description: s.description,
-            price: Number(s.price ?? s.basePrice ?? 0),
-            basePrice: Number(s.basePrice ?? s.price ?? 0),
-            durationMinutes: Number(s.durationMinutes ?? s.baseDurationMinutes ?? 30),
-            baseDurationMinutes: Number(s.baseDurationMinutes ?? s.durationMinutes ?? 30),
-            categoryId: s.categoryId,
-            categoryName: s.categoryName || s.category?.name,
-            status: s.status || 'ACTIVE',
-            currency: s.currency || 'CAD',
-          }));
+        const sList = toList<any>(sRes, 'services').filter((s: any) => s && (s.serviceId || s.id));
+        if (sList.length > 0) {
+          currentServices = sList.map(normalizeService);
           setServices(currentServices);
         }
       } catch {
@@ -383,8 +387,7 @@ export default function AdminStaffPage() {
 
     try {
       const res = await apiRequest<any>(`/api/v1/staff/${staff.staffId}/expertise`);
-      const items = res.items || res.expertise || res || [];
-      setStaffExpertiseList(Array.isArray(items) ? items : []);
+      setStaffExpertiseList(toList(res, 'expertise'));
     } catch {
       setStaffExpertiseList([]);
     }
@@ -403,11 +406,11 @@ export default function AdminStaffPage() {
       // 1. Try to find or auto-create expertise in master catalog
       try {
         const expListRes = await apiRequest<any>('/api/v1/expertise');
-        const expList = expListRes.items || expListRes.expertise || expListRes || [];
-        const existingExp = Array.isArray(expList)
+        const expList = toList<any>(expListRes, 'expertise');
+        const existingExp = expList.length > 0
           ? expList.find(
               (x: any) =>
-                x.name?.toLowerCase().trim() === skillName.toLowerCase().trim() ||
+                String(x?.name || '').toLowerCase().trim() === skillName.toLowerCase().trim() ||
                 x.expertiseId === selectedServiceId ||
                 x.id === selectedServiceId
             )
@@ -440,7 +443,7 @@ export default function AdminStaffPage() {
       showSuccess('Skill Assigned', `${skillName} mapped to ${selectedStaffForExpertise.fullName}.`);
       openExpertiseModal(selectedStaffForExpertise);
     } catch (err: any) {
-      showError('Skill Failed', err.message || 'Could not assign skill');
+      showError('Skill Failed', err?.message || 'Could not assign skill');
     } finally {
       setIsSubmittingExpertise(false);
     }
@@ -472,7 +475,7 @@ export default function AdminStaffPage() {
           /* ignore and show error */
         }
       }
-      showError('Failed', err.message || 'Could not delete expertise');
+      showError('Failed', err?.message || 'Could not delete expertise');
     }
   };
 
@@ -602,7 +605,7 @@ export default function AdminStaffPage() {
                               : 'bg-gradient-to-tr from-[var(--primary)] to-rose-400'
                           }`}
                         >
-                          {stf.fullName.charAt(0)}
+                          {(stf.fullName || '?').charAt(0)}
                         </div>
                         <div className="space-y-0.5">
                           <h3 className="text-sm font-black text-[var(--foreground)] leading-tight">{stf.fullName}</h3>
@@ -647,8 +650,8 @@ export default function AdminStaffPage() {
                           onClick={() => {
                             setEditingStaff(stf);
                             setSystemRole(isStoreAdmin ? 'ADMIN' : 'STAFF');
-                            setFullName(stf.fullName);
-                            setEmail(stf.email);
+                            setFullName(stf.fullName || '');
+                            setEmail(stf.email || '');
                             setPhone(stf.phone || '');
                             setRoleTitle(stf.roleTitle || stf.role || 'Barber Specialist');
                             setShowAddModal(true);
@@ -675,7 +678,7 @@ export default function AdminStaffPage() {
                 <div className="space-y-1 pt-2 border-t border-[var(--border)] text-xs text-[var(--muted-foreground)] font-semibold min-h-[46px]">
                   <div className="flex items-center gap-2">
                     <Mail className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-                    <span>{stf.email}</span>
+                    <span>{stf.email || '—'}</span>
                   </div>
                   {stf.phone && (
                     <div className="flex items-center gap-2">
@@ -919,7 +922,7 @@ export default function AdminStaffPage() {
         >
           <div className="space-y-4">
             <p className="text-xs text-[var(--muted-foreground)] font-medium">
-              Configure operational working shift hours for Downtown Main Branch (BD-DT01).
+              Configure operational working shift hours for Downtown Main Branch.
             </p>
 
             <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
@@ -1095,7 +1098,7 @@ export default function AdminStaffPage() {
                   >
                     {services.map((s) => (
                       <option key={s.serviceId} value={s.serviceId}>
-                        {s.name} (${s.price} CAD)
+                        {s.name} (${formatMoney(s.price)} CAD)
                       </option>
                     ))}
                   </select>

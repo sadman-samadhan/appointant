@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { useToast } from '@/context/ToastContext';
 import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
+import { formatMoney, servicePrice, serviceDuration, toList, toNumber, todayISO } from '@/lib/format';
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -34,6 +35,34 @@ import {
   CustomerDto,
 } from '@/lib/types';
 
+function addDaysISO(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function digitsOnly(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+// The backend may return startTime as a full ISO timestamp or as a bare "HH:MM:SS".
+function bookingDateOf(b: any): string {
+  const raw = b.date || b.bookingDate || (typeof b.startTime === 'string' && b.startTime.includes('T') ? b.startTime : '');
+  return raw ? String(raw).slice(0, 10) : '';
+}
+
+function formatBookingTime(startTime?: string): string {
+  if (!startTime) return '--:--';
+  if (!startTime.includes('T')) return startTime.slice(0, 5);
+  const d = new Date(startTime);
+  return isNaN(d.getTime()) ? '--:--' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function customerPhoneOf(c: any): string {
+  const contacts: any[] = c?.customer?.contacts || c?.contacts || [];
+  return contacts.find((ct) => ct.type === 'PHONE')?.value || c?.phone || '';
+}
+
 export default function AdminAppointmentsPage() {
   const { showSuccess, showError } = useToast();
 
@@ -56,7 +85,7 @@ export default function AdminAppointmentsPage() {
   const [newCustEmail, setNewCustEmail] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [selectedStaffId, setSelectedStaffId] = useState('');
-  const [bookingDate, setBookingDate] = useState(new Date().toISOString().split('T')[0]);
+  const [bookingDate, setBookingDate] = useState(todayISO());
   const [bookingTime, setBookingTime] = useState('10:00:00');
   const [bookingNotes, setBookingNotes] = useState('');
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
@@ -67,7 +96,7 @@ export default function AdminAppointmentsPage() {
   const [cancelReason, setCancelReason] = useState('Client requested cancellation');
 
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
-  const [rescheduleDate, setRescheduleDate] = useState(new Date().toISOString().split('T')[0]);
+  const [rescheduleDate, setRescheduleDate] = useState(todayISO());
   const [rescheduleTime, setRescheduleTime] = useState('11:00:00');
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -82,7 +111,7 @@ export default function AdminAppointmentsPage() {
     setNewCustPhone('+1 (506) ');
     setNewCustEmail('');
     setBookingNotes('');
-    setBookingDate(new Date().toISOString().split('T')[0]);
+    setBookingDate(todayISO());
     setBookingTime('10:00:00');
     setBookingSuccessNotice(null);
     if (services.length > 0) {
@@ -96,7 +125,7 @@ export default function AdminAppointmentsPage() {
     setNewCustPhone('+1 (506) 883-2222');
     setNewCustEmail('');
     setBookingNotes('Walk-in customer at front desk');
-    setBookingDate(new Date().toISOString().split('T')[0]);
+    setBookingDate(todayISO());
     const now = new Date();
     const currentHour = String(now.getHours()).padStart(2, '0');
     setBookingTime(`${currentHour}:00:00`);
@@ -110,17 +139,20 @@ export default function AdminAppointmentsPage() {
   const loadDependencies = useCallback(async () => {
     try {
       const srvRes = await apiRequest<any>(`/api/v1/services/branches/${DEFAULT_BRANCH_ID}`);
-      const srvList = srvRes.items || srvRes.services || srvRes || [];
-      if (Array.isArray(srvList)) {
-        // Bug D3 fix: only active services
-        const activeOnly = srvList.filter(
-          (s: any) => s.status === 'ACTIVE' || s.isActive === true || (!s.status && s.isActive !== false)
-        );
-        const effective = activeOnly.length > 0 ? activeOnly : srvList;
-        setServices(effective);
-        if (effective.length > 0) {
-          setSelectedServiceId(effective[0].serviceId || effective[0].id);
-        }
+      // Backend sends basePrice/baseDurationMinutes as strings; normalize once here.
+      const srvList: ServiceDto[] = toList(srvRes, 'services').map((s: any) => ({
+        ...s,
+        serviceId: s.serviceId || s.id,
+        name: s.name || 'Service',
+        price: servicePrice(s),
+        durationMinutes: serviceDuration(s),
+      }));
+      const usable = srvList.filter((s) => !['ARCHIVED', 'INACTIVE', 'DISCONTINUED'].includes(String(s.status)));
+      const activeOnly = usable.filter((s) => s.status === 'ACTIVE' || (s as any).isActive === true);
+      const effective = activeOnly.length > 0 ? activeOnly : usable;
+      setServices(effective);
+      if (effective.length > 0) {
+        setSelectedServiceId(effective[0].serviceId);
       }
     } catch {
       setServices([]);
@@ -128,8 +160,8 @@ export default function AdminAppointmentsPage() {
 
     try {
       const stfRes = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
-      const stfList = stfRes.items || stfRes.staff || stfRes.data || (Array.isArray(stfRes) ? stfRes : []);
-      if (Array.isArray(stfList)) {
+      const stfList = toList(stfRes, 'staff').filter((s: any) => !s.status || s.status === 'ACTIVE');
+      {
         const normalized: StaffResponseDto[] = stfList.map((s: any) => ({
           staffId: s.staffId || s.id,
           fullName: s.fullName || s.name || 'Specialist',
@@ -147,10 +179,7 @@ export default function AdminAppointmentsPage() {
 
     try {
       const custRes = await apiRequest<any>(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers`);
-      const cList = custRes.items || custRes.customers || custRes || [];
-      if (Array.isArray(cList)) {
-        setCustomers(cList);
-      }
+      setCustomers(toList(custRes, 'customers'));
     } catch {
       setCustomers([]);
     }
@@ -160,27 +189,27 @@ export default function AdminAppointmentsPage() {
     setIsLoading(true);
     try {
       const res = await apiRequest<any>('/api/v1/bookings');
-      const list: any[] = res.items || res.bookings || res || [];
-      if (Array.isArray(list)) {
-        setBookings(
-          list.map((b: any) => ({
-            bookingId: b.bookingId || b.id,
+      const list: any[] = toList(res, 'bookings');
+      setBookings(
+        list
+          .filter((b: any) => b.bookingId || b.id)
+          .map((b: any) => ({
+            bookingId: String(b.bookingId || b.id),
             customerId: b.customerId,
             customerName: b.customerName || b.customer?.fullName || 'Salon Client',
             serviceId: b.serviceId,
             serviceName: b.serviceName || b.service?.name || 'Salon Service',
             staffId: b.staffId,
             staffName: b.staffName || b.staff?.fullName,
-            date: b.date || b.startTime?.split('T')[0] || new Date().toISOString().split('T')[0],
+            date: bookingDateOf(b),
             startTime: b.startTime,
             endTime: b.endTime,
             status: (b.status || 'SCHEDULED') as BookingStatus,
-            totalAmount: Number(b.totalAmount ?? b.service?.basePrice ?? 25),
+            totalAmount: toNumber(b.totalAmount ?? b.finalAmount ?? b.service?.basePrice),
             currency: b.currency || 'CAD',
             notes: b.notes,
           }))
-        );
-      }
+      );
     } catch {
       setBookings([]);
     } finally {
@@ -219,29 +248,37 @@ export default function AdminAppointmentsPage() {
 
     setIsSubmittingCreate(true);
     try {
-      let customerId = `cust-${Date.now()}`;
+      // 1. Reuse an existing salon customer with the same phone, otherwise create one.
+      const phoneDigits = digitsOnly(newCustPhone);
+      const existing: any =
+        phoneDigits.length >= 7
+          ? customers.find((c: any) => digitsOnly(customerPhoneOf(c)) === phoneDigits)
+          : undefined;
+      let customerId: string | undefined = existing?.customerId || existing?.customer?.customerId;
 
-      // 1. Link or Create Customer
-      try {
+      if (!customerId) {
         const cRes = await apiRequest<any>('/api/v1/customers', {
           method: 'POST',
           body: JSON.stringify({
             fullName: newCustName.trim(),
             contacts: [
-              { type: 'PHONE', value: newCustPhone.trim(), isPrimary: true },
-              ...(newCustEmail.trim() ? [{ type: 'EMAIL', value: newCustEmail.trim(), isPrimary: false }] : []),
+              ...(phoneDigits.length >= 7 ? [{ type: 'PHONE', value: newCustPhone.trim(), isPrimary: true }] : []),
+              ...(newCustEmail.trim()
+                ? [{ type: 'EMAIL', value: newCustEmail.trim(), isPrimary: phoneDigits.length < 7 }]
+                : []),
             ],
           }),
         });
-        customerId = cRes?.customerId || cRes?.id || customerId;
-        if (customerId) {
-          await apiRequest(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers`, {
-            method: 'POST',
-            body: JSON.stringify({ customerId, preferredBranchId: DEFAULT_BRANCH_ID }),
-          }).catch(() => {});
+        customerId = cRes?.customerId || cRes?.id || cRes?.customer?.customerId;
+        if (!customerId) {
+          throw new Error('The customer record could not be created. Please check the name and phone number.');
         }
-      } catch {
-        /* fallback to generated */
+        await apiRequest(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers`, {
+          method: 'POST',
+          body: JSON.stringify({ customerId, preferredBranchId: DEFAULT_BRANCH_ID }),
+        }).catch(() => {
+          /* already linked to this salon */
+        });
       }
 
       // 2. Submit Booking
@@ -262,25 +299,29 @@ export default function AdminAppointmentsPage() {
 
       const createdBookingId = bookingRes?.bookingId || bookingRes?.id;
 
-      // 3. Automated draft invoice generation
+      // 3. Automated draft invoice generation (best effort; the booking itself already succeeded)
+      let invoiceDrafted = false;
       if (createdBookingId) {
-        const selectedSrv = services.find(
-          (s) => s.serviceId === selectedServiceId || (s as any).id === selectedServiceId
-        );
-        await apiRequest(`/api/v1/bookings/${createdBookingId}/invoice-draft`, {
+        const selectedSrv = services.find((s) => s.serviceId === selectedServiceId);
+        invoiceDrafted = await apiRequest(`/api/v1/bookings/${createdBookingId}/invoice-draft`, {
           method: 'POST',
           body: JSON.stringify({
             currency: 'CAD',
-            amount: selectedSrv?.price || 30.0,
-            customerId,
             notes: `Draft invoice for appointment #${createdBookingId} (${selectedSrv?.name || 'Service'})`,
           }),
-        }).catch(() => {});
+        })
+          .then(() => true)
+          .catch(() => false);
       }
 
       // Display success message, then close and reset
-      setBookingSuccessNotice(`Appointment booked successfully for ${newCustName}! Draft invoice generated.`);
-      showSuccess('Booking Created & Invoice Drafted', `Appointment confirmed for ${newCustName}`);
+      setBookingSuccessNotice(
+        `Appointment booked for ${newCustName}!${invoiceDrafted ? ' Draft invoice generated.' : ''}`
+      );
+      showSuccess(
+        invoiceDrafted ? 'Booking Created & Invoice Drafted' : 'Booking Created',
+        `Appointment saved for ${newCustName}`
+      );
 
       setTimeout(() => {
         setShowCreateModal(false);
@@ -410,7 +451,7 @@ export default function AdminAppointmentsPage() {
       (b.serviceName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (b.staffName || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'ALL' || b.status === statusFilter;
-    const matchesDate = !dateFilter || (b.date || b.startTime?.split('T')[0]) === dateFilter;
+    const matchesDate = !dateFilter || b.date === dateFilter;
     return matchesSearch && matchesStatus && matchesDate;
   });
 
@@ -550,13 +591,13 @@ export default function AdminAppointmentsPage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-xs font-black text-[var(--foreground)]">{b.customerName}</h3>
-                      <span className="text-[10px] text-[var(--muted-foreground)] font-mono">#{b.bookingId.substring(0, 8)}</span>
+                      <span className="text-[10px] text-[var(--muted-foreground)] font-mono">#{String(b.bookingId).substring(0, 8)}</span>
                     </div>
                     <p className="text-xs font-bold text-[var(--primary)] mt-0.5">{b.serviceName}</p>
                     <div className="flex flex-wrap items-center gap-3 mt-1 text-[11px] text-[var(--muted-foreground)] font-medium">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-                        {new Date(b.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({b.date || b.startTime?.split('T')[0]})
+                        {formatBookingTime(b.startTime)}{b.date ? ` (${b.date})` : ''}
                       </span>
                       <span>· Specialist: {b.staffName || 'Any Specialist'}</span>
                       {b.notes && <span className="italic text-[10px]">· &ldquo;{b.notes}&rdquo;</span>}
@@ -568,7 +609,7 @@ export default function AdminAppointmentsPage() {
                 <div className="flex items-center justify-between sm:justify-end gap-4">
                   <div className="text-right">
                     <span className="text-sm font-black text-[var(--foreground)] block">
-                      ${b.totalAmount.toFixed(2)} {b.currency || 'CAD'}
+                      ${formatMoney(b.totalAmount)} {b.currency || 'CAD'}
                     </span>
                     <Badge variant={b.status} />
                   </div>
@@ -698,7 +739,7 @@ export default function AdminAppointmentsPage() {
               >
                 {services.map((s) => (
                   <option key={s.serviceId} value={s.serviceId}>
-                    {s.name} (${s.price.toFixed(2)} CAD)
+                    {s.name} (${formatMoney(s.price)} CAD)
                   </option>
                 ))}
               </select>
@@ -739,9 +780,9 @@ export default function AdminAppointmentsPage() {
                 <div className="flex items-center gap-1.5 text-[10px]">
                   <button
                     type="button"
-                    onClick={() => setBookingDate(new Date().toISOString().split('T')[0])}
+                    onClick={() => setBookingDate(todayISO())}
                     className={`px-2 py-0.5 rounded-md font-bold transition-colors ${
-                      bookingDate === new Date().toISOString().split('T')[0]
+                      bookingDate === todayISO()
                         ? 'bg-[var(--primary)] text-white'
                         : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
                     }`}
@@ -751,9 +792,7 @@ export default function AdminAppointmentsPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      const tmr = new Date();
-                      tmr.setDate(tmr.getDate() + 1);
-                      setBookingDate(tmr.toISOString().split('T')[0]);
+                      setBookingDate(addDaysISO(1));
                     }}
                     className="px-2 py-0.5 rounded-md font-bold bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
                   >
@@ -821,7 +860,7 @@ export default function AdminAppointmentsPage() {
         <Modal
           isOpen={showConfirmModal}
           onClose={() => setShowConfirmModal(false)}
-          title={`Confirm Appointment #${selectedBooking.bookingId.substring(0, 8)}`}
+          title={`Confirm Appointment #${String(selectedBooking.bookingId).substring(0, 8)}`}
           maxWidth="sm"
         >
           <div className="space-y-4">

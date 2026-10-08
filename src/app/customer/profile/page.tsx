@@ -5,10 +5,20 @@ import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { Badge } from '@/components/ui/Badge';
+import { BUSINESS } from '@/lib/business';
 import { Modal } from '@/components/ui/Modal';
 import { Scissors, Calendar, Clock, Plus, Award, User, CheckCircle2, MapPin, KeyRound, Phone, Mail } from 'lucide-react';
 import { BookingListItemDto } from '@/lib/types';
 import { apiRequest } from '@/lib/api/client';
+import { formatMoney, toList } from '@/lib/format';
+
+// Bookings carry `date` (YYYY-MM-DD) + `startTime` (HH:MM:SS); older shapes used an ISO startTime.
+function bookingStart(b: any): Date | null {
+  const start = typeof b?.startTime === 'string' ? b.startTime : '';
+  const day = typeof b?.date === 'string' ? b.date.substring(0, 10) : '';
+  const d = start.includes('T') ? new Date(start) : day ? new Date(`${day}T${start || '00:00:00'}`) : null;
+  return d && !isNaN(d.getTime()) ? d : null;
+}
 
 export default function CustomerProfilePage() {
   const { user, changePassword } = useAuth();
@@ -28,23 +38,25 @@ export default function CustomerProfilePage() {
     setIsLoading(true);
     try {
       const res = await apiRequest<any>('/api/v1/bookings');
-      const items: BookingListItemDto[] = res.items || res.bookings || res || [];
-      if (Array.isArray(items)) {
-        if (user) {
-          const userPhone = (user.phone || user.mobile || (!user.userid?.includes('@') ? user.userid : '')).trim().toLowerCase();
-          const userName = user.name?.toLowerCase().trim();
-          const userEmail = user.email?.toLowerCase().trim();
+      const items: BookingListItemDto[] = toList(res, 'bookings');
+      if (user) {
+        const userPhone = (user.phone || user.mobile || (!user.userid?.includes('@') ? user.userid : '') || '').trim().toLowerCase();
+        const userName = user.name?.toLowerCase().trim();
+        const userEmail = user.email?.toLowerCase().trim();
 
-          const filtered = items.filter((b) => {
-            if (userPhone && b.customerPhone && b.customerPhone.trim().toLowerCase().includes(userPhone)) return true;
-            if (userEmail && b.customerEmail && b.customerEmail.toLowerCase().trim() === userEmail) return true;
-            if (userName && b.customerName && b.customerName.toLowerCase().trim().includes(userName)) return true;
-            return false;
-          });
-          setBookings(filtered.length > 0 ? filtered : items);
-        } else {
-          setBookings(items);
-        }
+        // Only show this customer's own bookings - never fall back to the full list.
+        const filtered = items.filter((b) => {
+          const phone = String(b.customerPhone || '').trim().toLowerCase();
+          const email = String(b.customerEmail || '').trim().toLowerCase();
+          const name = String(b.customerName || '').trim().toLowerCase();
+          if (userPhone && phone && phone.includes(userPhone)) return true;
+          if (userEmail && email && email === userEmail) return true;
+          if (userName && name && name.includes(userName)) return true;
+          return false;
+        });
+        setBookings(filtered);
+      } else {
+        setBookings([]);
       }
     } catch {
       setBookings([]);
@@ -76,7 +88,7 @@ export default function CustomerProfilePage() {
       setNewPassword('');
       setConfirmNewPassword('');
     } catch (err: any) {
-      showError('Update Failed', err.message || 'Could not change password.');
+      showError('Update Failed', err?.message || 'Could not change password.');
     } finally {
       setIsChangingPass(false);
     }
@@ -152,16 +164,16 @@ export default function CustomerProfilePage() {
         <div className="glass-card p-5 rounded-2xl border border-[var(--border)]">
           <span className="text-xs font-bold text-[var(--muted-foreground)] block">Next Scheduled Visit</span>
           <span className="text-sm font-black text-[var(--primary)] mt-2 block truncate">
-            {nextBooking
-              ? `${new Date(nextBooking.startTime).toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${new Date(nextBooking.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+            {nextBooking && bookingStart(nextBooking)
+              ? `${bookingStart(nextBooking)!.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${bookingStart(nextBooking)!.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
               : 'No upcoming visit'}
           </span>
         </div>
 
         <div className="glass-card p-5 rounded-2xl border border-[var(--border)]">
-          <span className="text-xs font-bold text-[var(--muted-foreground)] block">Loyalty Points</span>
+          <span className="text-xs font-bold text-[var(--muted-foreground)] block">Completed Visits</span>
           <span className="text-2xl font-black text-emerald-600 mt-1 block">
-            {bookings.length * 25} Points
+            {pastBookings.filter((b) => b.status === 'COMPLETED').length}
           </span>
         </div>
       </div>
@@ -196,7 +208,7 @@ export default function CustomerProfilePage() {
                     <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--muted-foreground)] font-medium">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5 text-[var(--primary)]" />
-                        {new Date(b.startTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                        {bookingStart(b)?.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) || '—'}
                       </span>
                     </div>
                   </div>
@@ -205,7 +217,7 @@ export default function CustomerProfilePage() {
                 <div className="flex items-center justify-between sm:justify-end gap-3">
                   <div className="text-right">
                     <span className="text-sm font-black text-[var(--foreground)] block">
-                      ${b.totalAmount} {b.currency || 'CAD'}
+                      ${formatMoney(b.totalAmount)} {b.currency || 'CAD'}
                     </span>
                     <Badge variant={b.status} />
                   </div>
@@ -234,15 +246,29 @@ export default function CustomerProfilePage() {
                   <div>
                     <h3 className="text-xs font-black text-[var(--foreground)]">{b.serviceName}</h3>
                     <span className="text-[11px] text-[var(--muted-foreground)] block font-medium">
-                      {new Date(b.startTime).toLocaleDateString()} · Specialist: {b.staffName || 'Specialist'}
+                      {bookingStart(b)?.toLocaleDateString() || '—'} · Specialist: {b.staffName || 'Specialist'}
                     </span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs font-black text-[var(--foreground)] block">
-                    ${b.totalAmount} {b.currency || 'CAD'}
-                  </span>
-                  <Badge variant={b.status} />
+                <div className="flex items-center gap-3">
+                  {b.status === 'COMPLETED' && (
+                    // The salon system has no reviews module; reviews go to the shop's
+                    // Setmore page, which also feeds the homepage reviews carousel.
+                    <a
+                      href={BUSINESS.setmoreReviewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-[var(--primary-light)] text-[var(--primary)] border border-[var(--primary-ring)] hover:brightness-95 whitespace-nowrap"
+                    >
+                      ★ Leave a review
+                    </a>
+                  )}
+                  <div className="text-right">
+                    <span className="text-xs font-black text-[var(--foreground)] block">
+                      ${formatMoney(b.totalAmount)} {b.currency || 'CAD'}
+                    </span>
+                    <Badge variant={b.status} />
+                  </div>
                 </div>
               </div>
             ))}

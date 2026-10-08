@@ -23,11 +23,28 @@ import {
   Info,
 } from 'lucide-react';
 import { CustomerDto, BookingListItemDto, CustomerNoteDto } from '@/lib/types';
+import { formatMoney, toNumber, toList } from '@/lib/format';
+
+// Tenant-scoped endpoints (notes, tags, archive) are keyed by tenantCustomerId, not customerId.
+type DirectoryCustomer = CustomerDto & { tenantCustomerId?: string };
+
+function formatDate(value: unknown): string {
+  if (!value) return '—';
+  const d = new Date(String(value));
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+}
+
+// Bookings carry `date` (YYYY-MM-DD) + `startTime` (HH:MM:SS); older shapes used an ISO startTime.
+function bookingDate(b: any): string {
+  const start = typeof b?.startTime === 'string' ? b.startTime : '';
+  if (start.includes('T')) return formatDate(start);
+  return formatDate(typeof b?.date === 'string' ? b.date.substring(0, 10) + 'T00:00:00' : '');
+}
 
 export default function AdminCustomersPage() {
   const { showSuccess, showError } = useToast();
 
-  const [customers, setCustomers] = useState<CustomerDto[]>([]);
+  const [customers, setCustomers] = useState<DirectoryCustomer[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -39,7 +56,7 @@ export default function AdminCustomersPage() {
   const [isSubmittingCustomer, setIsSubmittingCustomer] = useState(false);
 
   // Customer Detail Modal (History & Notes)
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerDto | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<DirectoryCustomer | null>(null);
   const [customerBookings, setCustomerBookings] = useState<BookingListItemDto[]>([]);
   const [customerNotes, setCustomerNotes] = useState<CustomerNoteDto[]>([]);
   const [newNoteText, setNewNoteText] = useState('');
@@ -51,27 +68,33 @@ export default function AdminCustomersPage() {
     try {
       const searchParam = searchTerm.trim() ? `?search=${encodeURIComponent(searchTerm.trim())}` : '';
       const res = await apiRequest<any>(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers${searchParam}`);
-      const list: CustomerDto[] = res.items || res.customers || res || [];
-      if (Array.isArray(list)) {
-        const normalized = list.map((c: any) => {
-          const cust = c.customer || c;
-          const primaryPhone =
-            cust.phone || c.phone || cust.contacts?.find((ct: any) => ct.type === 'PHONE')?.value || c.contacts?.find((ct: any) => ct.type === 'PHONE')?.value || cust.mobile;
-          const primaryEmail =
-            cust.email || c.email || cust.contacts?.find((ct: any) => ct.type === 'EMAIL')?.value || c.contacts?.find((ct: any) => ct.type === 'EMAIL')?.value;
-          return {
-            customerId: cust.customerId || c.customerId || c.id || c.tenantCustomerId,
-            id: cust.id || c.id || cust.customerId || c.customerId,
-            fullName: cust.fullName || c.fullName || cust.name || c.name || 'Client',
-            phone: primaryPhone,
-            email: primaryEmail,
-            totalVisits: Number(c.totalBookings ?? cust.totalBookings ?? c.totalVisits ?? 0),
-            totalSpent: Number(c.totalSpent ?? cust.totalSpent ?? 0),
-            tags: c.customerTags || cust.tags || c.tags || ['Salon Client'],
-          };
-        });
-        setCustomers(normalized);
-      }
+      const list = toList<any>(res, 'customers').filter(Boolean);
+      const findContact = (contacts: any, type: string) =>
+        Array.isArray(contacts) ? contacts.find((ct: any) => ct?.type === type)?.value : undefined;
+      const normalized: DirectoryCustomer[] = list.map((c: any) => {
+        const cust = c.customer || c;
+        const primaryPhone =
+          cust.phone || c.phone || findContact(cust.contacts, 'PHONE') || findContact(c.contacts, 'PHONE') || cust.mobile;
+        const primaryEmail = cust.email || c.email || findContact(cust.contacts, 'EMAIL') || findContact(c.contacts, 'EMAIL');
+        const rawTags = c.customerTags || cust.tags || c.tags;
+        // Tags may come back as strings or as {tag}/{name} objects - render strings only.
+        const tags = Array.isArray(rawTags)
+          ? rawTags.map((t: any) => (typeof t === 'string' ? t : t?.tag || t?.name || t?.label)).filter(Boolean)
+          : [];
+        return {
+          customerId: c.customerId || cust.customerId || c.id,
+          tenantCustomerId: c.tenantCustomerId,
+          id: cust.id || c.id || cust.customerId || c.customerId,
+          customerCode: c.customerCode || cust.customerCode,
+          fullName: cust.fullName || c.fullName || cust.name || c.name || 'Client',
+          phone: primaryPhone,
+          email: primaryEmail,
+          totalVisits: toNumber(c.totalBookings ?? cust.totalBookings ?? c.totalVisits),
+          totalSpent: toNumber(c.totalSpent ?? cust.totalSpent),
+          tags,
+        };
+      });
+      setCustomers(normalized);
     } catch {
       setCustomers([]);
     } finally {
@@ -120,32 +143,34 @@ export default function AdminCustomersPage() {
       setEmail('');
       loadCustomers();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Could not link customer');
+      showError('Action Failed', err?.message || 'Could not link customer');
     } finally {
       setIsSubmittingCustomer(false);
     }
   };
 
   // Open Detail Modal
-  const openCustomerDetails = async (customer: CustomerDto) => {
+  const openCustomerDetails = async (customer: DirectoryCustomer) => {
     setSelectedCustomer(customer);
     setIsLoadingDetails(true);
 
     try {
       const bkRes = await apiRequest<any>(`/api/v1/customers/${customer.customerId}/bookings`);
-      const bList = bkRes.items || bkRes.bookings || bkRes || [];
-      setCustomerBookings(Array.isArray(bList) ? bList : []);
+      setCustomerBookings(toList(bkRes, 'bookings'));
     } catch {
       setCustomerBookings([]);
     }
 
-    try {
-      const notesRes = await apiRequest<any>(
-        `/api/v1/tenants/${DEFAULT_TENANT_ID}/customers/${customer.customerId}/notes`
-      );
-      const nList = notesRes.items || notesRes.notes || notesRes || [];
-      setCustomerNotes(Array.isArray(nList) ? nList : []);
-    } catch {
+    if (customer.tenantCustomerId) {
+      try {
+        const notesRes = await apiRequest<any>(
+          `/api/v1/tenants/${DEFAULT_TENANT_ID}/customers/${customer.tenantCustomerId}/notes`
+        );
+        setCustomerNotes(toList(notesRes, 'notes'));
+      } catch {
+        setCustomerNotes([]);
+      }
+    } else {
       setCustomerNotes([]);
     }
 
@@ -156,20 +181,24 @@ export default function AdminCustomersPage() {
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomer || !newNoteText.trim()) return;
+    if (!selectedCustomer.tenantCustomerId) {
+      showError('Note Failed', 'This customer is not linked to the salon yet.');
+      return;
+    }
     setIsSubmittingNote(true);
     try {
       await apiRequest(
-        `/api/v1/tenants/${DEFAULT_TENANT_ID}/customers/${selectedCustomer.customerId}/notes`,
+        `/api/v1/tenants/${DEFAULT_TENANT_ID}/customers/${selectedCustomer.tenantCustomerId}/notes`,
         {
           method: 'POST',
-          body: JSON.stringify({ note: newNoteText.trim() }),
+          body: JSON.stringify({ content: newNoteText.trim() }),
         }
       );
       showSuccess('Note Added', 'Client preference note saved.');
       setNewNoteText('');
       openCustomerDetails(selectedCustomer);
     } catch (err: any) {
-      showError('Note Failed', err.message || 'Could not save note');
+      showError('Note Failed', err?.message || 'Could not save note');
     } finally {
       setIsSubmittingNote(false);
     }
@@ -240,13 +269,13 @@ export default function AdminCustomersPage() {
           <div className="divide-y divide-[var(--border)]">
             {customers.map((cust) => (
               <div
-                key={cust.customerId}
+                key={cust.tenantCustomerId || cust.customerId}
                 onClick={() => openCustomerDetails(cust)}
                 className="p-4 flex items-center justify-between gap-4 hover:bg-[var(--muted)]/50 cursor-pointer transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center shrink-0 border border-[var(--primary-ring)] font-bold text-xs">
-                    {cust.fullName.charAt(0)}
+                    {(cust.fullName || '?').charAt(0)}
                   </div>
                   <div>
                     <h3 className="text-xs font-black text-[var(--foreground)]">{cust.fullName}</h3>
@@ -356,7 +385,7 @@ export default function AdminCustomersPage() {
                 <div className="text-right">
                   <span className="text-xs font-bold text-[var(--muted-foreground)] block">Total Spend</span>
                   <span className="text-base font-black text-emerald-600">
-                    ${(selectedCustomer.totalSpent || 0).toFixed(2)} CAD
+                    ${formatMoney(selectedCustomer.totalSpent)} CAD
                   </span>
                 </div>
               </div>
@@ -372,7 +401,7 @@ export default function AdminCustomersPage() {
                 </div>
                 <div className="flex items-center gap-1.5">
                   <UserCheck className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Visits: {selectedCustomer.totalVisits || customerBookings.length || 1}</span>
+                  <span>Visits: {selectedCustomer.totalVisits || customerBookings.length}</span>
                 </div>
               </div>
 
@@ -402,12 +431,14 @@ export default function AdminCustomersPage() {
                 </p>
               ) : (
                 <div className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] overflow-hidden max-h-40 overflow-y-auto">
-                  {customerBookings.map((b) => (
-                    <div key={b.bookingId || b.id} className="p-3 flex items-center justify-between text-xs">
+                  {customerBookings.map((b: any, idx) => (
+                    <div key={b.bookingId || b.id || idx} className="p-3 flex items-center justify-between text-xs">
                       <div>
-                        <span className="font-bold text-[var(--foreground)] block">{b.serviceName}</span>
+                        <span className="font-bold text-[var(--foreground)] block">
+                          {b.serviceName || b.service?.name || 'Salon Service'}
+                        </span>
                         <span className="text-[11px] text-[var(--muted-foreground)]">
-                          {new Date(b.startTime).toLocaleDateString()} · Specialist: {b.staffName || 'Specialist'}
+                          {bookingDate(b)} · Specialist: {b.staffName || b.staff?.fullName || 'Specialist'}
                         </span>
                       </div>
                       <Badge variant={b.status} />
@@ -426,11 +457,11 @@ export default function AdminCustomersPage() {
 
               {customerNotes.length > 0 && (
                 <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                  {customerNotes.map((n, idx) => (
-                    <div key={idx} className="p-2.5 rounded-xl bg-[var(--card)] border border-[var(--border)] text-xs">
-                      <p className="font-medium text-[var(--foreground)]">{n.note}</p>
+                  {customerNotes.map((n: any, idx) => (
+                    <div key={n.noteId || n.id || idx} className="p-2.5 rounded-xl bg-[var(--card)] border border-[var(--border)] text-xs">
+                      <p className="font-medium text-[var(--foreground)]">{n.content ?? n.note}</p>
                       <span className="text-[10px] text-[var(--muted-foreground)] mt-0.5 block">
-                        {new Date(n.createdAt).toLocaleDateString()}
+                        {formatDate(n.createdAt)}
                       </span>
                     </div>
                   ))}

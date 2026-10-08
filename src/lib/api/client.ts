@@ -2,10 +2,17 @@ import { AUTH_API_URL, CORE_API_URL, DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from
 
 const TOKEN_KEY = 'auth_access_token';
 const REFRESH_TOKEN_KEY = 'auth_refresh_token';
+export const USER_INFO_KEY = 'bdiamond_user_info';
 
 export function getStoredToken(): string | null {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setStoredRefreshToken(token: string) {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(REFRESH_TOKEN_KEY, token);
+  }
 }
 
 export function setStoredToken(token: string) {
@@ -23,6 +30,13 @@ export function removeStoredToken() {
 
 export function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+}
+
+export class ApiError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
 }
 
 export interface ApiRequestOptions extends RequestInit {
@@ -71,29 +85,23 @@ export async function apiRequest<T>(
   }
 
   if (!isAuthService) {
-    if (effectiveTenantId) {
-      headers['x-tenant-id'] = effectiveTenantId;
-      headers['X-Tenant-Id'] = effectiveTenantId;
-    }
-    if (branchId) {
-      headers['x-branch-id'] = branchId;
-      headers['X-Branch-Id'] = branchId;
-    }
+    // Header names are case-insensitive: setting both spellings makes fetch join
+    // them into "id, id", which the backend rejects as an unknown tenant.
+    if (effectiveTenantId) headers['x-tenant-id'] = effectiveTenantId;
+    if (branchId) headers['x-branch-id'] = branchId;
   }
 
   let res = await fetch(url, { ...restOptions, headers });
 
   // Handle 401 Unauthorized - attempt silent token refresh and retry
-  if (res.status === 401 && !isAuthService) {
+  // (never for the /auth/* endpoints themselves, e.g. a failed login)
+  const isAuthEndpoint = isAuthService && path.replace(/^\//, '').startsWith('auth/');
+  if (res.status === 401 && token && !isAuthEndpoint) {
     const refreshed = await refreshAuthToken();
     if (refreshed) {
       const newToken = getStoredToken();
       if (newToken) headers['Authorization'] = `Bearer ${newToken}`;
       res = await fetch(url, { ...restOptions, headers });
-    } else {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('auth:expired'));
-      }
     }
   }
 
@@ -101,11 +109,12 @@ export async function apiRequest<T>(
     let errorMessage = `API Error ${res.status}: ${res.statusText}`;
     try {
       const errorData = await res.json();
-      errorMessage = errorData.message || errorData.error || errorMessage;
+      const msg = errorData.message || errorData.error;
+      if (msg) errorMessage = Array.isArray(msg) ? msg.join('; ') : String(msg);
     } catch {
       /* fallback */
     }
-    throw new Error(errorMessage);
+    throw new ApiError(errorMessage, res.status);
   }
 
   const text = await res.text();
@@ -118,11 +127,24 @@ export async function apiRequest<T>(
   }
 }
 
-export async function refreshAuthToken(): Promise<boolean> {
-  if (typeof window === 'undefined') return false;
+let refreshInFlight: Promise<boolean> | null = null;
+
+// Refresh tokens rotate on every use, so concurrent 401s must share a single
+// refresh request; otherwise the second call presents a spent token and logs the user out.
+export function refreshAuthToken(): Promise<boolean> {
+  if (typeof window === 'undefined') return Promise.resolve(false);
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+async function doRefresh(): Promise<boolean> {
   const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
   if (!refreshToken) {
-    removeStoredToken();
+    clearSession();
     return false;
   }
 
@@ -150,7 +172,12 @@ export async function refreshAuthToken(): Promise<boolean> {
     /* network or parsing failure */
   }
 
-  removeStoredToken();
-  window.dispatchEvent(new CustomEvent('auth:expired'));
+  clearSession();
   return false;
+}
+
+function clearSession() {
+  removeStoredToken();
+  localStorage.removeItem(USER_INFO_KEY);
+  window.dispatchEvent(new CustomEvent('auth:expired'));
 }

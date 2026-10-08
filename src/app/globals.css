@@ -95,3 +95,87 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted-foreground);
 }
+
+/* ===== Public homepage — uses the app's design tokens (light/dark + Theme Studio primary) ===== */
+.home-theme {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.home-theme .font-display {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Soft warm wash behind the hero and reviews */
+.home-theme .hero-wash {
+  background:
+    radial-gradient(ellipse 70% 60% at 85% 0%, var(--primary-light), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 0% 100%, var(--muted), transparent 70%),
+    var(--background);
+}
+
+.home-theme .eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  color: var(--theme-primary, var(--primary));
+}
+
+.home-theme .accent-text {
+  color: var(--theme-primary, var(--primary));
+}
+
+.home-theme .cta-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--theme-primary, var(--primary));
+  box-shadow: 0 10px 24px -12px var(--primary-ring);
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.home-theme .cta-button:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+}
+
+.home-theme .cta-button:focus-visible,
+.home-theme a:focus-visible,
+.home-theme button:focus-visible {
+  outline: 2px solid var(--theme-primary, var(--primary));
+  outline-offset: 3px;
+}
+
+.home-theme .fact {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.25rem 0;
+  font-size: 0.875rem;
+}
+
+.home-theme .leader {
+  flex: 1;
+  min-width: 1rem;
+  border-bottom: 1px dotted var(--border-strong);
+  transform: translateY(-0.35em);
+}
+
+.home-theme .contact-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--muted-foreground);
+  transition: color 0.2s ease;
+}
+
+.home-theme .contact-row:hover {
+  color: var(--foreground);
+}

@@ -7,6 +7,7 @@ import { useToast } from '@/context/ToastContext';
 import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
 import { Scissors, Plus, Clock, Tag, Edit, Trash2, CheckCircle2, FolderPlus, Layers, PlusCircle } from 'lucide-react';
 import { ServiceDto, ServiceCategoryDto, ServiceAddonDto } from '@/lib/types';
+import { formatMoney, servicePrice, serviceDuration, toNumber, toList } from '@/lib/format';
 
 export default function AdminServicesPage() {
   const { showSuccess, showError } = useToast();
@@ -43,10 +44,10 @@ export default function AdminServicesPage() {
   const loadCategories = useCallback(async () => {
     try {
       const res = await apiRequest<any>(`/api/v1/service-categories/branches/${DEFAULT_BRANCH_ID}`);
-      const list: ServiceCategoryDto[] = res.items || res.categories || res || [];
-      if (Array.isArray(list)) {
-        setCategories(list);
-      }
+      const list: ServiceCategoryDto[] = toList<any>(res, 'categories')
+        .filter((c: any) => c && (c.categoryId || c.id))
+        .map((c: any) => ({ ...c, categoryId: c.categoryId || c.id, name: c.name || 'Category' }));
+      setCategories(list);
     } catch {
       setCategories([]);
     }
@@ -56,23 +57,21 @@ export default function AdminServicesPage() {
     setIsLoading(true);
     try {
       const res = await apiRequest<any>(`/api/v1/services/branches/${DEFAULT_BRANCH_ID}`);
-      const list: ServiceDto[] = res.items || res.services || res || [];
-      if (Array.isArray(list)) {
-        const normalized = list.map((s: any) => ({
-          serviceId: s.serviceId || s.id,
-          name: s.name,
-          description: s.description,
-          price: Number(s.price ?? s.basePrice ?? 0),
-          basePrice: Number(s.basePrice ?? s.price ?? 0),
-          durationMinutes: Number(s.durationMinutes ?? s.baseDurationMinutes ?? 30),
-          baseDurationMinutes: Number(s.baseDurationMinutes ?? s.durationMinutes ?? 30),
-          categoryId: s.categoryId,
-          categoryName: s.categoryName || s.category?.name,
-          status: s.status || 'ACTIVE',
-          currency: s.currency || 'CAD',
-        }));
-        setServices(normalized);
-      }
+      const list = toList<any>(res, 'services').filter((s: any) => s && (s.serviceId || s.id));
+      const normalized: ServiceDto[] = list.map((s: any) => ({
+        serviceId: s.serviceId || s.id,
+        name: s.name || 'Service',
+        description: s.description,
+        price: servicePrice(s),
+        basePrice: servicePrice(s),
+        durationMinutes: serviceDuration(s),
+        baseDurationMinutes: serviceDuration(s),
+        categoryId: s.categoryId || s.category?.categoryId || s.category?.id,
+        categoryName: s.categoryName || s.category?.name,
+        status: s.status || 'ACTIVE',
+        currency: s.currency || 'CAD',
+      }));
+      setServices(normalized);
     } catch (err: any) {
       setServices([]);
     } finally {
@@ -96,8 +95,8 @@ export default function AdminServicesPage() {
           body: JSON.stringify({
             name: name.trim(),
             description: description.trim(),
-            basePrice: parseFloat(basePrice),
-            baseDurationMinutes: parseInt(baseDurationMinutes, 10),
+            basePrice: toNumber(basePrice),
+            baseDurationMinutes: toNumber(baseDurationMinutes, 30),
             categoryId: serviceCategoryId || undefined,
           }),
         });
@@ -111,8 +110,8 @@ export default function AdminServicesPage() {
             categoryId: serviceCategoryId || undefined,
             name: name.trim(),
             description: description.trim(),
-            baseDurationMinutes: parseInt(baseDurationMinutes, 10),
-            basePrice: parseFloat(basePrice),
+            baseDurationMinutes: toNumber(baseDurationMinutes, 30),
+            basePrice: toNumber(basePrice),
             currency: 'CAD',
             isOnlineBookable: true,
             requiresStaff: true,
@@ -127,9 +126,20 @@ export default function AdminServicesPage() {
       setDescription('');
       loadServices();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Could not save service.');
+      showError('Action Failed', err?.message || 'Could not save service.');
     } finally {
       setIsSubmittingService(false);
+    }
+  };
+
+  // New services are created as DRAFT and are hidden from customers until activated.
+  const handleActivateService = async (serviceId: string, serviceTitle: string) => {
+    try {
+      await apiRequest(`/api/v1/services/${serviceId}/activate`, { method: 'POST' });
+      showSuccess('Service Activated', `${serviceTitle} is now available for booking.`);
+      loadServices();
+    } catch (err: any) {
+      showError('Activation Failed', err?.message || 'Could not activate service.');
     }
   };
 
@@ -140,7 +150,7 @@ export default function AdminServicesPage() {
       showSuccess('Service Removed', `${serviceTitle} deleted from catalog.`);
       loadServices();
     } catch (err: any) {
-      showError('Delete Failed', err.message || 'Could not delete service.');
+      showError('Delete Failed', err?.message || 'Could not delete service.');
     }
   };
 
@@ -164,7 +174,7 @@ export default function AdminServicesPage() {
       setCategoryDescription('');
       loadCategories();
     } catch (err: any) {
-      showError('Category Failed', err.message || 'Could not create category.');
+      showError('Category Failed', err?.message || 'Could not create category.');
     } finally {
       setIsSubmittingCat(false);
     }
@@ -178,7 +188,7 @@ export default function AdminServicesPage() {
       showSuccess('Category Deleted', 'Service category removed.');
       loadCategories();
     } catch (err: any) {
-      showError('Delete Failed', err.message || 'Could not delete category.');
+      showError('Delete Failed', err?.message || 'Could not delete category.');
     }
   };
 
@@ -187,19 +197,17 @@ export default function AdminServicesPage() {
     setSelectedServiceForAddons(service);
     try {
       const res = await apiRequest<any>(`/api/v1/services/${service.serviceId}/addons`);
-      const items = res.items || res.addons || res || [];
-      if (Array.isArray(items)) {
-        setAddonsList(
-          items.map((ad: any) => ({
-            addonId: ad.addonId || ad.id,
-            serviceId: ad.serviceId || service.serviceId,
-            name: ad.name,
-            price: Number(ad.additionalPrice ?? ad.price ?? 0),
-            durationMinutes: Number(ad.additionalDuration ?? ad.durationMinutes ?? 0),
-            isOptional: ad.isOptional,
-          }))
-        );
-      }
+      const items = toList(res, 'addons');
+      setAddonsList(
+        items.map((ad: any) => ({
+          addonId: ad.addonId || ad.id,
+          serviceId: ad.serviceId || service.serviceId,
+          name: ad.name,
+          price: toNumber(ad.additionalPrice ?? ad.price),
+          durationMinutes: toNumber(ad.additionalDuration ?? ad.durationMinutes),
+          isOptional: ad.isOptional,
+        }))
+      );
     } catch {
       setAddonsList([]);
     }
@@ -214,8 +222,8 @@ export default function AdminServicesPage() {
         method: 'POST',
         body: JSON.stringify({
           name: addonName.trim(),
-          additionalPrice: parseFloat(addonPrice) || 0,
-          additionalDuration: parseInt(addonDuration, 10) || 0,
+          additionalPrice: toNumber(addonPrice),
+          additionalDuration: toNumber(addonDuration),
           isOptional: true,
         }),
       });
@@ -223,7 +231,7 @@ export default function AdminServicesPage() {
       setAddonName('');
       openAddonsModal(selectedServiceForAddons);
     } catch (err: any) {
-      showError('Addon Failed', err.message || 'Could not add addon.');
+      showError('Addon Failed', err?.message || 'Could not add addon.');
     } finally {
       setIsSubmittingAddon(false);
     }
@@ -238,7 +246,7 @@ export default function AdminServicesPage() {
       showSuccess('Addon Removed', 'Addon removed.');
       openAddonsModal(selectedServiceForAddons);
     } catch (err: any) {
-      showError('Failed', err.message || 'Could not delete addon.');
+      showError('Failed', err?.message || 'Could not delete addon.');
     }
   };
 
@@ -350,7 +358,7 @@ export default function AdminServicesPage() {
                     {srv.categoryName || 'General'}
                   </span>
                   <span className="text-base font-black text-[var(--foreground)]">
-                    ${srv.price.toFixed(2)} {srv.currency || 'CAD'}
+                    ${formatMoney(srv.price)} {srv.currency || 'CAD'}
                   </span>
                 </div>
                 <h3 className="text-sm font-black text-[var(--foreground)] leading-tight">{srv.name}</h3>
@@ -365,9 +373,23 @@ export default function AdminServicesPage() {
                 <span className="flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5 text-[var(--primary)]" />
                   {srv.durationMinutes} mins
+                  {srv.status && srv.status !== 'ACTIVE' && (
+                    <span className="ml-1 text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full bg-[var(--muted)] border border-[var(--border)]">
+                      {srv.status}
+                    </span>
+                  )}
                 </span>
 
                 <div className="flex items-center gap-1">
+                  {srv.status && srv.status !== 'ACTIVE' && (
+                    <button
+                      onClick={() => handleActivateService(srv.serviceId, srv.name)}
+                      className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                      title="Activate Service (make bookable)"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                    </button>
+                  )}
                   <button
                     onClick={() => openAddonsModal(srv)}
                     className="p-1.5 rounded-lg text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30"
@@ -380,8 +402,8 @@ export default function AdminServicesPage() {
                       setEditingService(srv);
                       setName(srv.name);
                       setDescription(srv.description || '');
-                      setBasePrice(srv.price.toString());
-                      setBaseDurationMinutes(srv.durationMinutes.toString());
+                      setBasePrice(formatMoney(srv.price));
+                      setBaseDurationMinutes(String(srv.durationMinutes ?? 30));
                       setServiceCategoryId(srv.categoryId || '');
                       setShowServiceModal(true);
                     }}
@@ -606,7 +628,7 @@ export default function AdminServicesPage() {
                       <div>
                         <span className="font-bold text-[var(--foreground)] block">{ad.name}</span>
                         <span className="text-[11px] text-[var(--muted-foreground)]">
-                          +{ad.durationMinutes} mins · ${ad.price.toFixed(2)} CAD
+                          +{ad.durationMinutes} mins · ${formatMoney(ad.price)} CAD
                         </span>
                       </div>
                       <button

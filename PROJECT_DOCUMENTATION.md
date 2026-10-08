@@ -35,7 +35,7 @@ The system is configured specifically for **B Diamond Beauty Salon** (Phase 1 Ca
 #### Multi-Tenancy Identifier Headers
 All business logic requests sent to the Core Backend enforce multi-tenant isolation via HTTP request headers:
 * **`x-tenant-id`**: `5c9d3520-65a7-4b84-be2f-acc21ea88bb4` (*B Diamond Beauty Salon Tenant*)
-* **`x-branch-id`**: `189dc618-8fe1-410f-9ec3-c47026de2206` (*Downtown Main Branch `BD-DT01`*)
+* **`x-branch-id`**: `065f43af-56ad-4ce3-91f3-436f024493a7` (*Downtown Main Branch `bd-downtown-main`, 593 King Street — the shop's only branch and the app-wide default; override with `NEXT_PUBLIC_BRANCH_ID`*)
 * **`Authorization`**: `Bearer <JWT_ACCESS_TOKEN>`
 
 ---
@@ -127,6 +127,13 @@ The Theme & Branding Studio provides salon owners with dynamic, real-time custom
 
 ### 4. Core Modules & Features
 
+#### Public Homepage (`/`)
+A server-rendered marketing page for **B Diamond Barbershop** (593 King Street, Fredericton). Contains no invented content:
+* **Business facts** (address, phone, email, hours, about text, Facebook) live in `src/lib/business.ts`, copied from the shop's Setmore page.
+* **Service menu**: services published in the Core Backend (`status: ACTIVE`, online-bookable) are read server-side by `src/lib/server/publicCatalog.ts` using a dedicated catalog account (`CATALOG_USERID` / `CATALOG_PASSWORD` env vars, see `.env.example`), because the backend has no anonymous endpoints. Only name, description, price, duration and category are exposed. **Until at least one service is ACTIVE**, the page shows the shop's live Setmore menu instead and "Book" links go to Setmore.
+* **Reviews carousel**: real reviews and the overall rating are read from the shop's public Setmore page (`src/lib/server/setmore.ts`, refreshed hourly; Setmore also aggregates Google reviews). If that page can't be read, the section is hidden.
+* **Leaving a review**: the Core Backend has no reviews module, so customers leave reviews on Setmore (link on the homepage and on each completed visit in `/customer/profile`); new reviews then appear in the carousel.
+
 #### A. Business Owner & Admin Portal (`/admin/*`)
 1. **Admin Dashboard (`/admin/dashboard`)**: Real-time KPI summary (Revenue Today, Appointments, Staff on Duty, Pending Invoices), list of today's bookings, and quick cash register modal.
 2. **Appointments Calendar (`/admin/appointments`)**: Full calendar & schedule manager. Allows creating new bookings with date/time pickers, customer details, service assignment, stylist selection, and live status editing (SCHEDULED, CONFIRMED, COMPLETED, CANCELLED).
@@ -135,7 +142,7 @@ The Theme & Branding Studio provides salon owners with dynamic, real-time custom
    * **Add Staff Modal**: High-contrast form to register new specialists.
    * **Configure Schedule & Working Hours Modal**: Day-by-day shift manager (Mon–Sun) with active/day-off toggles and start/end shift time selectors.
 5. **Invoices & Cash Pay Register (`/admin/invoices`)**: Invoice ledger enforcing **Phase 1 Cash Payments**. Supports recording cash payments directly against customer invoices with automatic ID generation.
-6. **Accounting & General Ledger (`/admin/accounting`)**: Trial balance summary, total debits/credits, income statement previews, and chart of accounts.
+6. **Money Book (`/admin/accounting`)**: Simple bookkeeping for the owner. Record **Money In** (Services, Product sales, Tips, Other income) or **Money Out** (Rent, Supplies, Utilities, Wages, Equipment, Other expense) with an amount, date, cash/bank and an optional note. Shows monthly Money In, Money Out, Profit/Loss and a per-category breakdown. Behind the scenes each entry is posted as a balanced journal to the backend accounting module (`src/lib/moneyBook.ts` picks the accounts), so no chart-of-accounts knowledge is needed. Removing an entry reverses the journal (audit trail is kept). The navbar **Cash In** button records walk-in cash as Money In.
 7. **Expenses & Receipts (`/admin/expenses`)**: Track business operating expenses (rent, supplies, utilities) with category tagging and amount inputs.
 8. **Payroll Records (`/admin/payroll`)**: Staff payroll log with base salary, commission calculations, and payment posting.
 9. **Customers CRM (`/admin/customers`)**: Client directory tracking total visits, spent balance, loyalty points, and VIP membership badges (Silver, Gold, Platinum).
@@ -153,7 +160,7 @@ The Theme & Branding Studio provides salon owners with dynamic, real-time custom
 
 ### 5. Next.js Server-Side Proxy Handlers
 
-To eliminate browser CORS restrictions and prevent request body/header truncation on POST/PUT requests, all frontend components route through server-side proxy route handlers:
+To eliminate browser CORS restrictions, all frontend components route through server-side proxy route handlers. Both proxies are **pure pass-throughs**: they never fabricate tokens, profiles or records, and upstream errors (e.g. `401 Invalid userid or password`) are returned to the browser unchanged. Network failures return `502`/`504`. The core proxy rejects requests without an `Authorization` header (`401`).
 
 #### 1. Auth Service Proxy
 * **Client Path**: `/api/auth-proxy/[...path]`
@@ -164,6 +171,15 @@ To eliminate browser CORS restrictions and prevent request body/header truncatio
 * **Client Path**: `/api/core-proxy/[...path]`
 * **Target Destination**: `http://3.6.123.11:3301/[...path]`
 * **File Location**: `src/app/api/core-proxy/[...path]/route.ts`
+
+---
+
+#### Authentication & Roles
+* Sign-in succeeds only when the Auth Service accepts the credentials; the app then loads `GET /users/me`.
+* The app role is derived from the server-provided `roleCode` only: `ROLE_ADMIN` → **Owner/Admin**; staff role codes, or an account linked to an `ACTIVE` staff record (by `userId`/email) → **Staff**; anything else → **Customer**.
+* Saved sessions are re-validated against `/users/me` on page load; an invalid/expired session is cleared. Access tokens are refreshed through a single shared refresh request.
+* `/admin/*` requires Owner/Admin or Staff. Money Book, Expenses, Payroll and Settings are Owner/Admin only (enforced in `src/app/admin/layout.tsx`).
+* Online booking (`/customer/book`) requires a signed-in customer account, because the Core Backend does not answer anonymous requests.
 
 ---
 
@@ -273,15 +289,18 @@ The Core Service manages staff specialists, working shifts, appointments, cash p
 
 ### 8. Summary Table of Frontend Pages & API Mappings
 
-| Page Route | Page Title | Primary Backend APIs Consumed | Local Fallback Storage |
+| Page Route | Page Title | Primary Backend APIs Consumed | Browser Storage |
 | :--- | :--- | :--- | :--- |
-| `/login` | Sign In Portal | `POST /auth/login` | `auth_access_token`, `auth_refresh_token` |
-| `/admin/dashboard` | Admin Dashboard | `GET /api/v1/bookings`, `GET /api/v1/staff`, `POST /api/v1/payments` | React State |
-| `/admin/appointments` | Appointments Calendar | `GET /api/v1/bookings`, `POST /api/v1/bookings`, `POST /api/v1/bookings/{id}/reschedule` | React State |
-| `/admin/staff` | Staff & Working Shifts | `GET /api/v1/staff`, `POST /api/v1/staff`, `POST /api/v1/staff/{id}/expertise` | `custom_staff_directory` |
-| `/admin/invoices` | Cash Register Invoices | `GET /api/v1/payments`, `POST /api/v1/payments` | React State |
-| `/admin/services` | Services Catalog | `GET /api/v1/services/branches/{id}`, `POST /api/v1/services` | React State |
-| `/admin/expenses` | Expenses & Receipts | `GET /api/v1/expenses`, `POST /api/v1/expenses` | React State |
+| `/login` | Sign In Portal | `POST /auth/login`, `GET /users/me` | `auth_access_token`, `auth_refresh_token`, `bdiamond_user_info` |
+| `/admin/dashboard` | Admin Dashboard | `GET /api/v1/bookings`, `GET /api/v1/staff`, `GET /api/v1/payments` | — |
+| `/admin/appointments` | Appointments Calendar | `GET/POST /api/v1/bookings`, `POST /api/v1/customers`, `POST /api/v1/bookings/{id}/reschedule` | — |
+| `/admin/staff` | Staff & Working Shifts | `GET /api/v1/staff`, `POST /api/v1/staff`, `POST /api/v1/staff/{id}/expertise` | — |
+| `/admin/invoices` | Cash Register Invoices | `GET/POST /api/v1/billing/invoices`, `GET/POST /api/v1/payments` | — |
+| `/admin/services` | Services Catalog | `GET /api/v1/services/branches/{id}`, `POST /api/v1/services` | — |
+| `/admin/accounting` | Money Book | `GET /api/v1/accounting/accounts`, `GET/POST /api/v1/accounting/journals`, `POST /api/v1/accounting/journals/{id}/reverse` | — |
+| `/admin/expenses` | Expenses & Receipts | `GET /api/v1/expenses`, `POST /api/v1/expenses` | — |
 | `/admin/settings` | Theme Studio | `ThemeContext` | `bdiamond_theme_settings` |
-| `/customer/book` | Booking Wizard | `GET /api/v1/services`, `GET /api/v1/staff`, `POST /api/v1/bookings` | React State |
-| `/customer/profile` | Customer Profile | `GET /users/me`, `GET /api/v1/bookings` | `user_info` |
+| `/customer/book` | Booking Wizard (sign-in required) | `GET /api/v1/services/branches/{id}`, `GET /api/v1/staff`, `POST /api/v1/bookings` | — |
+| `/customer/profile` | Customer Profile | `GET /users/me`, `GET /api/v1/bookings` | `bdiamond_user_info` |
+
+> All business data lives in the backend. There is no local/offline mock data store.

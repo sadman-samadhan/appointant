@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -19,13 +19,25 @@ export default function AdminSettingsPage() {
   const { isAdmin, isLoading: isAuthLoading } = useAuth();
   const { showSuccess } = useToast();
 
-  const [primaryColor, setPrimaryColor] = useState(settings.primaryColor);
-  const [secondaryColor, setSecondaryColor] = useState(settings.secondaryColor);
-  const [accentColor, setAccentColor] = useState(settings.accentColor);
-  const [logoUrl, setLogoUrl] = useState(settings.logoUrl);
-  const [featuredImageUrl, setFeaturedImageUrl] = useState(settings.featuredImageUrl);
-  const [siteName, setSiteName] = useState(settings.siteName);
-  const [tagline, setTagline] = useState(settings.tagline);
+  const [primaryColor, setPrimaryColor] = useState(settings.primaryColor || '');
+  const [secondaryColor, setSecondaryColor] = useState(settings.secondaryColor || '');
+  const [accentColor, setAccentColor] = useState(settings.accentColor || '');
+  const [logoUrl, setLogoUrl] = useState(settings.logoUrl || '');
+  const [featuredImageUrl, setFeaturedImageUrl] = useState(settings.featuredImageUrl || '');
+  const [siteName, setSiteName] = useState(settings.siteName || '');
+  const [tagline, setTagline] = useState(settings.tagline || '');
+
+  // Theme settings are hydrated from storage after mount (and reset by resetDefaults);
+  // keep the form in sync so saving never overwrites them with stale defaults.
+  useEffect(() => {
+    setPrimaryColor(settings.primaryColor || '');
+    setSecondaryColor(settings.secondaryColor || '');
+    setAccentColor(settings.accentColor || '');
+    setLogoUrl(settings.logoUrl || '');
+    setFeaturedImageUrl(settings.featuredImageUrl || '');
+    setSiteName(settings.siteName || '');
+    setTagline(settings.tagline || '');
+  }, [settings]);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,13 +100,6 @@ export default function AdminSettingsPage() {
         <button
           onClick={() => {
             resetDefaults();
-            setPrimaryColor('#8B3A3A');
-            setSecondaryColor('#BE123C');
-            setAccentColor('#059669');
-            setLogoUrl('/bdiamond-logo.png');
-            setFeaturedImageUrl('/bdiamond-hero.png');
-            setSiteName('B DIAMOND BEAUTY SALON');
-            setTagline('Salon & Barber Management OS');
             showSuccess('Defaults Restored', 'Reverted to default B Diamond theme.');
           }}
           className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] border border-[var(--border)] hover:bg-[var(--border)] transition-colors flex items-center gap-1.5 self-start"

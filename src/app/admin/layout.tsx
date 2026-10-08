@@ -2,49 +2,56 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Sidebar } from '@/components/layout/Sidebar';
+import { usePathname } from 'next/navigation';
+import { Sidebar, ADMIN_ONLY_ROUTES } from '@/components/layout/Sidebar';
 import { Navbar } from '@/components/layout/Navbar';
 import { Modal } from '@/components/ui/Modal';
-import { apiRequest } from '@/lib/api/client';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { Wallet, ShieldAlert, LogIn, Sparkles, RefreshCw } from 'lucide-react';
+import { addEntry } from '@/lib/moneyBook';
+import { formatMoney, todayISO } from '@/lib/format';
+import { Wallet, ShieldAlert, LogIn, RefreshCw } from 'lucide-react';
+
+function GateMessage({ title, message, children }: { title: string; message: string; children?: React.ReactNode }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[var(--background)] p-4">
+      <div className="max-w-md w-full glass-card p-8 rounded-3xl border border-[var(--border)] shadow-xl text-center space-y-5 animate-fade-in">
+        <div className="w-14 h-14 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 flex items-center justify-center mx-auto border border-amber-200">
+          <ShieldAlert className="w-7 h-7" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="text-xl font-black text-[var(--foreground)]">{title}</h2>
+          <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">{message}</p>
+        </div>
+        <div className="space-y-2 pt-2">{children}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [showCashModal, setShowCashModal] = useState(false);
   const [cashAmount, setCashAmount] = useState('25.00');
   const [customerName, setCustomerName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isReauthenticating, setIsReauthenticating] = useState(false);
   const { showSuccess, showError } = useToast();
-  const { isAuthenticated, isLoading, login, token } = useAuth();
+  const { isAuthenticated, isLoading, isAdmin, isStaff, logout } = useAuth();
 
-  const handleQuickReauth = async () => {
-    setIsReauthenticating(true);
-    try {
-      await login('bdiamond.owner@system.com', '123456789', 'ADMIN');
-      showSuccess('Signed In', 'Session restored as Salon Owner.');
-    } catch (err: any) {
-      showError('Authentication Failed', err.message || 'Please log in manually.');
-    } finally {
-      setIsReauthenticating(false);
-    }
-  };
-
+  // Records walk-in cash straight into the Money Book as "Money In".
   const handleRecordCash = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      await apiRequest('/api/v1/payments', {
-        method: 'POST',
-        body: JSON.stringify({
-          amount: parseFloat(cashAmount),
-          paymentMethod: 'CASH',
-          currency: 'CAD',
-          customerName: customerName || 'Walk-in Client',
-        }),
+      await addEntry({
+        type: 'IN',
+        amount: parseFloat(cashAmount),
+        date: todayISO(),
+        category: 'Services',
+        note: customerName.trim() || 'Walk-in client',
+        paidWith: 'CASH',
       });
-      showSuccess('Cash Registered', `$${cashAmount} CAD recorded successfully.`);
+      showSuccess('Cash Recorded', `$${formatMoney(cashAmount)} CAD added to the Money Book.`);
       setShowCashModal(false);
       setCustomerName('');
     } catch (err: any) {
@@ -54,40 +61,64 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   };
 
-  if (!isLoading && (!isAuthenticated || !token)) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--background)] p-4">
-        <div className="max-w-md w-full glass-card p-8 rounded-3xl border border-[var(--border)] shadow-xl text-center space-y-5 animate-fade-in">
-          <div className="w-14 h-14 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 flex items-center justify-center mx-auto border border-amber-200">
-            <ShieldAlert className="w-7 h-7" />
-          </div>
-          <div className="space-y-1">
-            <h2 className="text-xl font-black text-[var(--foreground)]">Authentication Required</h2>
-            <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
-              Your salon session has expired or requires sign in. Re-authenticate to access salon records and operational tools.
-            </p>
-          </div>
-
-          <div className="space-y-2 pt-2">
-            <button
-              onClick={handleQuickReauth}
-              disabled={isReauthenticating}
-              className="w-full btn-primary py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
-            >
-              {isReauthenticating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              <span>{isReauthenticating ? 'Restoring Session...' : '1-Click Restore Session (Owner)'}</span>
-            </button>
-
-            <Link
-              href="/login"
-              className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] transition-colors inline-flex items-center justify-center gap-2 border border-[var(--border)]"
-            >
-              <LogIn className="w-4 h-4" />
-              <span>Go to Sign In Portal</span>
-            </Link>
-          </div>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
+        <RefreshCw className="w-6 h-6 animate-spin text-[var(--primary)]" />
       </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <GateMessage
+        title="Sign In Required"
+        message="Your session has expired or you are not signed in. Please sign in to access salon records."
+      >
+        <Link
+          href="/login"
+          className="w-full btn-primary py-3 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm"
+        >
+          <LogIn className="w-4 h-4" />
+          <span>Go to Sign In</span>
+        </Link>
+      </GateMessage>
+    );
+  }
+
+  if (!isAdmin && !isStaff) {
+    return (
+      <GateMessage
+        title="Staff Area"
+        message="This part of the site is only for salon owners and staff. Your account is a customer account."
+      >
+        <Link
+          href="/customer/profile"
+          className="w-full btn-primary py-3 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm"
+        >
+          <span>Go to My Profile</span>
+        </Link>
+        <button
+          onClick={logout}
+          className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] border border-[var(--border)]"
+        >
+          Sign out
+        </button>
+      </GateMessage>
+    );
+  }
+
+  const isOwnerOnlyRoute = ADMIN_ONLY_ROUTES.some((r) => pathname === r || pathname?.startsWith(`${r}/`));
+  if (isOwnerOnlyRoute && !isAdmin) {
+    return (
+      <GateMessage title="Owner Only" message="Only the salon owner or an administrator can open this page.">
+        <Link
+          href="/admin/dashboard"
+          className="w-full btn-primary py-3 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm"
+        >
+          <span>Back to Dashboard</span>
+        </Link>
+      </GateMessage>
     );
   }
 
@@ -98,7 +129,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <Navbar onOpenCashModal={() => setShowCashModal(true)} />
+        <Navbar onOpenCashModal={isAdmin ? () => setShowCashModal(true) : undefined} />
         <main className="p-4 sm:p-6 lg:p-8 flex-1 max-w-7xl w-full mx-auto animate-fade-in">
           {children}
         </main>

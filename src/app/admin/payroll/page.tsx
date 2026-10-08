@@ -20,6 +20,7 @@ import {
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { PayrollDto, StaffResponseDto, AccountDto } from '@/lib/types';
+import { formatMoney, toNumber, toList } from '@/lib/format';
 
 export default function AdminPayrollPage() {
   const { showSuccess, showError } = useToast();
@@ -53,8 +54,8 @@ export default function AdminPayrollPage() {
 
     try {
       const stfRes = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
-      const sList = stfRes.items || stfRes.staff || stfRes.data || (Array.isArray(stfRes) ? stfRes : []);
-      if (Array.isArray(sList) && sList.length > 0) {
+      const sList = toList<any>(stfRes, 'staff').filter((s: any) => s && (s.staffId || s.id));
+      if (sList.length > 0) {
         const validStaff = sList
           .filter((s: any) => s.staffId !== 'c3e2cead-5ad3-41f8-83c2-26c85bbd0648' && s.id !== 'c3e2cead-5ad3-41f8-83c2-26c85bbd0648')
           .filter((s: any) => !s.tenantId || s.tenantId === DEFAULT_TENANT_ID);
@@ -80,13 +81,15 @@ export default function AdminPayrollPage() {
 
     try {
       const accRes = await apiRequest<any>('/api/v1/accounting/accounts');
-      const aList: AccountDto[] = accRes.items || accRes.accounts || accRes || [];
-      if (Array.isArray(aList)) {
-        const cashOnly = aList.filter((a: any) => a.accountType === 'ASSET' || true);
-        setCashAccounts(cashOnly);
-        if (cashOnly.length > 0) {
-          setPaymentAccountId((prev) => prev || cashOnly[0].accountId);
-        }
+      const aList: AccountDto[] = toList<any>(accRes, 'accounts')
+        .filter((a: any) => a && (a.accountId || a.id))
+        .map((a: any) => ({ ...a, accountId: a.accountId || a.id }));
+      // Payouts come from a cash/bank (ASSET) account; fall back to all accounts if types are missing.
+      const assetAccounts = aList.filter((a: any) => String(a.accountType || a.type || '').toUpperCase() === 'ASSET');
+      const cashOnly = assetAccounts.length > 0 ? assetAccounts : aList;
+      setCashAccounts(cashOnly);
+      if (cashOnly.length > 0) {
+        setPaymentAccountId((prev) => prev || cashOnly[0].accountId);
       }
     } catch {
       setCashAccounts([]);
@@ -94,28 +97,29 @@ export default function AdminPayrollPage() {
 
     try {
       const res = await apiRequest<any>('/api/v1/payroll');
-      const list: PayrollDto[] = res.items || res.payroll || res || [];
-      if (Array.isArray(list)) {
-        setPayrollList(
-          list.map((p: any) => {
-            const matchedStaff = loadedStaff.find((s: any) => s.staffId === p.staffId);
-            return {
-              payrollId: p.payrollId || p.id,
-              staffId: p.staffId,
-              staffName: p.staffName || p.staff?.fullName || matchedStaff?.fullName || (matchedStaff as any)?.name || 'Specialist',
-              periodStart: p.periodStart || '2026-08-01',
-              periodEnd: p.periodEnd || '2026-08-15',
-              baseSalary: Number(p.baseSalary || 0),
-              bonus: Number(p.bonus || p.commission || 0),
-              commission: Number(p.commission || p.bonus || 0),
-              deductions: Number(p.deductions || 0),
-              totalAmount: Number(p.totalAmount ?? (Number(p.baseSalary || 0) + Number(p.bonus || 0) - Number(p.deductions || 0))),
-              status: p.status || 'DRAFT',
-              notes: p.notes,
-            };
-          })
-        );
-      }
+      const list = toList<any>(res, 'payroll', 'payrolls').filter(Boolean);
+      setPayrollList(
+        list.map((p: any) => {
+          const matchedStaff = loadedStaff.find((s: any) => s.staffId === p.staffId);
+          const baseSalary = toNumber(p.baseSalary);
+          const bonus = toNumber(p.bonus ?? p.commission);
+          const deductions = toNumber(p.deductions);
+          return {
+            payrollId: p.payrollId || p.id,
+            staffId: p.staffId,
+            staffName: p.staffName || p.staff?.fullName || matchedStaff?.fullName || (matchedStaff as any)?.name || 'Specialist',
+            periodStart: typeof p.periodStart === 'string' ? p.periodStart.substring(0, 10) : '—',
+            periodEnd: typeof p.periodEnd === 'string' ? p.periodEnd.substring(0, 10) : '—',
+            baseSalary,
+            bonus,
+            commission: toNumber(p.commission ?? p.bonus),
+            deductions,
+            totalAmount: toNumber(p.totalAmount ?? p.netPay ?? p.netAmount, baseSalary + bonus - deductions),
+            status: p.status || 'DRAFT',
+            notes: p.notes,
+          };
+        })
+      );
     } catch {
       setPayrollList([]);
     } finally {
@@ -146,9 +150,9 @@ export default function AdminPayrollPage() {
           staffId: selectedStaffId,
           periodStart,
           periodEnd,
-          baseSalary: parseFloat(baseSalary),
-          bonus: parseFloat(bonus) || 0,
-          deductions: parseFloat(deductions) || 0,
+          baseSalary: toNumber(baseSalary),
+          bonus: toNumber(bonus),
+          deductions: toNumber(deductions),
           notes: notes.trim() || undefined,
         }),
       });
@@ -157,7 +161,7 @@ export default function AdminPayrollPage() {
       setShowAddModal(false);
       loadData();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Could not generate payroll');
+      showError('Action Failed', err?.message || 'Could not generate payroll');
     } finally {
       setIsSubmittingPayroll(false);
     }
@@ -167,18 +171,22 @@ export default function AdminPayrollPage() {
   const handlePayPayrollSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPayrollToPay) return;
+    if (!paymentAccountId) {
+      showError('Account Required', 'Select a cash or bank account to disburse from.');
+      return;
+    }
     setIsPaying(true);
     try {
       await apiRequest(`/api/v1/payroll/${selectedPayrollToPay.payrollId}/pay`, {
         method: 'POST',
-        body: JSON.stringify({ paymentAccountId: paymentAccountId || 'c36e10f1-fb01-456f-847a-375a10d75019' }),
+        body: JSON.stringify({ paymentAccountId }),
       });
       showSuccess('Payout Executed', `Payment posted for ${selectedPayrollToPay.staffName}`);
       setShowPayModal(false);
       setSelectedPayrollToPay(null);
       loadData();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Failed to execute payroll payout');
+      showError('Action Failed', err?.message || 'Failed to execute payroll payout');
     } finally {
       setIsPaying(false);
     }
@@ -194,7 +202,7 @@ export default function AdminPayrollPage() {
       showSuccess('Payroll Reversed', 'Payroll transaction reversed.');
       loadData();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Could not reverse payroll');
+      showError('Action Failed', err?.message || 'Could not reverse payroll');
     }
   };
 
@@ -206,7 +214,7 @@ export default function AdminPayrollPage() {
       showSuccess('Payroll Deleted', 'Draft removed.');
       loadData();
     } catch (err: any) {
-      showError('Delete Failed', err.message || 'Could not delete payroll');
+      showError('Delete Failed', err?.message || 'Could not delete payroll');
     }
   };
 
@@ -293,7 +301,7 @@ export default function AdminPayrollPage() {
                       Period: {pay.periodStart} to {pay.periodEnd}
                     </span>
                     <span className="text-[10px] font-bold text-[var(--primary)] block">
-                      Base: ${pay.baseSalary.toFixed(2)} | Bonus: ${(pay.bonus || 0).toFixed(2)} | Deductions: ${(pay.deductions || 0).toFixed(2)}
+                      Base: ${formatMoney(pay.baseSalary)} | Bonus: ${formatMoney(pay.bonus)} | Deductions: ${formatMoney(pay.deductions)}
                     </span>
                   </div>
                 </div>
@@ -301,7 +309,7 @@ export default function AdminPayrollPage() {
                 <div className="flex items-center justify-between sm:justify-end gap-3">
                   <div className="text-right">
                     <span className="text-sm font-black text-[var(--foreground)] block">
-                      ${pay.totalAmount.toFixed(2)} CAD
+                      ${formatMoney(pay.totalAmount)} CAD
                     </span>
                     <Badge variant={pay.status} />
                   </div>
@@ -467,7 +475,7 @@ export default function AdminPayrollPage() {
             <div className="p-3 rounded-xl bg-[var(--muted)] space-y-1">
               <span className="text-[10px] font-bold text-[var(--muted-foreground)] uppercase">Payout Total</span>
               <span className="text-xl font-black text-emerald-600 block">
-                ${selectedPayrollToPay.totalAmount.toFixed(2)} CAD
+                ${formatMoney(selectedPayrollToPay.totalAmount)} CAD
               </span>
             </div>
 
@@ -478,6 +486,7 @@ export default function AdminPayrollPage() {
                 onChange={(e) => setPaymentAccountId(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
               >
+                {cashAccounts.length === 0 && <option value="">No accounts found</option>}
                 {cashAccounts.map((a) => (
                   <option key={a.accountId} value={a.accountId}>
                     {a.accountCode} - {a.accountName}

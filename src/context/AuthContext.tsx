@@ -1,18 +1,27 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import { apiRequest, setStoredToken, getStoredToken, removeStoredToken, refreshAuthToken } from '@/lib/api/client';
+import {
+  apiRequest,
+  ApiError,
+  setStoredToken,
+  setStoredRefreshToken,
+  getStoredToken,
+  removeStoredToken,
+  refreshAuthToken,
+  USER_INFO_KEY,
+} from '@/lib/api/client';
 import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
+import { toList } from '@/lib/format';
 import {
   UserProfile,
   AuthResponse,
   RegisterRequest,
-  ForgotPasswordRequest,
-  VerifyOtpRequest,
   ResetPasswordRequest,
   ChangePasswordRequest,
 } from '@/lib/types';
+
+type AppRole = 'ADMIN' | 'STAFF' | 'CUSTOMER';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -23,7 +32,7 @@ interface AuthContextType {
   isStaff: boolean;
   tenantId: string;
   branchId: string;
-  login: (userid: string, password: string, targetRole?: 'ADMIN' | 'CUSTOMER') => Promise<UserProfile>;
+  login: (userid: string, password: string) => Promise<UserProfile>;
   register: (req: RegisterRequest) => Promise<void>;
   forgotPassword: (userid: string) => Promise<any>;
   verifyOtp: (userid: string, otp: string) => Promise<{ resetToken: string }>;
@@ -32,81 +41,107 @@ interface AuthContextType {
   refreshUserProfile: () => Promise<void>;
   logout: () => void;
   setCustomerSession: (customer: { name: string; phone?: string; email?: string }) => void;
-  setUserRole: (role: 'ADMIN' | 'CUSTOMER' | 'STAFF') => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const ADMIN_ROLE_CODES = ['ROLE_ADMIN', 'ADMIN', 'ROLE_OWNER', 'OWNER', 'ROLE_SUPER_ADMIN'];
+const STAFF_ROLE_CODES = ['ROLE_STAFF', 'STAFF', 'ROLE_MANAGER', 'MANAGER', 'ROLE_EMPLOYEE'];
+
+function collectRoleCodes(me: any): string[] {
+  const codes: string[] = [];
+  if (typeof me?.roleCode === 'string') codes.push(me.roleCode);
+  if (Array.isArray(me?.roleCodes)) codes.push(...me.roleCodes);
+  if (Array.isArray(me?.roles)) {
+    for (const r of me.roles) codes.push(typeof r === 'string' ? r : r?.code || r?.roleCode);
+  }
+  return codes.filter(Boolean).map((c) => String(c).toUpperCase());
+}
+
+// A non-admin account counts as staff only if it is linked to an ACTIVE staff record.
+async function isLinkedToActiveStaff(me: any): Promise<boolean> {
+  try {
+    const res = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
+    const email = String(me.email || me.userid || '').toLowerCase();
+    return toList(res, 'staff').some(
+      (s: any) =>
+        s.status === 'ACTIVE' &&
+        ((s.userId != null && String(s.userId) === String(me.id)) ||
+          (!!email && String(s.email || '').toLowerCase() === email))
+    );
+  } catch {
+    return false;
+  }
+}
+
+// The role is derived only from what the Auth Service says about the signed-in user,
+// never from the text of the email address.
+async function resolveProfile(me: any): Promise<UserProfile> {
+  const codes = collectRoleCodes(me);
+  let role: AppRole = 'CUSTOMER';
+  if (codes.some((c) => ADMIN_ROLE_CODES.includes(c))) role = 'ADMIN';
+  else if (codes.some((c) => STAFF_ROLE_CODES.includes(c))) role = 'STAFF';
+  else if (await isLinkedToActiveStaff(me)) role = 'STAFF';
+
+  return {
+    id: me.id ?? me.userId,
+    name: me.name || me.fullName || String(me.userid || '').split('@')[0] || 'User',
+    userid: me.userid || me.email || '',
+    email: me.email || (String(me.userid || '').includes('@') ? me.userid : undefined),
+    phone: me.phone || me.mobile,
+    status: me.status,
+    role,
+    roleCode: codes[0],
+    roleName: role === 'ADMIN' ? 'Salon Owner / Administrator' : role === 'STAFF' ? 'Staff Specialist' : 'Customer',
+  };
+}
+
+function isUnauthorized(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 401;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [tenantId] = useState(DEFAULT_TENANT_ID);
-  const [branchId] = useState(DEFAULT_BRANCH_ID);
+  const tenantId = DEFAULT_TENANT_ID;
+  const branchId = DEFAULT_BRANCH_ID;
 
-  const isOwnerOrAdmin = (u: UserProfile | null): boolean => {
-    if (!u) return false;
-    const uid = (u.userid || u.email || '').toLowerCase();
-    return (
-      uid === 'bdiamond.owner@system.com' ||
-      uid.includes('owner') ||
-      uid.includes('admin') ||
-      u.roleCode === 'ADMIN' ||
-      u.roleCode === 'ROLE_ADMIN' ||
-      (u.role === 'ADMIN' && u.roleCode !== 'STAFF' && u.roleCode !== 'ROLE_USER')
-    );
-  };
+  const isAdmin = !!token && user?.role === 'ADMIN';
+  const isStaff = !!token && user?.role === 'STAFF';
 
-  const isAdmin = isOwnerOrAdmin(user);
-  const isStaff = !isAdmin && !!user && user.role !== 'CUSTOMER';
+  const clearSession = useCallback(() => {
+    removeStoredToken();
+    localStorage.removeItem(USER_INFO_KEY);
+    setToken(null);
+    setUser(null);
+  }, []);
 
-  const refreshUserProfile = useCallback(async () => {
-    const activeToken = getStoredToken();
-    if (!activeToken) return;
-
+  const fetchMe = useCallback(async (): Promise<any> => {
     try {
-      const me = await apiRequest<any>('/users/me', { isAuthService: true });
-      if (me) {
-        setUser((prev) => {
-          const uid = (me.userid || me.email || prev?.userid || '').toLowerCase();
-          const isActualAdmin =
-            uid === 'bdiamond.owner@system.com' ||
-            uid.includes('admin') ||
-            uid.includes('owner') ||
-            me.roleCode === 'ADMIN' ||
-            me.roleCode === 'ROLE_ADMIN' ||
-            (me.roleCodes && me.roleCodes.includes('ROLE_ADMIN'));
-
-          const resolvedRole: 'ADMIN' | 'STAFF' | 'CUSTOMER' = isActualAdmin
-            ? 'ADMIN'
-            : prev?.role === 'CUSTOMER'
-            ? 'CUSTOMER'
-            : 'STAFF';
-
-          const updated: UserProfile = {
-            id: me.id || me.userId || prev?.id,
-            name: me.name || prev?.name || (isActualAdmin ? 'B Diamond Owner' : 'Specialist'),
-            userid: me.userid || prev?.userid || '',
-            email: me.email || me.userid || prev?.email,
-            phone: me.phone || me.mobile || prev?.phone,
-            role: resolvedRole,
-            roleName:
-              resolvedRole === 'ADMIN'
-                ? 'Salon Owner / Administrator'
-                : resolvedRole === 'STAFF'
-                ? 'Staff Specialist'
-                : 'Customer',
-            roleCode: isActualAdmin ? 'ADMIN' : (me.roleCode || 'STAFF'),
-          };
-          localStorage.setItem('bdiamond_user_info', JSON.stringify(updated));
-          return updated;
-        });
+      return await apiRequest<any>('/users/me', { isAuthService: true });
+    } catch (err) {
+      // Access token may simply be stale: rotate it once and retry.
+      if (isUnauthorized(err) && (await refreshAuthToken())) {
+        return await apiRequest<any>('/users/me', { isAuthService: true });
       }
-    } catch {
-      /* token might be invalid or expired */
+      throw err;
     }
   }, []);
+
+  const refreshUserProfile = useCallback(async () => {
+    if (!getStoredToken()) return;
+    try {
+      const me = await fetchMe();
+      const profile = await resolveProfile(me);
+      setUser(profile);
+      setToken(getStoredToken());
+      localStorage.setItem(USER_INFO_KEY, JSON.stringify(profile));
+    } catch (err) {
+      if (isUnauthorized(err)) clearSession();
+      /* otherwise (network blip) keep the cached profile; the backend still enforces auth */
+    }
+  }, [fetchMe, clearSession]);
 
   useEffect(() => {
     const handleAuthExpired = () => {
@@ -138,127 +173,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Restore a saved session, but only after the Auth Service confirms the token is still valid.
   useEffect(() => {
-    const t = getStoredToken();
-    const u = typeof window !== 'undefined' ? localStorage.getItem('bdiamond_user_info') : null;
-    if (t) {
-      setToken(t);
-      if (u) {
-        try {
-          setUser(JSON.parse(u));
-        } catch {
-          setUser(null);
-        }
+    let cancelled = false;
+    (async () => {
+      const t = getStoredToken();
+      if (!t) {
+        localStorage.removeItem(USER_INFO_KEY);
+        setIsLoading(false);
+        return;
       }
-      refreshUserProfile();
-    } else {
-      setToken(null);
-      setUser(null);
-    }
-    setIsLoading(false);
+      try {
+        const cached = localStorage.getItem(USER_INFO_KEY);
+        if (cached) setUser(JSON.parse(cached));
+      } catch {
+        /* ignore corrupt cache */
+      }
+      setToken(t);
+      await refreshUserProfile();
+      if (!cancelled) setIsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [refreshUserProfile]);
 
-  const login = async (
-    userid: string,
-    password: string,
-    targetRole: 'ADMIN' | 'CUSTOMER' = 'ADMIN'
-  ) => {
-    setIsLoading(true);
+  const login = async (userid: string, password: string) => {
+    // Any non-2xx answer (e.g. 401 "Invalid userid or password") throws here.
+    const data = await apiRequest<AuthResponse>('/auth/login', {
+      method: 'POST',
+      isAuthService: true,
+      body: JSON.stringify({ userid, password }),
+    });
+
+    if (!data?.access_token) {
+      throw new Error('Sign-in failed: the server did not return a session token.');
+    }
+
+    setStoredToken(data.access_token);
+    if (data.refresh_token) setStoredRefreshToken(data.refresh_token);
+
     try {
-      const data = await apiRequest<AuthResponse>('/auth/login', {
-        method: 'POST',
-        isAuthService: true,
-        body: JSON.stringify({ userid, password }),
-      });
-
-      if (!data.access_token) {
-        throw new Error('Invalid response from Auth Service: Access token missing.');
-      }
-
-      setStoredToken(data.access_token);
-      if (data.refresh_token) {
-        localStorage.setItem('auth_refresh_token', data.refresh_token);
-      }
+      const me = await apiRequest<any>('/users/me', { isAuthService: true });
+      const profile = await resolveProfile(me);
       setToken(data.access_token);
-
-      const uid = (userid || '').toLowerCase();
-      const isActualAdmin =
-        uid === 'bdiamond.owner@system.com' ||
-        uid.includes('owner') ||
-        uid.includes('admin');
-
-      let resolvedRole: 'ADMIN' | 'STAFF' | 'CUSTOMER' =
-        targetRole === 'CUSTOMER' ? 'CUSTOMER' : isActualAdmin ? 'ADMIN' : 'STAFF';
-
-      let profile: UserProfile = {
-        name: isActualAdmin ? 'B Diamond Owner' : userid.split('@')[0],
-        userid,
-        email: userid.includes('@') ? userid : undefined,
-        phone: !userid.includes('@') ? userid : undefined,
-        role: resolvedRole,
-        roleCode: isActualAdmin ? 'ADMIN' : (targetRole === 'CUSTOMER' ? 'USER' : 'STAFF'),
-      };
-
-      try {
-        const me = await apiRequest<any>('/users/me', { isAuthService: true });
-        if (me) {
-          const userId = me.id || me.userId;
-          const meUid = (me.userid || me.email || userid).toLowerCase();
-          const isAdminRole =
-            me.roleCode === 'ADMIN' ||
-            me.roleCode === 'ROLE_ADMIN' ||
-            (me.roleCodes && me.roleCodes.includes('ROLE_ADMIN')) ||
-            meUid === 'bdiamond.owner@system.com' ||
-            meUid.includes('owner') ||
-            meUid.includes('admin');
-
-          if (isAdminRole) {
-            resolvedRole = 'ADMIN';
-          } else if (targetRole === 'CUSTOMER' && me.roleCode !== 'STAFF') {
-            resolvedRole = 'CUSTOMER';
-          } else {
-            resolvedRole = 'STAFF';
-          }
-
-          profile = {
-            id: userId,
-            name: me.name || (resolvedRole === 'ADMIN' ? 'B Diamond Owner' : userid.split('@')[0]),
-            userid: me.userid || userid,
-            email: me.email || (userid.includes('@') ? userid : undefined),
-            phone: me.phone || me.mobile || (!userid.includes('@') ? userid : undefined),
-            role: resolvedRole,
-            roleName:
-              resolvedRole === 'ADMIN'
-                ? 'Salon Owner / Administrator'
-                : resolvedRole === 'STAFF'
-                ? 'Staff Specialist'
-                : 'Customer',
-            roleCode: resolvedRole === 'ADMIN' ? 'ADMIN' : (resolvedRole === 'STAFF' ? 'STAFF' : 'USER'),
-          };
-        }
-      } catch {
-        /* fallback to profile */
-      }
-
       setUser(profile);
-      localStorage.setItem('bdiamond_user_info', JSON.stringify(profile));
+      localStorage.setItem(USER_INFO_KEY, JSON.stringify(profile));
       return profile;
-    } finally {
-      setIsLoading(false);
+    } catch (err) {
+      clearSession();
+      throw new Error('Signed in, but your profile could not be loaded. Please try again.');
     }
   };
 
   const register = async (req: RegisterRequest) => {
-    setIsLoading(true);
-    try {
-      await apiRequest('/auth/register', {
-        method: 'POST',
-        isAuthService: true,
-        body: JSON.stringify(req),
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    await apiRequest('/auth/register', {
+      method: 'POST',
+      isAuthService: true,
+      body: JSON.stringify(req),
+    });
   };
 
   const forgotPassword = async (userid: string) => {
@@ -293,7 +266,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  // Remembers a guest's contact details after an online booking. It never grants a
+  // session and never overrides a signed-in user.
   const setCustomerSession = (customer: { name: string; phone?: string; email?: string }) => {
+    if (getStoredToken()) return;
     const profile: UserProfile = {
       name: customer.name,
       userid: customer.phone || customer.email || customer.name,
@@ -303,32 +279,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role: 'CUSTOMER',
     };
     setUser(profile);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('bdiamond_user_info', JSON.stringify(profile));
-    }
+    localStorage.setItem(USER_INFO_KEY, JSON.stringify(profile));
   };
 
   const logout = () => {
-    try {
-      apiRequest('/auth/logout', { method: 'POST', isAuthService: true }).catch(() => {});
-    } catch {
-      /* ignore */
-    }
-    removeStoredToken();
-    localStorage.removeItem('bdiamond_user_info');
-    setToken(null);
-    setUser(null);
-    if (typeof window !== 'undefined') {
-      window.location.href = '/login';
-    }
-  };
-
-  const setUserRole = (role: 'ADMIN' | 'CUSTOMER' | 'STAFF') => {
-    if (user) {
-      const updated = { ...user, role };
-      setUser(updated);
-      localStorage.setItem('bdiamond_user_info', JSON.stringify(updated));
-    }
+    apiRequest('/auth/logout', { method: 'POST', isAuthService: true }).catch(() => {});
+    clearSession();
+    window.location.href = '/login';
   };
 
   return (
@@ -351,7 +308,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshUserProfile,
         logout,
         setCustomerSession,
-        setUserRole,
       }}
     >
       {children}

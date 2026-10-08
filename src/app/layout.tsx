@@ -5,8 +5,10 @@ import { ThemeProvider } from '@/context/ThemeContext';
 import { ToastProvider } from '@/context/ToastContext';
 
 export const metadata: Metadata = {
-  title: 'B Diamond Beauty Salon OS',
-  description: 'Salon & Barber Management OS - Fredericton, NB, Canada',
+  title: 'B Diamond Barbershop | Fredericton',
+  description:
+    'Precision cuts, fades, beard trims and hot towel shaves at B Diamond Barbershop, 593 King Street, Fredericton, NB.',
+  icons: { icon: '/bdiamond-logo.png' },
 };
 
 export default function RootLayout({
