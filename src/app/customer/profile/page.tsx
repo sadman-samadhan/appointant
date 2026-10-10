@@ -10,15 +10,10 @@ import { Modal } from '@/components/ui/Modal';
 import { Scissors, Calendar, Clock, Plus, Award, User, CheckCircle2, MapPin, KeyRound, Phone, Mail } from 'lucide-react';
 import { BookingListItemDto } from '@/lib/types';
 import { apiRequest } from '@/lib/api/client';
-import { formatMoney, toList } from '@/lib/format';
+import { formatMoney, toList, bookingLocalDate } from '@/lib/format';
 
-// Bookings carry `date` (YYYY-MM-DD) + `startTime` (HH:MM:SS); older shapes used an ISO startTime.
-function bookingStart(b: any): Date | null {
-  const start = typeof b?.startTime === 'string' ? b.startTime : '';
-  const day = typeof b?.date === 'string' ? b.date.substring(0, 10) : '';
-  const d = start.includes('T') ? new Date(start) : day ? new Date(`${day}T${start || '00:00:00'}`) : null;
-  return d && !isNaN(d.getTime()) ? d : null;
-}
+// Booking times are shop wall-clock times; see bookingLocalDate.
+const bookingStart = bookingLocalDate;
 
 export default function CustomerProfilePage() {
   const { user, changePassword } = useAuth();
@@ -38,20 +33,27 @@ export default function CustomerProfilePage() {
     setIsLoading(true);
     try {
       const res = await apiRequest<any>('/api/v1/bookings');
-      const items: BookingListItemDto[] = toList(res, 'bookings');
+      const items: BookingListItemDto[] = toList<any>(res, 'bookings').map((b: any) => ({
+        ...b,
+        bookingId: String(b.bookingId || b.id),
+        customerName: b.customer?.name || b.customerName || '',
+        customerPhone: b.customer?.phone || b.customerPhone || '',
+        customerEmail: b.customer?.email || b.customerEmail || '',
+        serviceName: b.serviceDetails?.name || b.serviceName || 'Service',
+        staffName: b.staff?.name || b.staffName,
+        totalAmount: b.totalPrice ?? b.totalAmount,
+      }));
       if (user) {
-        const userPhone = (user.phone || user.mobile || (!user.userid?.includes('@') ? user.userid : '') || '').trim().toLowerCase();
-        const userName = user.name?.toLowerCase().trim();
+        const digits = (v: unknown) => String(v || '').replace(/\D/g, '');
+        const userPhone = digits(user.phone || user.mobile || (!user.userid?.includes('@') ? user.userid : ''));
         const userEmail = user.email?.toLowerCase().trim();
 
-        // Only show this customer's own bookings - never fall back to the full list.
+        // Only show this customer's own bookings, matched on phone or email (names aren't unique).
         const filtered = items.filter((b) => {
-          const phone = String(b.customerPhone || '').trim().toLowerCase();
+          const phone = digits(b.customerPhone);
           const email = String(b.customerEmail || '').trim().toLowerCase();
-          const name = String(b.customerName || '').trim().toLowerCase();
-          if (userPhone && phone && phone.includes(userPhone)) return true;
+          if (userPhone.length >= 7 && phone && phone === userPhone) return true;
           if (userEmail && email && email === userEmail) return true;
-          if (userName && name && name.includes(userName)) return true;
           return false;
         });
         setBookings(filtered);

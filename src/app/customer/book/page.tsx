@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { apiRequest } from '@/lib/api/client';
-import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
+import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID, ONLINE_BOOKING_ENABLED } from '@/lib/api/config';
 import {
   Scissors,
   User,
@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { ServiceDto, StaffResponseDto, ServiceAddonDto, UnifiedSlotDto } from '@/lib/types';
 import { formatMoney, servicePrice, serviceDuration, toList, todayISO } from '@/lib/format';
+import { BUSINESS } from '@/lib/business';
 
 export default function CustomerBookPage() {
   const router = useRouter();
@@ -149,27 +150,11 @@ export default function CustomerBookPage() {
         if (/^\d{2}:\d{2}:\d{2}$/.test(formatted) && !slots.includes(formatted)) slots.push(formatted);
       });
     } catch {
-      /* fallback to computed hourly slots between 09:00:00 and 17:00:00 */
+      /* no slots available */
     }
 
-    if (slots.length === 0) {
-      const standardHours = [
-        '09:00:00',
-        '10:00:00',
-        '11:00:00',
-        '12:00:00',
-        '13:00:00',
-        '14:00:00',
-        '15:00:00',
-        '16:00:00',
-        '17:00:00',
-      ];
-      setAvailableSlots(standardHours);
-      setSelectedTime(standardHours[0]);
-    } else {
-      setAvailableSlots(slots);
-      setSelectedTime(slots[0]);
-    }
+    setAvailableSlots(slots);
+    setSelectedTime(slots[0] || '');
     setIsLoadingSlots(false);
   }, [selectedService, selectedStaff, selectedDate]);
 
@@ -290,22 +275,9 @@ export default function CustomerBookPage() {
         body: JSON.stringify(bookingPayload),
       });
 
-      const newBookingId = bkRes?.bookingId || bkRes?.id || bkRes?.booking?.bookingId;
-
-      // Automatically generate draft invoice for online customer booking
-      if (newBookingId) {
-        try {
-          await apiRequest(`/api/v1/bookings/${newBookingId}/invoice-draft`, {
-            method: 'POST',
-            body: JSON.stringify({
-              issueDate: selectedDate,
-              dueDate: selectedDate,
-              notes: `Online Booking Draft for ${customerName.trim()} - ${selectedService.name}`,
-            }),
-          });
-        } catch {
-          /* ignore if already drafted */
-        }
+      // The bill is created when the shop marks the appointment Done.
+      if (!(bkRes?.bookingId || bkRes?.id || bkRes?.booking?.bookingId)) {
+        throw new Error('Your booking was not saved. Please try again.');
       }
 
       setCustomerSession({
@@ -354,6 +326,29 @@ export default function CustomerBookPage() {
 
   if (isAuthLoading) {
     return <div className="p-12 text-center text-xs text-[var(--muted-foreground)]">Loading...</div>;
+  }
+
+  if (!ONLINE_BOOKING_ENABLED) {
+    return (
+      <div className="max-w-md mx-auto glass-card p-8 rounded-3xl border border-[var(--border)] text-center space-y-4 animate-fade-in">
+        <h2 className="text-xl font-black text-[var(--foreground)]">Book your appointment</h2>
+        <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
+          Online booking is handled on our booking page for now. You can also call us at{' '}
+          <a href={`tel:${BUSINESS.phone}`} className="font-bold text-[var(--primary)]">
+            {BUSINESS.phoneDisplay}
+          </a>
+          .
+        </p>
+        <a
+          href={BUSINESS.setmoreUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-primary w-full py-3 rounded-xl text-xs font-bold inline-flex items-center justify-center"
+        >
+          Go to booking page
+        </a>
+      </div>
+    );
   }
 
   if (!isAuthenticated) {
@@ -624,7 +619,8 @@ export default function CustomerBookPage() {
               </button>
               <button
                 onClick={() => setStep(4)}
-                className="btn-primary px-6 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 shadow-md"
+                disabled={!selectedTime || isLoadingSlots}
+                className="btn-primary px-6 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 shadow-md disabled:opacity-50"
               >
                 <span>Review & Confirm</span>
                 <ArrowRight className="w-4 h-4" />

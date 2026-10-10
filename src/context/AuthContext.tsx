@@ -11,7 +11,7 @@ import {
   refreshAuthToken,
   USER_INFO_KEY,
 } from '@/lib/api/client';
-import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
+import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID, CLIENT_NAME } from '@/lib/api/config';
 import { toList } from '@/lib/format';
 import {
   UserProfile,
@@ -76,12 +76,35 @@ async function isLinkedToActiveStaff(me: any): Promise<boolean> {
 
 // The role is derived only from what the Auth Service says about the signed-in user,
 // never from the text of the email address.
+const NOT_SHOP_MEMBER_MESSAGE =
+  `This account isn't linked to ${CLIENT_NAME}. Please sign in with the shop owner's or a staff member's account.`;
+
+class NotShopMemberError extends Error {
+  constructor() {
+    super(NOT_SHOP_MEMBER_MESSAGE);
+    this.name = 'NotShopMemberError';
+  }
+}
+
+// Admin/staff role codes are global in the Auth Service; the Core Backend only lets an
+// account act in this shop if it is the owner, a member or active staff (403 otherwise).
+async function assertShopMember(): Promise<void> {
+  try {
+    await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}&limit=1`);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) throw new NotShopMemberError();
+    /* other failures (e.g. network) are not a membership answer */
+  }
+}
+
 async function resolveProfile(me: any): Promise<UserProfile> {
   const codes = collectRoleCodes(me);
   let role: AppRole = 'CUSTOMER';
   if (codes.some((c) => ADMIN_ROLE_CODES.includes(c))) role = 'ADMIN';
   else if (codes.some((c) => STAFF_ROLE_CODES.includes(c))) role = 'STAFF';
   else if (await isLinkedToActiveStaff(me)) role = 'STAFF';
+
+  if (role !== 'CUSTOMER') await assertShopMember();
 
   return {
     id: me.id ?? me.userId,
@@ -138,7 +161,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(getStoredToken());
       localStorage.setItem(USER_INFO_KEY, JSON.stringify(profile));
     } catch (err) {
-      if (isUnauthorized(err)) clearSession();
+      if (isUnauthorized(err) || err instanceof NotShopMemberError) clearSession();
       /* otherwise (network blip) keep the cached profile; the backend still enforces auth */
     }
   }, [fetchMe, clearSession]);
@@ -222,6 +245,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return profile;
     } catch (err) {
       clearSession();
+      if (err instanceof NotShopMemberError) throw err;
       throw new Error('Signed in, but your profile could not be loaded. Please try again.');
     }
   };

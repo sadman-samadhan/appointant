@@ -1,12 +1,21 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { apiRequest } from '@/lib/api/client';
+import { apiRequest, generateIdempotencyKey } from '@/lib/api/client';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { useToast } from '@/context/ToastContext';
 import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
-import { formatMoney, servicePrice, serviceDuration, toList, toNumber, todayISO } from '@/lib/format';
+import {
+  formatMoney,
+  servicePrice,
+  serviceDuration,
+  toList,
+  toNumber,
+  todayISO,
+  wallClockDate,
+  wallClockTime,
+} from '@/lib/format';
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -26,6 +35,7 @@ import {
   Wallet,
   CalendarDays,
   Sparkles,
+  Banknote,
 } from 'lucide-react';
 import {
   BookingListItemDto,
@@ -45,17 +55,31 @@ function digitsOnly(value: string) {
   return value.replace(/\D/g, '');
 }
 
-// The backend may return startTime as a full ISO timestamp or as a bare "HH:MM:SS".
 function bookingDateOf(b: any): string {
-  const raw = b.date || b.bookingDate || (typeof b.startTime === 'string' && b.startTime.includes('T') ? b.startTime : '');
-  return raw ? String(raw).slice(0, 10) : '';
+  return wallClockDate(b.date || b.bookingDate || b.startTime);
 }
 
-function formatBookingTime(startTime?: string): string {
-  if (!startTime) return '--:--';
-  if (!startTime.includes('T')) return startTime.slice(0, 5);
-  const d = new Date(startTime);
-  return isNaN(d.getTime()) ? '--:--' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+// An appointment's journey, in the words the shop uses.
+const STEPS = ['Booked', 'Confirmed', 'Arrived', 'Done', 'Paid'] as const;
+
+function stepOf(status: string, billed: boolean): number {
+  switch (status) {
+    case 'COMPLETED':
+      return 4; // the backend completes a booking only once its bill is paid
+    case 'CHECKED_IN':
+      return billed ? 3 : 2;
+    case 'CONFIRMED':
+      return 1;
+    default:
+      return 0; // DRAFT / LOCKED / SCHEDULED
+  }
+}
+
+interface InvoiceRef {
+  invoiceId: string;
+  status: string;
+  balanceDue: number;
+  customerId?: string;
 }
 
 function customerPhoneOf(c: any): string {
@@ -105,6 +129,11 @@ export default function AdminAppointmentsPage() {
   const [discountAmount, setDiscountAmount] = useState('0.00');
 
   const [isActionLoading, setIsActionLoading] = useState(false);
+
+  // Invoices by bookingId, to know which appointments are paid
+  const [invoiceByBooking, setInvoiceByBooking] = useState<Record<string, InvoiceRef>>({});
+  const [paymentBooking, setPaymentBooking] = useState<BookingListItemDto | null>(null);
+  const [isTakingPayment, setIsTakingPayment] = useState(false);
 
   const resetForm = useCallback(() => {
     setNewCustName('');
@@ -195,17 +224,18 @@ export default function AdminAppointmentsPage() {
           .filter((b: any) => b.bookingId || b.id)
           .map((b: any) => ({
             bookingId: String(b.bookingId || b.id),
-            customerId: b.customerId,
-            customerName: b.customerName || b.customer?.fullName || 'Salon Client',
-            serviceId: b.serviceId,
-            serviceName: b.serviceName || b.service?.name || 'Salon Service',
-            staffId: b.staffId,
-            staffName: b.staffName || b.staff?.fullName,
+            customerId: b.customer?.id || b.customerId,
+            customerName: b.customer?.name || b.customerName || b.customer?.fullName || 'Customer',
+            customerPhone: b.customer?.phone,
+            serviceId: b.serviceDetails?.id || b.serviceId,
+            serviceName: b.serviceDetails?.name || b.serviceName || b.service?.name || 'Service',
+            staffId: b.staff?.id || b.staffId,
+            staffName: b.staff?.name || b.staffName || b.staff?.fullName,
             date: bookingDateOf(b),
             startTime: b.startTime,
             endTime: b.endTime,
             status: (b.status || 'SCHEDULED') as BookingStatus,
-            totalAmount: toNumber(b.totalAmount ?? b.finalAmount ?? b.service?.basePrice),
+            totalAmount: toNumber(b.totalPrice ?? b.totalAmount ?? b.finalAmount ?? b.serviceDetails?.basePrice),
             currency: b.currency || 'CAD',
             notes: b.notes,
           }))
@@ -214,6 +244,27 @@ export default function AdminAppointmentsPage() {
       setBookings([]);
     } finally {
       setIsLoading(false);
+    }
+
+    // Invoice items carry the bookingId they bill for.
+    try {
+      const invRes = await apiRequest<any>('/api/v1/billing/invoices');
+      const map: Record<string, InvoiceRef> = {};
+      for (const inv of toList<any>(invRes, 'invoices')) {
+        if (['VOID', 'CANCELLED'].includes(inv.status)) continue;
+        for (const item of inv.items || []) {
+          if (!item?.bookingId) continue;
+          map[item.bookingId] = {
+            invoiceId: inv.invoiceId,
+            status: inv.status,
+            balanceDue: toNumber(inv.balanceDue),
+            customerId: inv.customerId,
+          };
+        }
+      }
+      setInvoiceByBooking(map);
+    } catch {
+      setInvoiceByBooking({});
     }
   }, []);
 
@@ -297,31 +348,13 @@ export default function AdminAppointmentsPage() {
         }),
       });
 
-      const createdBookingId = bookingRes?.bookingId || bookingRes?.id;
-
-      // 3. Automated draft invoice generation (best effort; the booking itself already succeeded)
-      let invoiceDrafted = false;
-      if (createdBookingId) {
-        const selectedSrv = services.find((s) => s.serviceId === selectedServiceId);
-        invoiceDrafted = await apiRequest(`/api/v1/bookings/${createdBookingId}/invoice-draft`, {
-          method: 'POST',
-          body: JSON.stringify({
-            currency: 'CAD',
-            notes: `Draft invoice for appointment #${createdBookingId} (${selectedSrv?.name || 'Service'})`,
-          }),
-        })
-          .then(() => true)
-          .catch(() => false);
+      if (!(bookingRes?.bookingId || bookingRes?.id)) {
+        throw new Error('The appointment was not saved. Please try again.');
       }
 
       // Display success message, then close and reset
-      setBookingSuccessNotice(
-        `Appointment booked for ${newCustName}!${invoiceDrafted ? ' Draft invoice generated.' : ''}`
-      );
-      showSuccess(
-        invoiceDrafted ? 'Booking Created & Invoice Drafted' : 'Booking Created',
-        `Appointment saved for ${newCustName}`
-      );
+      setBookingSuccessNotice(`Appointment booked for ${newCustName}! Confirm it when you're ready.`);
+      showSuccess('Booking Created', `Appointment saved for ${newCustName}`);
 
       setTimeout(() => {
         setShowCreateModal(false);
@@ -374,17 +407,75 @@ export default function AdminAppointmentsPage() {
     }
   };
 
-  const handleComplete = async (bookingId: string) => {
+  // Every finished appointment gets its bill automatically (name, service and price
+  // all come from the booking). Reuses the bill if one already exists.
+  const ensureInvoice = async (booking: BookingListItemDto): Promise<InvoiceRef> => {
+    const existing = invoiceByBooking[booking.bookingId];
+    if (existing) return existing;
+    const created = await apiRequest<any>(`/api/v1/bookings/${booking.bookingId}/invoice-draft`, {
+      method: 'POST',
+      body: JSON.stringify({ currency: 'CAD', notes: `${booking.serviceName} for ${booking.customerName}` }),
+    });
+    const invoice: InvoiceRef = {
+      invoiceId: created.invoiceId,
+      status: created.status,
+      balanceDue: toNumber(created.balanceDue ?? created.total),
+      customerId: created.customerId,
+    };
+    setInvoiceByBooking((prev) => ({ ...prev, [booking.bookingId]: invoice }));
+    return invoice;
+  };
+
+  // Records the cash for a finished appointment.
+  const handleTakePayment = async () => {
+    const booking = paymentBooking;
+    if (!booking) return;
+    setIsTakingPayment(true);
     try {
-      await apiRequest(`/api/v1/bookings/${bookingId}/complete`, {
-        method: 'POST',
-        body: JSON.stringify({}),
-      });
-      showSuccess('Appointment Completed', 'Service rendered successfully.');
+      const invoice = await ensureInvoice(booking);
+      if (invoice.balanceDue > 0) {
+        await apiRequest('/api/v1/payments', {
+          method: 'POST',
+          body: JSON.stringify({
+            customerId: invoice.customerId || booking.customerId,
+            invoiceId: invoice.invoiceId,
+            amount: invoice.balanceDue,
+            currency: 'CAD',
+            paymentMethod: 'CASH',
+            paymentDate: todayISO(),
+            notes: `${booking.serviceName} — ${booking.customerName}`,
+            idempotencyKey: generateIdempotencyKey(),
+          }),
+        });
+      }
+      // Paid in full → the backend now accepts the booking as completed.
+      if (booking.status !== 'COMPLETED') {
+        await apiRequest(`/api/v1/bookings/${booking.bookingId}/complete`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        });
+      }
+      showSuccess('Paid', `$${formatMoney(invoice.balanceDue)} cash from ${booking.customerName}. All done!`);
+      setPaymentBooking(null);
       loadBookings();
     } catch (err: any) {
-      showError('Action Failed', err.message || 'Could not complete booking');
+      showError('Payment Failed', err.message || 'Could not record the payment.');
+      loadBookings();
+    } finally {
+      setIsTakingPayment(false);
     }
+  };
+
+  // "Done" = the service is finished: create the bill and offer to collect the cash.
+  const handleComplete = async (booking: BookingListItemDto) => {
+    try {
+      await ensureInvoice(booking);
+    } catch (err: any) {
+      showError('Could Not Create Bill', err.message || 'Please try again.');
+      return;
+    }
+    setPaymentBooking(booking);
+    loadBookings();
   };
 
   const handleCancelSubmit = async () => {
@@ -536,12 +627,12 @@ export default function AdminAppointmentsPage() {
               className="px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
             >
               <option value="ALL">All Statuses</option>
-              <option value="SCHEDULED">SCHEDULED</option>
-              <option value="CONFIRMED">CONFIRMED</option>
-              <option value="CHECKED_IN">CHECKED IN</option>
-              <option value="COMPLETED">COMPLETED</option>
-              <option value="CANCELLED">CANCELLED</option>
-              <option value="NO_SHOW">NO SHOW</option>
+              <option value="DRAFT">Booked (not confirmed)</option>
+              <option value="CONFIRMED">Confirmed</option>
+              <option value="CHECKED_IN">Arrived</option>
+              <option value="COMPLETED">Done</option>
+              <option value="CANCELLED">Cancelled</option>
+              <option value="NO_SHOW">No-show</option>
             </select>
           </div>
         </div>
@@ -597,7 +688,7 @@ export default function AdminAppointmentsPage() {
                     <div className="flex flex-wrap items-center gap-3 mt-1 text-[11px] text-[var(--muted-foreground)] font-medium">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-                        {formatBookingTime(b.startTime)}{b.date ? ` (${b.date})` : ''}
+                        {wallClockTime(b.startTime)}{b.date ? ` (${b.date})` : ''}
                       </span>
                       <span>· Specialist: {b.staffName || 'Any Specialist'}</span>
                       {b.notes && <span className="italic text-[10px]">· &ldquo;{b.notes}&rdquo;</span>}
@@ -607,24 +698,52 @@ export default function AdminAppointmentsPage() {
 
                 {/* Right Status & Actions */}
                 <div className="flex items-center justify-between sm:justify-end gap-4">
-                  <div className="text-right">
+                  <div className="text-right space-y-1">
                     <span className="text-sm font-black text-[var(--foreground)] block">
                       ${formatMoney(b.totalAmount)} {b.currency || 'CAD'}
                     </span>
-                    <Badge variant={b.status} />
+                    {b.status === 'CANCELLED' || b.status === 'NO_SHOW' ? (
+                      <Badge variant={b.status} />
+                    ) : (
+                      (() => {
+                        const step = stepOf(b.status, !!invoiceByBooking[b.bookingId]);
+                        const paid = step === 4;
+                        return (
+                          <div className="flex flex-col items-end gap-1" title={STEPS.join(' → ')}>
+                            <div className="flex gap-0.5" aria-hidden>
+                              {STEPS.map((label, i) => (
+                                <span
+                                  key={label}
+                                  className={`h-1.5 w-4 rounded-full ${
+                                    i <= step ? (paid ? 'bg-emerald-500' : 'bg-[var(--primary)]') : 'bg-[var(--border-strong)]'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                            <span
+                              className={`text-[10px] font-bold uppercase tracking-wider ${
+                                paid ? 'text-emerald-600' : 'text-[var(--muted-foreground)]'
+                              }`}
+                            >
+                              {STEPS[step]}
+                            </span>
+                          </div>
+                        );
+                      })()
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1">
-                    {b.status === 'SCHEDULED' && (
+                    {(b.status === 'DRAFT' || b.status === 'LOCKED' || b.status === 'SCHEDULED') && (
                       <button
                         onClick={() => {
                           setSelectedBooking(b);
                           setShowConfirmModal(true);
                         }}
-                        className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40"
-                        title="Confirm Booking"
+                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200"
+                        title="Confirm this appointment"
                       >
-                        <CheckCircle2 className="w-4 h-4" />
+                        Confirm
                       </button>
                     )}
 
@@ -632,24 +751,36 @@ export default function AdminAppointmentsPage() {
                       <button
                         onClick={() => handleCheckin(b.bookingId)}
                         className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200"
-                        title="Customer Arrived"
+                        title="The customer has arrived"
                       >
-                        Check In
+                        Arrived
                       </button>
                     )}
 
-                    {b.status === 'CHECKED_IN' && (
+                    {b.status === 'CHECKED_IN' && !invoiceByBooking[b.bookingId] && (
                       <button
-                        onClick={() => handleComplete(b.bookingId)}
-                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
-                        title="Finish Appointment"
+                        onClick={() => handleComplete(b)}
+                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[var(--primary)] text-white hover:brightness-110"
+                        title="The service is finished"
                       >
-                        Complete
+                        Done
                       </button>
                     )}
 
-                    {b.status !== 'COMPLETED' && b.status !== 'CANCELLED' && b.status !== 'NO_SHOW' && (
+                    {b.status === 'CHECKED_IN' && !!invoiceByBooking[b.bookingId] && (
+                      <button
+                        onClick={() => setPaymentBooking(b)}
+                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1"
+                        title="Record the cash payment"
+                      >
+                        <Banknote className="w-3.5 h-3.5" />
+                        Take payment
+                      </button>
+                    )}
+
+                    {['DRAFT', 'LOCKED', 'SCHEDULED', 'CONFIRMED'].includes(b.status) && (
                       <>
+                        {b.status === 'CONFIRMED' && (
                         <button
                           onClick={() => {
                             setSelectedBooking(b);
@@ -660,6 +791,8 @@ export default function AdminAppointmentsPage() {
                         >
                           <RefreshCw className="w-4 h-4" />
                         </button>
+                        )}
+                        {b.status === 'CONFIRMED' && (
                         <button
                           onClick={() => handleNoShow(b.bookingId)}
                           className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40"
@@ -667,6 +800,7 @@ export default function AdminAppointmentsPage() {
                         >
                           <Ban className="w-4 h-4" />
                         </button>
+                        )}
                         <button
                           onClick={() => {
                             setSelectedBooking(b);
@@ -854,6 +988,47 @@ export default function AdminAppointmentsPage() {
           </div>
         </form>
       </Modal>
+
+      {/* Take Payment Modal */}
+      {paymentBooking && (
+        <Modal isOpen onClose={() => setPaymentBooking(null)} title="Collect payment" maxWidth="sm">
+          <div className="space-y-4">
+            <div className="p-4 rounded-2xl bg-[var(--muted)] space-y-1">
+              <p className="text-xs font-bold text-[var(--foreground)]">{paymentBooking.customerName}</p>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                {paymentBooking.serviceName} · {wallClockTime(paymentBooking.startTime)} ({paymentBooking.date})
+              </p>
+              <p className="text-2xl font-black text-[var(--foreground)] pt-2">
+                $
+                {formatMoney(
+                  invoiceByBooking[paymentBooking.bookingId]?.balanceDue ?? paymentBooking.totalAmount
+                )}{' '}
+                <span className="text-xs font-bold text-[var(--muted-foreground)]">CAD</span>
+              </p>
+            </div>
+            <p className="text-[11px] text-[var(--muted-foreground)]">
+              The bill was created automatically. Record the cash now, or choose “Later” and use
+              “Take payment” on this appointment (or the Payments page) when the customer pays.
+            </p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
+              <button
+                type="button"
+                onClick={() => setPaymentBooking(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]"
+              >
+                Later
+              </button>
+              <button
+                onClick={handleTakePayment}
+                disabled={isTakingPayment}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+              >
+                {isTakingPayment ? 'Recording...' : 'Cash received'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Confirm Booking Modal */}
       {selectedBooking && showConfirmModal && (

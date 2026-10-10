@@ -34,7 +34,7 @@ interface Account {
 // Which ledger account each owner-facing category posts to (by account code).
 const CATEGORY_ACCOUNT_CODE: Record<string, string> = {
   Services: '4000',
-  'Product sales': '4000',
+  'Product sales': '4100',
   Tips: '4000',
   'Other income': '4000',
   Wages: '5000',

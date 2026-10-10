@@ -23,15 +23,10 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { BookingListItemDto, StaffResponseDto, InvoiceDto, PaymentResponseDto } from '@/lib/types';
-import { formatMoney, toNumber, toList, todayISO } from '@/lib/format';
+import { formatMoney, toNumber, toList, todayISO, bookingLocalDate } from '@/lib/format';
 
-// Bookings carry `date` (YYYY-MM-DD) + `startTime` (HH:MM:SS); older shapes used an ISO startTime.
-function bookingStart(b: any): Date | null {
-  const start = typeof b?.startTime === 'string' ? b.startTime : '';
-  const day = typeof b?.date === 'string' ? b.date.substring(0, 10) : '';
-  const d = start.includes('T') ? new Date(start) : day ? new Date(`${day}T${start || '00:00:00'}`) : null;
-  return d && !isNaN(d.getTime()) ? d : null;
-}
+// Booking times are shop wall-clock times; see bookingLocalDate.
+const bookingStart = bookingLocalDate;
 
 export default function AdminDashboardPage() {
   const { showSuccess, showError } = useToast();
@@ -52,13 +47,13 @@ export default function AdminDashboardPage() {
       setBookings(
         bList.map((b: any) => ({
           bookingId: b.bookingId || b.id,
-          customerName: b.customerName || b.customer?.fullName || 'Client',
-          serviceName: b.serviceName || b.service?.name || 'Salon Service',
-          staffName: b.staffName || b.staff?.fullName,
+          customerName: b.customer?.name || b.customerName || b.customer?.fullName || 'Client',
+          serviceName: b.serviceDetails?.name || b.serviceName || b.service?.name || 'Salon Service',
+          staffName: b.staff?.name || b.staffName || b.staff?.fullName,
           date: b.date,
           startTime: b.startTime || b.date,
           status: b.status || 'SCHEDULED',
-          totalAmount: toNumber(b.totalAmount ?? b.totalPrice ?? b.service?.basePrice),
+          totalAmount: toNumber(b.totalPrice ?? b.totalAmount ?? b.serviceDetails?.basePrice),
           currency: b.currency || 'CAD',
         }))
       );

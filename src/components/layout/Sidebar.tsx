@@ -23,7 +23,7 @@ const navItems = [
   { label: 'Appointments', href: '/admin/appointments', icon: Calendar },
   { label: 'Services', href: '/admin/services', icon: Scissors },
   { label: 'Staff & Shifts', href: '/admin/staff', icon: Users },
-  { label: 'Invoices & Cash', href: '/admin/invoices', icon: Receipt },
+  { label: 'Payments', href: '/admin/invoices', icon: Receipt },
   { label: 'Money Book', href: '/admin/accounting', icon: BookOpen, adminOnly: true },
   { label: 'Expenses', href: '/admin/expenses', icon: DollarSign, adminOnly: true },
   { label: 'Payroll', href: '/admin/payroll', icon: Briefcase, adminOnly: true },

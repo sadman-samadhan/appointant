@@ -1,755 +1,434 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { apiRequest, generateIdempotencyKey } from '@/lib/api/client';
 import { Modal } from '@/components/ui/Modal';
-import { Badge } from '@/components/ui/Badge';
+import { KPICard } from '@/components/ui/KPICard';
 import { useToast } from '@/context/ToastContext';
-import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
-import {
-  Receipt,
-  Wallet,
-  Plus,
-  Search,
-  DollarSign,
-  CheckCircle2,
-  ShieldCheck,
-  RefreshCw,
-  RotateCcw,
-  PlusCircle,
-  Trash2,
-} from 'lucide-react';
-import { InvoiceDto, PaymentResponseDto, CustomerDto } from '@/lib/types';
-import { formatMoney, toNumber, toList, todayISO } from '@/lib/format';
+import { DEFAULT_TENANT_ID } from '@/lib/api/config';
+import { Banknote, CheckCircle2, Clock, RefreshCw, RotateCcw, Wallet } from 'lucide-react';
+import { formatMoney, toNumber, toList, todayISO, wallClockDate } from '@/lib/format';
 
-function formatDate(value: unknown, withTime = false): string {
-  if (!value) return '—';
-  const d = new Date(String(value));
-  if (isNaN(d.getTime())) return '—';
-  return withTime ? d.toLocaleString() : d.toLocaleDateString();
+// A bill, in shop terms. Bills are created automatically when an appointment is marked Done.
+interface Bill {
+  invoiceId: string;
+  customerId: string;
+  customerName: string;
+  what: string;
+  date: string;
+  total: number;
+  balanceDue: number;
+  status: string;
+  bookingIds: string[];
+  payment?: Payment;
 }
 
-const CLOSED_INVOICE_STATUSES = ['PAID', 'VOID', 'CANCELLED'];
+interface Payment {
+  paymentId: string;
+  invoiceId: string | null;
+  amount: number;
+  refundedAmount: number;
+  date: string;
+  status: string;
+}
 
-export default function AdminInvoicesPage() {
+function prettyDate(iso: string): string {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+export default function PaymentsPage() {
   const { showSuccess, showError } = useToast();
 
-  const [invoices, setInvoices] = useState<InvoiceDto[]>([]);
-  const [payments, setPayments] = useState<PaymentResponseDto[]>([]);
-  const [customers, setCustomers] = useState<CustomerDto[]>([]);
-  const [activeTab, setActiveTab] = useState<'invoices' | 'payments'>('invoices');
+  const [bills, setBills] = useState<Bill[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [tab, setTab] = useState<'unpaid' | 'paid'>('unpaid');
 
-  // Collect Cash Modal
-  const [showCashModal, setShowCashModal] = useState(false);
-  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDto | null>(null);
-  const [cashAmount, setCashAmount] = useState('38.00');
-  const [cashCustomerId, setCashCustomerId] = useState('');
-  const [cashCustomerName, setCashCustomerName] = useState('');
-  const [paymentNotes, setPaymentNotes] = useState('Collected at salon cash register');
-  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [payingBill, setPayingBill] = useState<Bill | null>(null);
+  const [isPaying, setIsPaying] = useState(false);
 
-  // Create Manual Invoice Modal
-  const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
-  const [invoiceCustomerId, setInvoiceCustomerId] = useState('');
-  const [invoiceDueDate, setInvoiceDueDate] = useState(todayISO());
-  const [invoiceNotes, setInvoiceNotes] = useState('');
-  const [invoiceItems, setInvoiceItems] = useState([
-    { description: 'Haircut & Styling Service', quantity: 1, unitPrice: 25.0 },
-  ]);
-  const [isSubmittingInvoice, setIsSubmittingInvoice] = useState(false);
-
-  // Refund Modal
-  const [showRefundModal, setShowRefundModal] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<PaymentResponseDto | null>(null);
-  const [refundAmount, setRefundAmount] = useState('0.00');
-  const [refundReason, setRefundReason] = useState('Customer cash return requested');
-  const [isSubmittingRefund, setIsSubmittingRefund] = useState(false);
-  const [completingInvoiceId, setCompletingInvoiceId] = useState<string | null>(null);
+  const [refundBill, setRefundBill] = useState<Bill | null>(null);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundReason, setRefundReason] = useState('');
+  const [isRefunding, setIsRefunding] = useState(false);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
-    let loadedCustomers: CustomerDto[] = [];
-
+    setLoadError(null);
     try {
-      const custRes = await apiRequest<any>(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers`);
-      const cList = toList<any>(custRes, 'customers').filter(Boolean);
-      loadedCustomers = cList.map((c: any) => {
-        const cust = c.customer || c;
-        return {
-          customerId: cust.customerId || c.customerId || c.id,
-          fullName: cust.fullName || c.fullName || cust.name || c.name || 'Client',
-          customerCode: c.customerCode || cust.customerCode || '',
-        };
-      });
-      setCustomers(loadedCustomers);
-      if (loadedCustomers.length > 0) {
-        setCashCustomerId((prev) => prev || loadedCustomers[0].customerId);
-        setInvoiceCustomerId((prev) => prev || loadedCustomers[0].customerId);
+      const [custRes, invRes, payRes] = await Promise.all([
+        apiRequest<any>(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers`).catch(() => []),
+        apiRequest<any>('/api/v1/billing/invoices'),
+        apiRequest<any>('/api/v1/payments').catch(() => []),
+      ]);
+
+      const names = new Map<string, string>();
+      for (const c of toList<any>(custRes, 'customers')) {
+        const cust = c?.customer || c;
+        const id = cust?.customerId || c?.customerId;
+        if (id) names.set(id, cust.fullName || cust.name || 'Customer');
       }
-    } catch {
-      setCustomers([]);
-    }
 
-    try {
-      const invRes = await apiRequest<any>('/api/v1/billing/invoices');
-      const iList: any[] = toList<any>(invRes, 'invoices').filter(Boolean);
-      setInvoices(
-        iList.map((inv: any) => {
-          const matchedCust = loadedCustomers.find((c) => c.customerId === inv.customerId);
-          const invId = String(inv.invoiceId || inv.id || '');
-          return {
-            invoiceId: invId,
-            invoiceNumber: inv.invoiceNumber || (invId ? `INV-${invId.substring(0, 6).toUpperCase()}` : undefined),
-            customerName: inv.customerName || inv.customer?.fullName || matchedCust?.fullName || 'Client',
-            customerId: inv.customerId,
-            totalAmount: toNumber(inv.totalAmount),
-            paidAmount: toNumber(inv.paidAmount),
-            status: inv.status || 'DRAFT',
-            createdAt: inv.createdAt || inv.issueDate || '',
-          };
-        })
+      const paymentByInvoice = new Map<string, Payment>();
+      for (const p of toList<any>(payRes, 'payments')) {
+        if (!p?.invoiceId) continue;
+        paymentByInvoice.set(p.invoiceId, {
+          paymentId: p.paymentId,
+          invoiceId: p.invoiceId,
+          amount: toNumber(p.amount),
+          refundedAmount: toNumber(p.refundedAmount),
+          date: wallClockDate(p.paymentDate || p.createdAt),
+          status: p.status,
+        });
+      }
+
+      setBills(
+        toList<any>(invRes, 'invoices')
+          .filter((inv) => inv && !['VOID', 'CANCELLED'].includes(inv.status))
+          .map((inv) => {
+            const items: any[] = inv.items || [];
+            const what =
+              items
+                .filter((it) => !/tax/i.test(String(it.itemType)))
+                .map((it) => it.description)
+                .filter(Boolean)
+                .join(', ') || 'Service';
+            return {
+              invoiceId: inv.invoiceId,
+              customerId: inv.customerId,
+              customerName: names.get(inv.customerId) || 'Customer',
+              what,
+              date: wallClockDate(inv.issueDate || inv.createdAt),
+              total: toNumber(inv.total),
+              balanceDue: toNumber(inv.balanceDue),
+              status: inv.status,
+              bookingIds: [...new Set(items.map((it) => it.bookingId).filter(Boolean))] as string[],
+              payment: paymentByInvoice.get(inv.invoiceId),
+            };
+          })
+          .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
       );
-    } catch {
-      setInvoices([]);
+    } catch (err: any) {
+      setBills([]);
+      setLoadError(err.message || 'Could not load payments.');
+    } finally {
+      setIsLoading(false);
     }
-
-    try {
-      const payRes = await apiRequest<any>('/api/v1/payments');
-      const pList: any[] = toList<any>(payRes, 'payments').filter(Boolean);
-      setPayments(
-        pList.map((p: any) => {
-          const matchedCust = loadedCustomers.find((c) => c.customerId === p.customerId);
-          return {
-            paymentId: p.paymentId || p.id,
-            invoiceId: p.invoiceId,
-            customerId: p.customerId,
-            customerName: p.customerName || p.customer?.fullName || matchedCust?.fullName || 'Walk-in Client',
-            amount: toNumber(p.amount),
-            paymentMethod: p.paymentMethod || 'CASH',
-            currency: p.currency || 'CAD',
-            status: p.status || 'COMPLETED',
-            notes: p.notes,
-            createdAt: p.createdAt || p.paymentDate || '',
-          };
-        })
-      );
-    } catch {
-      setPayments([]);
-    }
-
-    setIsLoading(false);
   }, []);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // Handle Record Cash Payment
-  const handleRecordCashPayment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const targetCustomerId = selectedInvoice?.customerId || cashCustomerId;
-    if (!targetCustomerId) {
-      showError('Customer Required', 'Select a customer before recording a cash payment.');
-      return;
-    }
-    setIsSubmittingPayment(true);
+  const unpaid = useMemo(() => bills.filter((b) => b.balanceDue > 0.009), [bills]);
+  const paid = useMemo(() => bills.filter((b) => b.balanceDue <= 0.009), [bills]);
+  const owed = unpaid.reduce((sum, b) => sum + b.balanceDue, 0);
+  const today = todayISO();
+  const collectedToday = paid
+    .filter((b) => b.payment?.date === today)
+    .reduce((sum, b) => sum + (b.payment ? b.payment.amount - b.payment.refundedAmount : 0), 0);
+
+  const handleCashReceived = async () => {
+    if (!payingBill) return;
+    setIsPaying(true);
     try {
       await apiRequest('/api/v1/payments', {
         method: 'POST',
         body: JSON.stringify({
-          customerId: targetCustomerId,
-          invoiceId: selectedInvoice?.invoiceId || undefined,
-          amount: toNumber(cashAmount),
+          customerId: payingBill.customerId,
+          invoiceId: payingBill.invoiceId,
+          amount: payingBill.balanceDue,
           currency: 'CAD',
           paymentMethod: 'CASH',
           paymentDate: todayISO(),
+          notes: `${payingBill.what} — ${payingBill.customerName}`,
           idempotencyKey: generateIdempotencyKey(),
-          notes: `${cashCustomerName ? `Client: ${cashCustomerName} · ` : ''}${paymentNotes}`,
         }),
       });
-
-      showSuccess('Cash Registered', `$${cashAmount} CAD recorded in cash register.`);
-      setShowCashModal(false);
-      setSelectedInvoice(null);
+      // The backend completes an appointment only once its bill is paid.
+      for (const bookingId of payingBill.bookingIds) {
+        await apiRequest(`/api/v1/bookings/${bookingId}/complete`, { method: 'POST', body: '{}' }).catch(() => {
+          /* already completed */
+        });
+      }
+      showSuccess('Payment Recorded', `$${formatMoney(payingBill.balanceDue)} cash from ${payingBill.customerName}.`);
+      setPayingBill(null);
       loadData();
     } catch (err: any) {
-      showError('Payment Failed', err?.message || 'Could not record cash payment');
+      showError('Payment Failed', err.message || 'Could not record the payment.');
     } finally {
-      setIsSubmittingPayment(false);
+      setIsPaying(false);
     }
   };
 
-  // Handle Create Manual Invoice
-  const handleCreateInvoiceSubmit = async (e: React.FormEvent) => {
+  const openRefund = (bill: Bill) => {
+    if (!bill.payment) return;
+    setRefundBill(bill);
+    setRefundAmount(formatMoney(bill.payment.amount - bill.payment.refundedAmount));
+    setRefundReason('');
+  };
+
+  const handleRefund = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!invoiceCustomerId) {
-      showError('Customer Required', 'Select a customer for this invoice.');
+    const payment = refundBill?.payment;
+    if (!refundBill || !payment) return;
+    const amount = toNumber(refundAmount);
+    if (!(amount > 0)) {
+      showError('Amount Required', 'Enter how much cash you gave back.');
       return;
     }
-    setIsSubmittingInvoice(true);
+    setIsRefunding(true);
     try {
-      await apiRequest('/api/v1/billing/invoices', {
+      await apiRequest(`/api/v1/payments/${payment.paymentId}/refund`, {
         method: 'POST',
         body: JSON.stringify({
-          customerId: invoiceCustomerId,
-          issueDate: todayISO(),
-          dueDate: invoiceDueDate,
-          currency: 'CAD',
-          notes: invoiceNotes.trim() || 'Manual salon service invoice',
-          items: invoiceItems.map((item) => ({
-            description: item.description,
-            quantity: toNumber(item.quantity, 1),
-            unitPrice: toNumber(item.unitPrice),
-          })),
-        }),
-      });
-      showSuccess('Invoice Created', 'New invoice added to ledger.');
-      setShowCreateInvoiceModal(false);
-      loadData();
-    } catch (err: any) {
-      showError('Invoice Failed', err?.message || 'Could not create invoice');
-    } finally {
-      setIsSubmittingInvoice(false);
-    }
-  };
-
-  // Quick Complete Draft Invoice
-  const handleQuickCompleteInvoice = async (invoiceId: string) => {
-    setCompletingInvoiceId(invoiceId);
-    try {
-      // Backend: PUT /billing/invoices/{id} with status enum DRAFT|SENT|PAID|OVERDUE|VOID|CANCELLED|PARTIALLY_PAID
-      await apiRequest(`/api/v1/billing/invoices/${invoiceId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'SENT' }),
-      });
-      showSuccess('Invoice Completed', 'Draft invoice finalized and posted to ledger.');
-      loadData();
-    } catch (err: any) {
-      showError('Invoice Update Failed', err?.message || 'Could not finalize invoice.');
-    } finally {
-      setCompletingInvoiceId(null);
-    }
-  };
-
-  // Handle Payment Refund
-  const handleRefundSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedPayment) return;
-    setIsSubmittingRefund(true);
-    try {
-      await apiRequest(`/api/v1/payments/${selectedPayment.paymentId}/refund`, {
-        method: 'POST',
-        body: JSON.stringify({
-          amount: toNumber(refundAmount),
-          reason: refundReason,
+          amount,
+          reason: refundReason.trim() || undefined,
           idempotencyKey: generateIdempotencyKey(),
         }),
       });
-      showSuccess('Refund Processed', `$${refundAmount} CAD refunded in cash.`);
-      setShowRefundModal(false);
-      setSelectedPayment(null);
+      showSuccess('Refund Recorded', `$${formatMoney(amount)} returned to ${refundBill.customerName}.`);
+      setRefundBill(null);
       loadData();
     } catch (err: any) {
-      showError('Refund Failed', err?.message || 'Could not process refund');
+      showError('Refund Failed', err.message || 'Could not record the refund.');
     } finally {
-      setIsSubmittingRefund(false);
+      setIsRefunding(false);
     }
   };
+
+  const visible = tab === 'unpaid' ? unpaid : paid;
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight">Invoices & Cash Pay Register</h1>
+          <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight">Payments</h1>
           <p className="text-xs text-[var(--muted-foreground)] mt-0.5 font-medium">
-            Record cash register settlements enforcing Phase 1 Cash-Only processing and multi-tenant ledger integrity.
+            A bill is created automatically when you mark an appointment <strong>Done</strong>. Collect the cash here
+            or right from the appointment.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={loadData}
-            className="p-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)]"
-            title="Refresh Ledger"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <Link
-            href="/admin/appointments?walkIn=true"
-            className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/30 flex items-center gap-1.5 transition-colors"
-          >
-            <DollarSign className="w-4 h-4" />
-            <span>Walk In</span>
-          </Link>
-          <button
-            onClick={() => setShowCreateInvoiceModal(true)}
-            className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)] flex items-center gap-1.5"
-          >
-            <Receipt className="w-4 h-4 text-[var(--primary)]" />
-            <span>Create Invoice</span>
-          </button>
-          <button
-            onClick={() => {
-              setSelectedInvoice(null);
-              setCashAmount('38.00');
-              setCashCustomerName('');
-              setShowCashModal(true);
-            }}
-            className="btn-primary px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm"
-          >
-            <Wallet className="w-4 h-4" />
-            <span>Open Cash Register</span>
-          </button>
+        <button
+          onClick={loadData}
+          className="p-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)] self-start sm:self-auto"
+          title="Refresh"
+        >
+          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <KPICard
+          label="Waiting to be paid"
+          value={`$${formatMoney(owed)}`}
+          sub={`${unpaid.length} unpaid ${unpaid.length === 1 ? 'bill' : 'bills'}`}
+          icon={Clock}
+          accentColor="text-amber-600"
+          iconBgColor="bg-amber-50 dark:bg-amber-950/40"
+        />
+        <KPICard
+          label="Collected today"
+          value={`$${formatMoney(collectedToday)}`}
+          sub="Cash from finished appointments"
+          icon={Wallet}
+          accentColor="text-emerald-600"
+          iconBgColor="bg-emerald-50 dark:bg-emerald-950/40"
+        />
+      </div>
+
+      <div className="glass-card rounded-2xl overflow-hidden border border-[var(--border)]">
+        <div className="p-3 border-b border-[var(--border)] flex gap-1 text-xs font-bold">
+          {(
+            [
+              ['unpaid', `Unpaid (${unpaid.length})`],
+              ['paid', `Paid (${paid.length})`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`px-3 py-1.5 rounded-lg transition-colors ${
+                tab === key
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex items-center gap-2 border-b border-[var(--border)] pb-2">
-        <button
-          onClick={() => setActiveTab('invoices')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'invoices'
-              ? 'bg-[var(--primary)] text-white shadow-sm font-black'
-              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-          }`}
-        >
-          Invoices Ledger ({invoices.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('payments')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'payments'
-              ? 'bg-[var(--primary)] text-white shadow-sm font-black'
-              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-          }`}
-        >
-          Cash Payment Receipts ({payments.length})
-        </button>
-      </div>
-
-      {/* Invoices Tab Content */}
-      {activeTab === 'invoices' && (
-        <div className="glass-card rounded-2xl overflow-hidden border border-[var(--border)]">
-          {isLoading ? (
-            <div className="p-12 text-center text-xs text-[var(--muted-foreground)]">Loading invoices ledger...</div>
-          ) : invoices.length === 0 ? (
-            <div className="p-12 text-center space-y-3">
-              <Receipt className="w-10 h-10 text-[var(--muted-foreground)] mx-auto opacity-40" />
-              <h3 className="text-sm font-bold text-[var(--foreground)]">No invoices on record</h3>
-              <p className="text-xs text-[var(--muted-foreground)] max-w-sm mx-auto">
-                Completed bookings and manual billing will populate invoices here.
-              </p>
-              <button
-                onClick={() => setShowCreateInvoiceModal(true)}
-                className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Create First Invoice</span>
-              </button>
-            </div>
-          ) : (
-            <div className="divide-y divide-[var(--border)]">
-              {invoices.map((inv) => (
-                <div
-                  key={inv.invoiceId}
-                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--muted)]/50 transition-colors"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200">
-                      <Receipt className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-black text-[var(--foreground)]">#{inv.invoiceId}</h3>
-                      <p className="text-xs font-bold text-[var(--primary)]">{inv.customerName || 'Walk-in Client'}</p>
-                      <span className="text-[11px] text-[var(--muted-foreground)] block mt-0.5">
-                        {formatDate(inv.createdAt)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between sm:justify-end gap-4">
-                    <div className="text-right">
-                      <span className="text-sm font-black text-[var(--foreground)] block">
-                        ${formatMoney(inv.totalAmount)} CAD
-                      </span>
-                      <Badge variant={inv.status} />
-                    </div>
-
-                    {!CLOSED_INVOICE_STATUSES.includes(String(inv.status || '').toUpperCase()) && (
-                      <div className="flex items-center gap-2">
-                        {inv.status === 'DRAFT' && (
-                          <button
-                            onClick={() => handleQuickCompleteInvoice(inv.invoiceId)}
-                            disabled={completingInvoiceId === inv.invoiceId}
-                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] border border-[var(--border)] transition-colors flex items-center gap-1 disabled:opacity-50"
-                            title="Complete and issue invoice"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
-                            <span>{completingInvoiceId === inv.invoiceId ? 'Completing...' : 'Complete'}</span>
-                          </button>
-                        )}
-                        <button
-                          onClick={() => {
-                            setSelectedInvoice(inv);
-                            setCashAmount(formatMoney(toNumber(inv.totalAmount) - toNumber(inv.paidAmount)));
-                            setCashCustomerName(inv.customerName || '');
-                            setShowCashModal(true);
-                          }}
-                          className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center gap-1"
-                        >
-                          <Wallet className="w-3.5 h-3.5" />
-                          <span>Collect Cash</span>
-                        </button>
-                      </div>
+        {isLoading ? (
+          <div className="p-12 text-center text-xs text-[var(--muted-foreground)]">Loading...</div>
+        ) : loadError ? (
+          <div className="p-12 text-center space-y-3">
+            <p className="text-xs font-bold text-rose-600">{loadError}</p>
+            <button onClick={loadData} className="btn-primary px-4 py-2 rounded-xl text-xs font-bold">
+              Try again
+            </button>
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="p-12 text-center space-y-2">
+            <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto opacity-60" />
+            <h3 className="text-sm font-bold text-[var(--foreground)]">
+              {tab === 'unpaid' ? 'Nothing waiting to be paid' : 'No payments yet'}
+            </h3>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {tab === 'unpaid' ? (
+                <>
+                  Bills appear here when an appointment is marked Done in{' '}
+                  <Link href="/admin/appointments" className="font-bold text-[var(--primary)] hover:underline">
+                    Appointments
+                  </Link>
+                  .
+                </>
+              ) : (
+                'Paid bills will show up here.'
+              )}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[var(--border)]">
+            {visible.map((bill) => (
+              <div key={bill.invoiceId} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-[var(--foreground)]">{bill.customerName}</p>
+                  <p className="text-xs font-bold text-[var(--primary)] truncate">{bill.what}</p>
+                  <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                    {tab === 'paid' && bill.payment
+                      ? `Paid in cash · ${prettyDate(bill.payment.date)}`
+                      : `Done · ${prettyDate(bill.date)}`}
+                    {bill.payment && bill.payment.refundedAmount > 0 && (
+                      <span className="text-rose-600"> · ${formatMoney(bill.payment.refundedAmount)} refunded</span>
                     )}
-                  </div>
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
-      {/* Payments History Content */}
-      {activeTab === 'payments' && (
-        <div className="glass-card rounded-2xl overflow-hidden border border-[var(--border)]">
-          {isLoading ? (
-            <div className="p-12 text-center text-xs text-[var(--muted-foreground)]">Loading cash payments...</div>
-          ) : payments.length === 0 ? (
-            <div className="p-12 text-center space-y-3">
-              <DollarSign className="w-10 h-10 text-[var(--muted-foreground)] mx-auto opacity-40" />
-              <h3 className="text-sm font-bold text-[var(--foreground)]">No payments recorded</h3>
-              <p className="text-xs text-[var(--muted-foreground)] max-w-sm mx-auto">
-                In-person cash entries recorded at checkout will appear here.
-              </p>
-              <button
-                onClick={() => setShowCashModal(true)}
-                className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
-              >
-                <Wallet className="w-4 h-4" />
-                <span>Open Cash Register</span>
-              </button>
-            </div>
-          ) : (
-            <div className="divide-y divide-[var(--border)]">
-              {payments.map((pay) => (
-                <div key={pay.paymentId} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200">
-                      <DollarSign className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-black text-[var(--foreground)]">#{pay.paymentId}</h3>
-                      <span className="text-xs font-bold text-emerald-600 block">Enforced CASH Entry</span>
-                      <span className="text-[11px] text-[var(--muted-foreground)] block">
-                        {formatDate(pay.createdAt, true)} {pay.notes ? `· ${pay.notes}` : ''}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between sm:justify-end gap-3">
-                    <div className="text-right">
-                      <span className="text-sm font-black text-[var(--foreground)] block">
-                        ${formatMoney(pay.amount)} {pay.currency || 'CAD'}
-                      </span>
-                      <span className="text-[10px] font-bold text-emerald-600 uppercase bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200">
-                        {pay.status || 'COMPLETED'}
-                      </span>
-                    </div>
-
+                <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                  <span className="text-lg font-black text-[var(--foreground)]">
+                    ${formatMoney(tab === 'unpaid' ? bill.balanceDue : bill.total)}
+                  </span>
+                  {tab === 'unpaid' ? (
                     <button
-                      onClick={() => {
-                        setSelectedPayment(pay);
-                        setRefundAmount(formatMoney(pay.amount));
-                        setShowRefundModal(true);
-                      }}
-                      className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-amber-600 hover:bg-amber-50"
-                      title="Issue Refund"
+                      onClick={() => setPayingBill(bill)}
+                      className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5"
                     >
-                      <RotateCcw className="w-4 h-4" />
+                      <Banknote className="w-4 h-4" />
+                      Cash received
                     </button>
-                  </div>
+                  ) : (
+                    <>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Paid</span>
+                      {bill.payment && bill.payment.amount - bill.payment.refundedAmount > 0.009 && (
+                        <button
+                          onClick={() => openRefund(bill)}
+                          className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                          title="Give money back"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Cash Modal */}
-      <Modal
-        isOpen={showCashModal}
-        onClose={() => setShowCashModal(false)}
-        title={selectedInvoice ? `Cash Settlement — Invoice #${selectedInvoice.invoiceId}` : 'Cash Register Payment Entry'}
-        maxWidth="sm"
-      >
-        <form onSubmit={handleRecordCashPayment} className="space-y-4">
-          <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-2 border border-emerald-200">
-            <ShieldCheck className="w-4 h-4 shrink-0" />
-            <span>Enforced Cash Register Payment Entry</span>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Cash Amount (CAD $)</label>
-            <input
-              type="number"
-              step="0.01"
-              required
-              value={cashAmount}
-              onChange={(e) => setCashAmount(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm font-bold text-[var(--foreground)] focus:outline-none"
-            />
-          </div>
-
-          {!selectedInvoice && (
-            <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Customer</label>
-              <select
-                required
-                value={cashCustomerId}
-                onChange={(e) => setCashCustomerId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-              >
-                {customers.length === 0 && <option value="">No customers found</option>}
-                {customers.map((c) => (
-                  <option key={c.customerId} value={c.customerId}>
-                    {c.fullName} {c.customerCode ? `(${c.customerCode})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Customer / Reference Name</label>
-            <input
-              type="text"
-              placeholder="e.g. John Doe / Walk-in"
-              value={cashCustomerName}
-              onChange={(e) => setCashCustomerName(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Notes</label>
-            <input
-              type="text"
-              value={paymentNotes}
-              onChange={(e) => setPaymentNotes(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)] focus:outline-none"
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
-            <button
-              type="button"
-              onClick={() => setShowCashModal(false)}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmittingPayment}
-              className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {isSubmittingPayment ? 'Processing...' : 'Confirm Cash Payment'}
-            </button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Create Manual Invoice Modal */}
-      <Modal
-        isOpen={showCreateInvoiceModal}
-        onClose={() => setShowCreateInvoiceModal(false)}
-        title="Create Billing Invoice"
-        maxWidth="md"
-      >
-        <form onSubmit={handleCreateInvoiceSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold mb-1">Customer</label>
-              <select
-                value={invoiceCustomerId}
-                onChange={(e) => setInvoiceCustomerId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-              >
-                {customers.length === 0 && <option value="">No customers found</option>}
-                {customers.map((c) => (
-                  <option key={c.customerId} value={c.customerId}>
-                    {c.fullName} {c.customerCode ? `(${c.customerCode})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold mb-1">Due Date</label>
-              <input
-                type="date"
-                value={invoiceDueDate}
-                onChange={(e) => setInvoiceDueDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
-              />
-            </div>
-          </div>
-
-          {/* Invoice line items */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-black">Line Items</label>
-              <button
-                type="button"
-                onClick={() =>
-                  setInvoiceItems((prev) => [
-                    ...prev,
-                    { description: 'Additional Styling / Product', quantity: 1, unitPrice: 20.0 },
-                  ])
-                }
-                className="text-[11px] font-bold text-[var(--primary)] hover:underline flex items-center gap-1"
-              >
-                <PlusCircle className="w-3.5 h-3.5" />
-                <span>Add Item</span>
-              </button>
-            </div>
-
-            {invoiceItems.map((item, idx) => (
-              <div key={idx} className="flex items-center gap-2">
-                <input
-                  type="text"
-                  required
-                  placeholder="Description"
-                  value={item.description}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setInvoiceItems((prev) =>
-                      prev.map((it, i) => (i === idx ? { ...it, description: val } : it))
-                    );
-                  }}
-                  className="flex-1 px-3 py-1.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
-                />
-                <input
-                  type="number"
-                  required
-                  placeholder="Qty"
-                  value={item.quantity}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value, 10) || 1;
-                    setInvoiceItems((prev) =>
-                      prev.map((it, i) => (i === idx ? { ...it, quantity: val } : it))
-                    );
-                  }}
-                  className="w-16 px-2 py-1.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
-                />
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  placeholder="Price"
-                  value={item.unitPrice}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value) || 0;
-                    setInvoiceItems((prev) =>
-                      prev.map((it, i) => (i === idx ? { ...it, unitPrice: val } : it))
-                    );
-                  }}
-                  className="w-24 px-2 py-1.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
-                />
-                {invoiceItems.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setInvoiceItems((prev) => prev.filter((_, i) => i !== idx))}
-                    className="p-1 text-rose-600"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
               </div>
             ))}
           </div>
+        )}
+      </div>
 
-          <div>
-            <label className="block text-xs font-bold mb-1">Invoice Notes</label>
-            <input
-              type="text"
-              placeholder="e.g. In-salon styling and product invoice"
-              value={invoiceNotes}
-              onChange={(e) => setInvoiceNotes(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold"
-            />
-          </div>
+      <p className="text-[11px] text-[var(--muted-foreground)]">
+        Selling something without an appointment, like a product? Record it in the{' '}
+        <Link href="/admin/accounting" className="font-bold text-[var(--primary)] hover:underline">
+          Money Book
+        </Link>{' '}
+        as Money In.
+      </p>
 
-          <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
-            <button
-              type="button"
-              onClick={() => setShowCreateInvoiceModal(false)}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)]"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmittingInvoice}
-              className="btn-primary px-5 py-2 rounded-xl text-xs font-bold disabled:opacity-50"
-            >
-              {isSubmittingInvoice ? 'Generating...' : 'Create Invoice'}
-            </button>
+      {/* Cash received */}
+      <Modal isOpen={!!payingBill} onClose={() => setPayingBill(null)} title="Cash received" maxWidth="sm">
+        {payingBill && (
+          <div className="space-y-4">
+            <div className="p-4 rounded-2xl bg-[var(--muted)] space-y-1">
+              <p className="text-xs font-bold text-[var(--foreground)]">{payingBill.customerName}</p>
+              <p className="text-xs text-[var(--muted-foreground)]">{payingBill.what}</p>
+              <p className="text-2xl font-black text-[var(--foreground)] pt-2">
+                ${formatMoney(payingBill.balanceDue)}{' '}
+                <span className="text-xs font-bold text-[var(--muted-foreground)]">CAD</span>
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
+              <button
+                type="button"
+                onClick={() => setPayingBill(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCashReceived}
+                disabled={isPaying}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+              >
+                {isPaying ? 'Recording...' : 'Confirm cash received'}
+              </button>
+            </div>
           </div>
-        </form>
+        )}
       </Modal>
 
-      {/* Refund Modal */}
-      {selectedPayment && (
-        <Modal
-          isOpen={showRefundModal}
-          onClose={() => setShowRefundModal(false)}
-          title={`Process Cash Refund — #${selectedPayment.paymentId}`}
-          maxWidth="sm"
-        >
-          <form onSubmit={handleRefundSubmit} className="space-y-4">
+      {/* Refund */}
+      <Modal isOpen={!!refundBill} onClose={() => setRefundBill(null)} title="Give money back" maxWidth="sm">
+        {refundBill && (
+          <form onSubmit={handleRefund} className="space-y-4">
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {refundBill.customerName} · {refundBill.what}
+            </p>
             <div>
-              <label className="block text-xs font-bold mb-1">Refund Amount (CAD $)</label>
+              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Amount returned (CAD $)</label>
               <input
                 type="number"
                 step="0.01"
+                min="0.01"
                 required
                 value={refundAmount}
                 onChange={(e) => setRefundAmount(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm font-bold text-[var(--foreground)]"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold mb-1">Refund Reason</label>
+              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Reason (optional)</label>
               <input
                 type="text"
-                required
                 value={refundReason}
                 onChange={(e) => setRefundReason(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold"
+                placeholder="e.g. Customer wasn't happy with the cut"
+                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)]"
               />
             </div>
-            <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
               <button
                 type="button"
-                onClick={() => setShowRefundModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)]"
+                onClick={() => setRefundBill(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={isSubmittingRefund}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                disabled={isRefunding}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50"
               >
-                {isSubmittingRefund ? 'Processing...' : 'Execute Cash Refund'}
+                {isRefunding ? 'Recording...' : 'Record refund'}
               </button>
             </div>
           </form>
-        </Modal>
-      )}
+        )}
+      </Modal>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
 import { Scissors, Plus, Clock, Tag, Edit, Trash2, CheckCircle2, FolderPlus, Layers, PlusCircle } from 'lucide-react';
 import { ServiceDto, ServiceCategoryDto, ServiceAddonDto } from '@/lib/types';
 import { formatMoney, servicePrice, serviceDuration, toNumber, toList } from '@/lib/format';
+import { ensureCapacityRule } from '@/lib/availability';
 
 export default function AdminServicesPage() {
   const { showSuccess, showError } = useToast();
@@ -57,7 +58,9 @@ export default function AdminServicesPage() {
     setIsLoading(true);
     try {
       const res = await apiRequest<any>(`/api/v1/services/branches/${DEFAULT_BRANCH_ID}`);
-      const list = toList<any>(res, 'services').filter((s: any) => s && (s.serviceId || s.id));
+      const list = toList<any>(res, 'services').filter(
+        (s: any) => s && (s.serviceId || s.id) && s.status !== 'ARCHIVED'
+      );
       const normalized: ServiceDto[] = list.map((s: any) => ({
         serviceId: s.serviceId || s.id,
         name: s.name || 'Service',
@@ -102,7 +105,7 @@ export default function AdminServicesPage() {
         });
         showSuccess('Service Updated', `${name} updated in catalog.`);
       } else {
-        await apiRequest('/api/v1/services', {
+        const created = await apiRequest<any>('/api/v1/services', {
           method: 'POST',
           body: JSON.stringify({
             tenantId: DEFAULT_TENANT_ID,
@@ -114,11 +117,17 @@ export default function AdminServicesPage() {
             basePrice: toNumber(basePrice),
             currency: 'CAD',
             isOnlineBookable: true,
-            requiresStaff: true,
+            requiresStaff: false,
             bookingType: 'APPOINTMENT',
           }),
         });
-        showSuccess('Service Created', `${name} added to catalog.`);
+        const createdId = created?.serviceId || created?.id;
+        if (createdId) {
+          await ensureCapacityRule(createdId).catch(() => {
+            /* retried when the service is activated */
+          });
+        }
+        showSuccess('Service Created', `${name} added as a draft. Activate it to make it bookable.`);
       }
       setShowServiceModal(false);
       setEditingService(null);
@@ -136,6 +145,7 @@ export default function AdminServicesPage() {
   const handleActivateService = async (serviceId: string, serviceTitle: string) => {
     try {
       await apiRequest(`/api/v1/services/${serviceId}/activate`, { method: 'POST' });
+      await ensureCapacityRule(serviceId);
       showSuccess('Service Activated', `${serviceTitle} is now available for booking.`);
       loadServices();
     } catch (err: any) {

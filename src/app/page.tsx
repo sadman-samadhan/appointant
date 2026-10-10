@@ -5,6 +5,7 @@ import { HomeNav, BookLink } from '@/components/home/HomeNav';
 import { OpenStatus, HoursTable } from '@/components/home/OpenStatus';
 import { ReviewsCarousel, Stars } from '@/components/home/ReviewsCarousel';
 import { BUSINESS, FULL_ADDRESS } from '@/lib/business';
+import { ONLINE_BOOKING_ENABLED } from '@/lib/api/config';
 import { getPublicServices } from '@/lib/server/publicCatalog';
 import { getPublicReviews, getSetmoreServices } from '@/lib/server/setmore';
 
@@ -34,9 +35,11 @@ function formatPrice(price: number) {
 async function loadMenu(): Promise<{ items: MenuItem[]; bookHref: string; bookExternal: boolean }> {
   const catalog = await getPublicServices();
   if (catalog.status === 'ok' && catalog.services.length > 0) {
+    // Until customer self-booking is enabled in this app, "Book" goes to the shop's Setmore page.
+    const inApp = ONLINE_BOOKING_ENABLED;
     return {
-      bookHref: '/customer/book',
-      bookExternal: false,
+      bookHref: inApp ? '/customer/book' : BUSINESS.setmoreUrl,
+      bookExternal: !inApp,
       items: catalog.services.map((s) => ({
         key: s.serviceId,
         name: s.name,
@@ -44,8 +47,8 @@ async function loadMenu(): Promise<{ items: MenuItem[]; bookHref: string; bookEx
         price: s.price,
         durationMinutes: s.durationMinutes,
         category: s.category,
-        bookHref: `/customer/book?serviceId=${encodeURIComponent(s.serviceId)}`,
-        bookExternal: false,
+        bookHref: inApp ? `/customer/book?serviceId=${encodeURIComponent(s.serviceId)}` : BUSINESS.setmoreUrl,
+        bookExternal: !inApp,
       })),
     };
   }

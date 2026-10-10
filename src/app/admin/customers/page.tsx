@@ -23,7 +23,7 @@ import {
   Info,
 } from 'lucide-react';
 import { CustomerDto, BookingListItemDto, CustomerNoteDto } from '@/lib/types';
-import { formatMoney, toNumber, toList } from '@/lib/format';
+import { formatMoney, toNumber, toList, bookingLocalDate } from '@/lib/format';
 
 // Tenant-scoped endpoints (notes, tags, archive) are keyed by tenantCustomerId, not customerId.
 type DirectoryCustomer = CustomerDto & { tenantCustomerId?: string };
@@ -34,11 +34,9 @@ function formatDate(value: unknown): string {
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
 }
 
-// Bookings carry `date` (YYYY-MM-DD) + `startTime` (HH:MM:SS); older shapes used an ISO startTime.
+// Booking times are shop wall-clock times; see bookingLocalDate.
 function bookingDate(b: any): string {
-  const start = typeof b?.startTime === 'string' ? b.startTime : '';
-  if (start.includes('T')) return formatDate(start);
-  return formatDate(typeof b?.date === 'string' ? b.date.substring(0, 10) + 'T00:00:00' : '');
+  return bookingLocalDate(b)?.toLocaleDateString() || '—';
 }
 
 export default function AdminCustomersPage() {

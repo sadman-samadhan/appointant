@@ -276,7 +276,7 @@ export default function LoginPage() {
                       value={loginUserid}
                       onChange={(e) => setLoginUserid(e.target.value)}
                       className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] transition-all"
-                      placeholder="e.g. admin@system.com or user@example.com"
+                      placeholder="e.g. you@example.com"
                     />
                   </div>
                 </div>

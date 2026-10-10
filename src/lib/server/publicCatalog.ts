@@ -1,5 +1,5 @@
 import 'server-only';
-import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
+import { DEFAULT_BRANCH_ID } from '@/lib/api/config';
 import { servicePrice, serviceDuration, toList } from '@/lib/format';
 
 // The Core Backend has no anonymous endpoints, so the public service menu is read
@@ -16,6 +16,7 @@ export interface PublicService {
   price: number;
   durationMinutes: number;
   category: string;
+  categoryOrder: number;
   currency: string;
 }
 
@@ -36,7 +37,6 @@ async function getCatalogToken(forceNew = false): Promise<string | null> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userid, password }),
-    cache: 'no-store',
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`Catalog sign-in failed (${res.status})`);
@@ -49,11 +49,9 @@ async function getCatalogToken(forceNew = false): Promise<string | null> {
 
 async function fetchServices(token: string) {
   return fetch(`${CORE_BACKEND}/api/v1/services/branches/${DEFAULT_BRANCH_ID}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'x-tenant-id': DEFAULT_TENANT_ID,
-      'x-branch-id': DEFAULT_BRANCH_ID,
-    },
+    // No x-tenant-id: this endpoint is scoped by branch, and the header would make the
+    // backend refuse a catalog account that isn't a member of the shop.
+    headers: { Authorization: `Bearer ${token}` },
     next: { revalidate: 300 },
     signal: AbortSignal.timeout(10000),
   });
@@ -83,10 +81,13 @@ export async function getPublicServices(): Promise<CatalogResult> {
           price: servicePrice(s),
           durationMinutes: serviceDuration(s),
           category: s.category?.name || s.categoryName || 'Services',
+          categoryOrder: Number(s.category?.displayOrder ?? 999),
           currency: s.currency || 'CAD',
         })
       )
-      .filter((s) => s.name);
+      .filter((s) => s.name)
+      // Categories in the owner's display order, cheapest first within each.
+      .sort((a, b) => a.categoryOrder - b.categoryOrder || a.price - b.price);
 
     return { status: 'ok', services };
   } catch {
