@@ -86,14 +86,16 @@ class NotShopMemberError extends Error {
   }
 }
 
-// Admin/staff role codes are global in the Auth Service; the Core Backend only lets an
-// account act in this shop if it is the owner, a member or active staff (403 otherwise).
-async function assertShopMember(): Promise<void> {
+// Auth Service roles are global; the Core Backend decides roles per shop: the shop's
+// owner is its admin, and active staff are staff (even "Store Administrators", whose
+// global ROLE_ADMIN no longer counts in this shop). Accounts linked to neither get 403.
+async function resolveShopRole(me: any, fallback: AppRole): Promise<AppRole> {
   try {
-    await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}&limit=1`);
+    const tenant = await apiRequest<any>(`/api/v1/tenants/${DEFAULT_TENANT_ID}`);
+    return tenant?.ownerUserId != null && String(tenant.ownerUserId) === String(me.id) ? 'ADMIN' : 'STAFF';
   } catch (err) {
     if (err instanceof ApiError && err.status === 403) throw new NotShopMemberError();
-    /* other failures (e.g. network) are not a membership answer */
+    return fallback; // network blip: keep the role from the token; the backend still enforces
   }
 }
 
@@ -104,7 +106,7 @@ async function resolveProfile(me: any): Promise<UserProfile> {
   else if (codes.some((c) => STAFF_ROLE_CODES.includes(c))) role = 'STAFF';
   else if (await isLinkedToActiveStaff(me)) role = 'STAFF';
 
-  if (role !== 'CUSTOMER') await assertShopMember();
+  if (role !== 'CUSTOMER') role = await resolveShopRole(me, role);
 
   return {
     id: me.id ?? me.userId,

@@ -6,6 +6,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { Palette, Image as ImageIcon, RotateCcw, Check, Sun, Moon } from 'lucide-react';
+import { ShopBillingSettings } from '@/components/admin/ShopBillingSettings';
 
 const PRESET_SWATCHES = [
   { name: 'Earthy Red (Default)', primary: '#8B3A3A', secondary: '#6F2C2C', accent: '#F3E4DE' },
@@ -108,6 +109,8 @@ export default function AdminSettingsPage() {
           <span>Reset Defaults</span>
         </button>
       </div>
+
+      <ShopBillingSettings />
 
       <form onSubmit={handleSave} className="space-y-6">
         {/* Color Palette Section */}

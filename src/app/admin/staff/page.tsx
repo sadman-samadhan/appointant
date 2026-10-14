@@ -155,19 +155,8 @@ export default function AdminStaffPage() {
           }),
         });
 
-        if (editingStaff.userId && systemRole === 'ADMIN') {
-          try {
-            await apiRequest(`/users/${editingStaff.userId}/roles`, {
-              method: 'PUT',
-              isAuthService: true,
-              body: JSON.stringify({
-                roleCodes: ['ROLE_ADMIN'],
-              }),
-            });
-          } catch {
-            /* ignore role sync */
-          }
-        }
+        // Admin rights are per shop now (only the owner is admin here); the job title is
+        // informational. Granting the global Auth ROLE_ADMIN would leak admin rights to other shops.
 
         showSuccess(
           systemRole === 'ADMIN' ? 'Store Administrator Updated' : 'Specialist Updated',
@@ -189,19 +178,6 @@ export default function AdminStaffPage() {
             const rawId = authReg?.userId || authReg?.id || authReg?.user?.id;
             if (rawId !== undefined && rawId !== null) {
               registeredUserId = String(rawId);
-            }
-            if (registeredUserId && systemRole === 'ADMIN') {
-              try {
-                await apiRequest(`/users/${registeredUserId}/roles`, {
-                  method: 'PUT',
-                  isAuthService: true,
-                  body: JSON.stringify({
-                    roleCodes: ['ROLE_ADMIN'],
-                  }),
-                });
-              } catch {
-                /* ignore role assign */
-              }
             }
           } catch {
             /* fallback to backend createUser payload */
@@ -240,7 +216,7 @@ export default function AdminStaffPage() {
 
         showSuccess(
           systemRole === 'ADMIN' ? 'Store Administrator Registered' : 'Specialist Registered',
-          `${fullName} registered with ${systemRole === 'ADMIN' ? 'Full Administrator' : 'Specialist'} privileges.`
+          `${fullName} added to the team.`
         );
       }
       setShowAddModal(false);
@@ -785,7 +761,7 @@ export default function AdminStaffPage() {
                   <span>Store Admin</span>
                 </div>
                 <p className="text-[10px] text-[var(--muted-foreground)] mt-1 font-medium leading-tight">
-                  Full access: Expenses, Accounting, Payroll, and Settings.
+                  Job title only for now: only the shop owner has full access (Money Book, Expenses, Payroll, Settings).
                 </p>
               </button>
             </div>

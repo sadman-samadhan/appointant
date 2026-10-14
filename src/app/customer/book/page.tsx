@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { apiRequest } from '@/lib/api/client';
+import { apiRequest, ApiError } from '@/lib/api/client';
 import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID, ONLINE_BOOKING_ENABLED } from '@/lib/api/config';
 import {
   Scissors,
@@ -179,11 +179,12 @@ export default function CustomerBookPage() {
     }
 
     setIsSubmitting(true);
-    let customerId = '';
 
-    // 1. Create/Find Customer in Backend CRM
+    // 1. Make sure the signed-in customer has a profile and is a customer of this shop.
+    //    (Customers may only create their own profile and join a shop; staff-only
+    //    customer endpoints are not available to them.)
     try {
-      const custRes = await apiRequest<any>('/api/v1/customers', {
+      await apiRequest('/api/v1/customers/self', {
         method: 'POST',
         body: JSON.stringify({
           fullName: customerName.trim(),
@@ -195,40 +196,31 @@ export default function CustomerBookPage() {
           ],
         }),
       });
-
-      customerId = custRes?.customerId || custRes?.id || custRes?.customer?.customerId || '';
-
-      if (customerId) {
-        try {
-          await apiRequest(`/api/v1/tenants/${DEFAULT_TENANT_ID}/customers`, {
-            method: 'POST',
-            body: JSON.stringify({
-              customerId,
-              preferredBranchId: DEFAULT_BRANCH_ID,
-            }),
-          });
-        } catch {
-          /* ignore link error */
-        }
-      }
-    } catch {
-      /* customer may already exist - look it up below */
-    }
-
-    if (!customerId) {
-      try {
-        const searchRes = await apiRequest<any>(
-          `/api/v1/tenants/${DEFAULT_TENANT_ID}/customers?search=${encodeURIComponent(customerPhone.trim())}`
-        );
-        const match = toList(searchRes, 'customers')[0];
-        customerId = match?.customerId || match?.customer?.customerId || '';
-      } catch {
-        /* handled below */
+    } catch (err) {
+      // 409 = this account already has a customer profile, which is fine.
+      if (!(err instanceof ApiError && err.status === 409)) {
+        showError('Booking Failed', (err as Error).message || 'Could not save your details.');
+        setIsSubmitting(false);
+        return;
       }
     }
 
+    let customerId = '';
+    try {
+      await apiRequest('/api/v1/customers/me/tenants', {
+        method: 'POST',
+        body: JSON.stringify({ tenantId: DEFAULT_TENANT_ID, preferredBranchId: DEFAULT_BRANCH_ID }),
+      });
+      const me = await apiRequest<any>('/api/v1/customers/me');
+      customerId = me?.customerId || me?.id || '';
+    } catch (err) {
+      showError('Booking Failed', (err as Error).message || 'Could not link your account to the shop.');
+      setIsSubmitting(false);
+      return;
+    }
+
     if (!customerId) {
-      showError('Booking Failed', 'Could not create or find your customer profile. Please try again.');
+      showError('Booking Failed', 'Could not load your customer profile. Please try again.');
       setIsSubmitting(false);
       return;
     }
