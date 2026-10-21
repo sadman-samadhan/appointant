@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { placeGuestBooking, validateGuestBooking } from '@/lib/server/onlineBooking';
+import { placeGuestBooking, validateGuestBooking, STRICT_BOOKING_CHECKS } from '@/lib/server/onlineBooking';
 import { AgentError, agentConfigured } from '@/lib/server/shopAgent';
 import { clientIp, rateLimited } from '@/lib/server/rateLimit';
 
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'Invalid request.' }, { status: 400 });
   }
 
-  if (rateLimited(`book:${clientIp(req)}`, 5, 60 * 60_000)) {
+  if (STRICT_BOOKING_CHECKS && rateLimited(`book:${clientIp(req)}`, 5, 60 * 60_000)) {
     return NextResponse.json(
       { message: 'Too many bookings from this device. Please call us to book.' },
       { status: 429 }

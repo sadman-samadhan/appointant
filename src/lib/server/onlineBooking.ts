@@ -4,6 +4,10 @@ import { servicePrice, serviceDuration, toList } from '@/lib/format';
 import { agentRequest, AgentError } from './shopAgent';
 
 export const SHOP_TIME_ZONE = 'America/Moncton';
+
+// Testing mode: while the shop is still being tested, any phone text is accepted and the
+// per-device booking limit is off. Set BOOKING_STRICT_CHECKS=true on Vercel at launch.
+export const STRICT_BOOKING_CHECKS = process.env.BOOKING_STRICT_CHECKS === 'true';
 const BOOKING_HORIZON_DAYS = 60;
 
 export interface BookableService {
@@ -129,7 +133,11 @@ export function validateGuestBooking(input: any): { value?: GuestBookingInput; e
   value.startTime = value.startTime.slice(0, 5) + ':00';
   if (value.name.length < 2 || value.name.length > 80) return { error: 'Enter your name.' };
   const phoneDigits = digits(value.phone);
-  if (phoneDigits.length < 10 || phoneDigits.length > 15) return { error: 'Enter a phone number we can reach you on.' };
+  if (STRICT_BOOKING_CHECKS) {
+    if (phoneDigits.length < 10 || phoneDigits.length > 15) return { error: 'Enter a phone number we can reach you on.' };
+  } else if (!value.phone || value.phone.length > 30) {
+    return { error: 'Enter a phone number.' };
+  }
   if (value.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.email)) return { error: 'Check your email address.' };
   return { value };
 }
@@ -144,16 +152,22 @@ async function findOrCreateCustomer(input: GuestBookingInput): Promise<string> {
   // Search is a text match on the stored number, so use the last 4 digits (contiguous in
   // any common format) and then require the full number to match.
   const phoneDigits = digits(input.phone);
-  try {
-    const found = await agentRequest(
-      'GET',
-      `/api/v1/tenants/${DEFAULT_TENANT_ID}/customers?search=${encodeURIComponent(phoneDigits.slice(-4))}`
-    );
-    const match = toList<any>(found, 'customers').find((c) => digits(customerPhone(c)).endsWith(phoneDigits.slice(-10)));
-    const id = match?.customerId || match?.customer?.customerId;
-    if (id) return String(id);
-  } catch {
-    /* fall through to create */
+  // Only reuse an existing customer when there's a real number to match on (test
+  // bookings may use placeholder numbers).
+  if (phoneDigits.length >= 7) {
+    try {
+      const found = await agentRequest(
+        'GET',
+        `/api/v1/tenants/${DEFAULT_TENANT_ID}/customers?search=${encodeURIComponent(phoneDigits.slice(-4))}`
+      );
+      const match = toList<any>(found, 'customers').find((c) =>
+        digits(customerPhone(c)).endsWith(phoneDigits.slice(-10))
+      );
+      const id = match?.customerId || match?.customer?.customerId;
+      if (id) return String(id);
+    } catch {
+      /* fall through to create */
+    }
   }
 
   const created = await agentRequest('POST', '/api/v1/customers', {

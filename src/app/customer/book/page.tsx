@@ -245,7 +245,10 @@ export default function BookPage() {
                           setService(s);
                           setStep(2);
                         }}
-                        className="w-full min-w-0 glass-card p-4 rounded-2xl border border-[var(--border)] text-left flex items-center justify-between gap-4 hover:border-[var(--primary)] transition-colors"
+                        aria-label={`Book ${s.name}, $${formatMoney(s.price)}`}
+                        className={`group w-full min-w-0 glass-card p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:border-[var(--primary)] hover:bg-[var(--primary-light)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] active:translate-y-0 ${
+                          service?.serviceId === s.serviceId ? 'border-[var(--primary)] bg-[var(--primary-light)]' : 'border-[var(--border)]'
+                        }`}
                       >
                         <div className="min-w-0">
                           <p className="text-sm font-black text-[var(--foreground)]">{s.name}</p>
@@ -256,7 +259,12 @@ export default function BookPage() {
                             <Clock className="w-3 h-3" /> {s.durationMinutes} min
                           </p>
                         </div>
-                        <span className="text-base font-black text-[var(--primary)] shrink-0">${formatMoney(s.price)}</span>
+                        <div className="flex flex-col items-end gap-2 shrink-0">
+                          <span className="text-base font-black text-[var(--primary)]">${formatMoney(s.price)}</span>
+                          <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-[var(--primary)] text-white shadow-sm transition-transform duration-200 group-hover:translate-x-0.5">
+                            Book this <ArrowRight className="w-3.5 h-3.5" />
+                          </span>
+                        </div>
                       </button>
                     ))}
                 </div>
@@ -382,6 +390,7 @@ export default function BookPage() {
                 onChange={(e) => setPhone(e.target.value)}
                 autoComplete="tel"
                 placeholder="(506) 555-1234"
+                minLength={1}
                 className="w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)]"
               />
             </div>
