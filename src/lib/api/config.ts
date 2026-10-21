@@ -19,8 +19,3 @@ export const DEFAULT_CURRENCY = 'CAD';
 // How many customers the shop can serve at the same time (chairs/barbers working at once).
 // Every service gets a capacity rule with this limit so online booking never double-books.
 export const SHOP_CAPACITY = Number(process.env.NEXT_PUBLIC_SHOP_CAPACITY) || 3;
-
-// Customer self-booking in this app. Off until the Auth Service issues each customer's real
-// tenant in their token; until then the backend rejects customer bookings, so customers are
-// sent to the shop's Setmore page instead. Staff/admin booking is unaffected.
-export const ONLINE_BOOKING_ENABLED = process.env.NEXT_PUBLIC_ONLINE_BOOKING === 'true';

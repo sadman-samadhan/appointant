@@ -132,9 +132,9 @@ A server-rendered marketing page for **B Diamond Barbershop** (593 King Street, 
 * **Business facts** (address, phone, email, hours, about text, Facebook) live in `src/lib/business.ts`, copied from the shop's Setmore page.
 * **Service menu**: services published in the Core Backend (`status: ACTIVE`, online-bookable) are read server-side by `src/lib/server/publicCatalog.ts` using a dedicated catalog account (`CATALOG_USERID` / `CATALOG_PASSWORD` env vars, see `.env.example`), because the backend has no anonymous endpoints. Only name, description, price, duration and category are exposed. **Until at least one service is ACTIVE**, the page shows the shop's live Setmore menu instead and "Book" links go to Setmore.
 * **Reviews carousel**: real reviews and the overall rating are read from the shop's public Setmore page (`src/lib/server/setmore.ts`, refreshed hourly; Setmore also aggregates Google reviews). If that page can't be read, the section is hidden.
-* **Booking from the homepage**: while `NEXT_PUBLIC_ONLINE_BOOKING` is not `true`, every "Book" button goes to the shop's Setmore page and `/customer/book` shows a link there, because the backend rejects customer-account bookings until the Auth Service issues each customer's real tenant. Staff/admin booking in `/admin/appointments` is unaffected. Set the flag to `true` once customer bookings work.
+* **Online booking (`/customer/book`)**: guests book without an account: pick a service, a real free time (from the backend availability engine, in Fredericton time) and enter name + phone. The request goes to server routes under `/api/public/booking/*`, which place a **DRAFT** booking with a server-only shop account (`BOOKING_AGENT_USERID` / `BOOKING_AGENT_PASSWORD`, falling back to `CATALOG_*`; today it must be the owner account, as only the owner may create customers). The server re-checks the slot, reuses an existing customer with the same phone, validates input, rate-limits per visitor and has a spam-trap field. The shop confirms the booking in Admin → Appointments. Customers are never sent to the old Setmore site.
 * **Availability**: time slots come from the backend availability engine (branch opening hours + one capacity rule per service). New services created or activated in **Admin → Services** get a capacity rule automatically (`NEXT_PUBLIC_SHOP_CAPACITY`, default 3 customers at once). The booking wizard only offers times the engine returns.
-* **Leaving a review**: the Core Backend has no reviews module, so customers leave reviews on Setmore (link on the homepage and on each completed visit in `/customer/profile`); new reviews then appear in the carousel.
+* **Leaving a review**: removed for now (the backend has no reviews module and the old Setmore site is being retired). The carousel keeps showing existing reviews while the Setmore page is still readable, and hides itself otherwise.
 
 #### A. Business Owner & Admin Portal (`/admin/*`)
 1. **Admin Dashboard (`/admin/dashboard`)**: Real-time KPI summary (Revenue Today, Appointments, Staff on Duty, Pending Invoices), list of today's bookings, and quick cash register modal.
@@ -181,7 +181,7 @@ To eliminate browser CORS restrictions, all frontend components route through se
 * The app role is derived from the server-provided `roleCode` only: `ROLE_ADMIN` → **Owner/Admin**; staff role codes, or an account linked to an `ACTIVE` staff record (by `userId`/email) → **Staff**; anything else → **Customer**.
 * Saved sessions are re-validated against `/users/me` on page load; an invalid/expired session is cleared. Access tokens are refreshed through a single shared refresh request.
 * `/admin/*` requires Owner/Admin or Staff. Money Book, Expenses, Payroll and Settings are Owner/Admin only (enforced in `src/app/admin/layout.tsx`).
-* Online booking (`/customer/book`) requires a signed-in customer account, because the Core Backend does not answer anonymous requests.
+* Online booking (`/customer/book`) needs no customer account: bookings are placed server-side by the shop account (see Public Homepage → Online booking).
 
 ---
 

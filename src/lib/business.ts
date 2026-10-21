@@ -1,5 +1,6 @@
-// Public facts about the business, copied from the shop's live Setmore page
-// (https://bdiamond.setmore.com). Update here if the shop's details change.
+// Public facts about the business, copied from the shop's former Setmore page.
+// Update here if the shop's details change. Customers are never sent to Setmore;
+// `setmoreUrl` is only read server-side for reviews (src/lib/server/setmore.ts).
 export const BUSINESS = {
   name: 'B Diamond Barbershop',
   shortName: 'B Diamond',
@@ -16,8 +17,6 @@ export const BUSINESS = {
   email: 'bdiamond@bd-bs.com',
   facebookUrl: 'https://www.facebook.com/bdiamondbarbershop',
   setmoreUrl: 'https://bdiamond.setmore.com',
-  setmoreReviewUrl:
-    'https://reviews.setmore.com/v1/accounts/7ad9a56f-9236-4658-aea7-6eeb769d457d/reviews/write-review',
   mapsUrl: 'https://www.google.com/maps/search/?api=1&query=593+King+Street+Fredericton+NB+E3B+1E8',
   currency: 'CAD',
   // Monday-first, as shown on the shop's booking page.

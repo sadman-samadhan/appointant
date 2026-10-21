@@ -5,7 +5,6 @@ import { HomeNav, BookLink } from '@/components/home/HomeNav';
 import { OpenStatus, HoursTable } from '@/components/home/OpenStatus';
 import { ReviewsCarousel, Stars } from '@/components/home/ReviewsCarousel';
 import { BUSINESS, FULL_ADDRESS } from '@/lib/business';
-import { ONLINE_BOOKING_ENABLED } from '@/lib/api/config';
 import { getPublicServices } from '@/lib/server/publicCatalog';
 import { getPublicReviews, getSetmoreServices } from '@/lib/server/setmore';
 
@@ -30,16 +29,15 @@ function formatPrice(price: number) {
   return Number.isInteger(price) ? `$${price}` : `$${price.toFixed(2)}`;
 }
 
-// The menu comes from services the owner has published in the salon system. Until any
-// are published there, the shop's live Setmore menu is shown and booking goes there.
+// The menu comes from services the owner has published in the salon system; until any
+// are, the shop's current menu is shown from its Setmore page (display only). Booking
+// always happens here, on /customer/book.
 async function loadMenu(): Promise<{ items: MenuItem[]; bookHref: string; bookExternal: boolean }> {
   const catalog = await getPublicServices();
   if (catalog.status === 'ok' && catalog.services.length > 0) {
-    // Until customer self-booking is enabled in this app, "Book" goes to the shop's Setmore page.
-    const inApp = ONLINE_BOOKING_ENABLED;
     return {
-      bookHref: inApp ? '/customer/book' : BUSINESS.setmoreUrl,
-      bookExternal: !inApp,
+      bookHref: '/customer/book',
+      bookExternal: false,
       items: catalog.services.map((s) => ({
         key: s.serviceId,
         name: s.name,
@@ -47,16 +45,16 @@ async function loadMenu(): Promise<{ items: MenuItem[]; bookHref: string; bookEx
         price: s.price,
         durationMinutes: s.durationMinutes,
         category: s.category,
-        bookHref: inApp ? `/customer/book?serviceId=${encodeURIComponent(s.serviceId)}` : BUSINESS.setmoreUrl,
-        bookExternal: !inApp,
+        bookHref: `/customer/book?serviceId=${encodeURIComponent(s.serviceId)}`,
+        bookExternal: false,
       })),
     };
   }
 
   const setmore = await getSetmoreServices();
   return {
-    bookHref: BUSINESS.setmoreUrl,
-    bookExternal: true,
+    bookHref: '/customer/book',
+    bookExternal: false,
     items: setmore.map((s) => ({
       key: s.id,
       name: s.name,
@@ -64,8 +62,8 @@ async function loadMenu(): Promise<{ items: MenuItem[]; bookHref: string; bookEx
       price: s.price,
       durationMinutes: s.durationMinutes,
       category: 'Services',
-      bookHref: BUSINESS.setmoreUrl,
-      bookExternal: true,
+      bookHref: '/customer/book',
+      bookExternal: false,
     })),
   };
 }
@@ -272,14 +270,6 @@ export default async function HomePage() {
               <p className="mt-6 max-w-xs text-sm leading-relaxed text-[var(--muted-foreground)]">
                 Recent reviews from Google and verified bookings, shown as written.
               </p>
-              <a
-                href={BUSINESS.setmoreReviewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-8 inline-flex items-center gap-2 text-sm text-[var(--theme-primary)] underline-offset-4 hover:underline"
-              >
-                Been in recently? Leave a review <ArrowRight className="h-4 w-4" />
-              </a>
             </div>
             <div className="min-w-0">
               <ReviewsCarousel reviews={reviewsData.reviews} />

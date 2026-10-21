@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { Badge } from '@/components/ui/Badge';
-import { BUSINESS } from '@/lib/business';
 import { Modal } from '@/components/ui/Modal';
 import { Scissors, Calendar, Clock, Plus, Award, User, CheckCircle2, MapPin, KeyRound, Phone, Mail } from 'lucide-react';
 import { BookingListItemDto } from '@/lib/types';
@@ -253,18 +252,6 @@ export default function CustomerProfilePage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  {b.status === 'COMPLETED' && (
-                    // The salon system has no reviews module; reviews go to the shop's
-                    // Setmore page, which also feeds the homepage reviews carousel.
-                    <a
-                      href={BUSINESS.setmoreReviewUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-[var(--primary-light)] text-[var(--primary)] border border-[var(--primary-ring)] hover:brightness-95 whitespace-nowrap"
-                    >
-                      ★ Leave a review
-                    </a>
-                  )}
                   <div className="text-right">
                     <span className="text-xs font-black text-[var(--foreground)] block">
                       ${formatMoney(b.totalAmount)} {b.currency || 'CAD'}
