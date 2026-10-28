@@ -15,7 +15,6 @@ export function HomeNav({ bookHref, bookExternal }: { bookHref: string; bookExte
   const links = [
     { href: '#services', label: 'Services' },
     { href: '#reviews', label: 'Reviews' },
-    { href: '#visit', label: 'Visit' },
   ];
 
   return (

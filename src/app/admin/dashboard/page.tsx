@@ -1,324 +1,172 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { apiRequest } from '@/lib/api/client';
-import { KPICard } from '@/components/ui/KPICard';
-import { Badge } from '@/components/ui/Badge';
-import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
-import { DEFAULT_TENANT_ID } from '@/lib/api/config';
-import {
-  CalendarDays,
-  DollarSign,
-  Receipt,
-  Plus,
-  Wallet,
-  Scissors,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  UserCheck,
-  RefreshCw,
-  ArrowRight,
-} from 'lucide-react';
-import { BookingListItemDto, StaffResponseDto, InvoiceDto, PaymentResponseDto } from '@/lib/types';
-import { formatMoney, toNumber, toList, todayISO, bookingLocalDate } from '@/lib/format';
+import { Badge } from '@/components/ui/Badge';
+import { formatMoney, todayISO, wallClockTime } from '@/lib/format';
+import { listEntries } from '@/lib/moneyBook';
+import { ACTIVE_STATUSES, ShopBooking, loadBookings } from '@/lib/shopBookings';
+import { ArrowRight, CalendarDays, Footprints, Plus, RefreshCw, TrendingUp, Wallet } from 'lucide-react';
 
-// Booking times are shop wall-clock times; see bookingLocalDate.
-const bookingStart = bookingLocalDate;
+function Tile({ label, value, icon: Icon, tone }: { label: string; value: string; icon: React.ElementType; tone: string }) {
+  return (
+    <div className="glass-card p-5 rounded-2xl border border-[var(--border)] flex items-center gap-4">
+      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${tone}`}>
+        <Icon className="w-6 h-6" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs font-bold text-[var(--muted-foreground)]">{label}</p>
+        <p className="text-2xl font-black text-[var(--foreground)] truncate">{value}</p>
+      </div>
+    </div>
+  );
+}
 
-export default function AdminDashboardPage() {
-  const { showSuccess, showError } = useToast();
-  const { isAdmin, user } = useAuth();
-
-  const [bookings, setBookings] = useState<BookingListItemDto[]>([]);
-  const [staffList, setStaffList] = useState<StaffResponseDto[]>([]);
-  const [invoices, setInvoices] = useState<InvoiceDto[]>([]);
-  const [payments, setPayments] = useState<PaymentResponseDto[]>([]);
+export default function TodayPage() {
+  const { user, isAdmin } = useAuth();
+  const [bookings, setBookings] = useState<ShopBooking[]>([]);
+  const [moneyToday, setMoneyToday] = useState<number | null>(null);
+  const [profitMonth, setProfitMonth] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const fetchDashboardData = useCallback(async () => {
+  const today = todayISO();
+
+  const load = useCallback(async () => {
     setIsLoading(true);
-
+    setError(null);
     try {
-      const bkRes = await apiRequest<any>('/api/v1/bookings');
-      const bList = toList(bkRes, 'bookings');
-      setBookings(
-        bList.map((b: any) => ({
-          bookingId: b.bookingId || b.id,
-          customerName: b.customer?.name || b.customerName || b.customer?.fullName || 'Client',
-          serviceName: b.serviceDetails?.name || b.serviceName || b.service?.name || 'Salon Service',
-          staffName: b.staff?.name || b.staffName || b.staff?.fullName,
-          date: b.date,
-          startTime: b.startTime || b.date,
-          status: b.status || 'SCHEDULED',
-          totalAmount: toNumber(b.totalPrice ?? b.totalAmount ?? b.serviceDetails?.basePrice),
-          currency: b.currency || 'CAD',
-        }))
-      );
-    } catch {
-      setBookings([]);
+      setBookings(await loadBookings());
+    } catch (err: any) {
+      setError(err.message || 'Could not load today’s appointments.');
     }
-
-    try {
-      const stfRes = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
-      const sList = toList(stfRes, 'staff');
-      setStaffList(
-        sList.map((s: any) => ({
-          staffId: s.staffId || s.id,
-          fullName: s.fullName || s.name || 'Specialist',
-          roleTitle: s.roleTitle || s.role || 'Specialist',
-          email: s.email || '',
-          phone: s.phone,
-          employmentType: s.employmentType || 'FULL_TIME',
-          status: s.status || 'ACTIVE',
-        }))
-      );
-    } catch {
-      setStaffList([]);
-    }
-
     if (isAdmin) {
       try {
-        const invRes = await apiRequest<any>('/api/v1/billing/invoices');
-        setInvoices(toList(invRes, 'invoices'));
+        const entries = await listEntries(`${today.slice(0, 8)}01`, today);
+        // Profit is before HST: the HST collected is owed to the CRA.
+        const sum = (list: typeof entries) => list.reduce((s, e) => s + (e.type === 'IN' ? 1 : -1) * (e.amount - e.tax), 0);
+        setMoneyToday(entries.filter((e) => e.date === today && e.type === 'IN').reduce((s, e) => s + e.amount, 0));
+        setProfitMonth(sum(entries));
       } catch {
-        setInvoices([]);
-      }
-
-      try {
-        const payRes = await apiRequest<any>('/api/v1/payments');
-        setPayments(toList(payRes, 'payments'));
-      } catch {
-        setPayments([]);
+        setMoneyToday(null);
+        setProfitMonth(null);
       }
     }
-
     setIsLoading(false);
-  }, [isAdmin]);
+  }, [isAdmin, today]);
 
   useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
+    load();
+  }, [load]);
 
-  const handleStatusUpdate = async (bookingId: string, action: 'confirm' | 'checkin' | 'complete' | 'cancel') => {
-    try {
-      await apiRequest(`/api/v1/bookings/${bookingId}/${action}`, {
-        method: 'POST',
-        body: action === 'cancel' ? JSON.stringify({ reason: 'Admin dashboard trigger' }) : JSON.stringify({}),
-      });
-      showSuccess('Status Updated', `Booking status changed to ${action.toUpperCase()}`);
-      fetchDashboardData();
-    } catch (err: any) {
-      showError('Action Failed', err?.message || `Failed to ${action} booking`);
-    }
-  };
+  const todays = bookings
+    .filter((b) => b.date === today && b.status !== 'CANCELLED')
+    .sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)));
+  const stillToCome = todays.filter((b) => ACTIVE_STATUSES.includes(b.status));
+  const needConfirm = bookings.filter((b) => b.date >= today && ['DRAFT', 'LOCKED', 'SCHEDULED'].includes(b.status)).length;
 
-  // KPI Calculations from Live Backend Data
-  const todayStr = todayISO();
-  const totalRevenue = payments.reduce((sum, p) => sum + toNumber(p.amount), 0);
-  const todayRevenue = payments
-    .filter((p: any) => String(p.paymentDate || p.createdAt || '').startsWith(todayStr))
-    .reduce((sum, p) => sum + toNumber(p.amount), 0);
-
-  // Backend invoice statuses: DRAFT, SENT, PAID, OVERDUE, VOID, CANCELLED, PARTIALLY_PAID
-  const pendingInvoicesCount = invoices.filter((i) =>
-    ['DRAFT', 'SENT', 'OVERDUE', 'PARTIALLY_PAID', 'UNPAID', 'PARTIAL'].includes(String(i.status || '').toUpperCase())
-  ).length;
+  const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight">Dashboard Overview</h1>
-          <p className="text-xs text-[var(--muted-foreground)] mt-0.5 font-medium">
-            Real-time daily metrics & appointment queue for B Diamond Barbershop.
+          <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight">
+            {greeting}{user?.name ? `, ${user.name.split(' ')[0]}` : ''}
+          </h1>
+          <p className="text-sm text-[var(--muted-foreground)]">
+            {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={fetchDashboardData}
-            className="p-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)]"
-            title="Refresh Data"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <Link
-            href="/admin/appointments"
-            className="btn-primary px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New Booking</span>
+        <button onClick={load} title="Refresh" className="p-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border)] text-[var(--foreground)]">
+          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+
+      {/* Big actions */}
+      <div className="grid grid-cols-2 gap-3">
+        <Link href="/admin/appointments?new=booking" className="btn-primary p-5 rounded-2xl flex flex-col items-start gap-2 shadow-md">
+          <Plus className="w-7 h-7" />
+          <span className="text-base font-black">New booking</span>
+        </Link>
+        <Link href="/admin/appointments?new=walkin" className="p-5 rounded-2xl flex flex-col items-start gap-2 shadow-md bg-emerald-600 hover:bg-emerald-700 text-white">
+          <Footprints className="w-7 h-7" />
+          <span className="text-base font-black">Walk-in</span>
+        </Link>
+      </div>
+
+      {needConfirm > 0 && (
+        <Link
+          href="/admin/appointments"
+          className="flex items-center justify-between gap-3 p-4 rounded-2xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300"
+        >
+          <span className="text-sm font-bold">
+            {needConfirm} new online {needConfirm === 1 ? 'booking needs' : 'bookings need'} confirming
+          </span>
+          <ArrowRight className="w-4 h-4 shrink-0" />
+        </Link>
+      )}
+
+      {/* Numbers */}
+      <div className={`grid grid-cols-1 gap-3 ${isAdmin ? 'sm:grid-cols-3' : ''}`}>
+        <Tile label="Appointments today" value={String(todays.length)} icon={CalendarDays} tone="bg-[var(--primary-light)] text-[var(--primary)]" />
+        {isAdmin && (
+          <>
+            <Tile
+              label="Money in today"
+              value={moneyToday === null ? '—' : `$${formatMoney(moneyToday)}`}
+              icon={Wallet}
+              tone="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40"
+            />
+            <Tile
+              label="Profit this month"
+              value={profitMonth === null ? '—' : `${profitMonth < 0 ? '-' : ''}$${formatMoney(Math.abs(profitMonth))}`}
+              icon={TrendingUp}
+              tone="bg-blue-50 text-blue-600 dark:bg-blue-950/40"
+            />
+          </>
+        )}
+      </div>
+
+      {/* Today's list */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-extrabold text-[var(--foreground)]">Today’s appointments</h2>
+          <Link href="/admin/appointments" className="text-xs font-bold text-[var(--primary)] flex items-center gap-1">
+            Open list <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
-      </div>
-
-      {/* KPI Stat Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <KPICard
-          label="Total Revenue Recorded"
-          value={`$${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CAD`}
-          sub="100% Cash Entry (Phase 1)"
-          icon={DollarSign}
-          accentColor="text-emerald-600 dark:text-emerald-400"
-          iconBgColor="bg-emerald-50 dark:bg-emerald-950/40"
-        />
-
-        <KPICard
-          label="Total Appointments"
-          value={bookings.length}
-          sub="Appointments on ledger"
-          icon={CalendarDays}
-          accentColor="text-[var(--primary)]"
-          iconBgColor="bg-[var(--primary-light)]"
-        />
-
-        <KPICard
-          label="Pending Invoices"
-          value={pendingInvoicesCount}
-          sub="Awaiting cash settlement"
-          icon={Receipt}
-          accentColor="text-amber-600 dark:text-amber-400"
-          iconBgColor="bg-amber-50 dark:bg-amber-950/40"
-        />
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Today's Appointments List */}
-        <div className="lg:col-span-2 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-extrabold text-[var(--foreground)]">Today&apos;s Appointments</h2>
-            <Link
-              href="/admin/appointments"
-              className="text-xs font-bold text-[var(--primary)] hover:underline flex items-center gap-1"
-            >
-              <span>View Full Calendar</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          <div className="glass-card rounded-2xl overflow-hidden divide-y divide-[var(--border)] border border-[var(--border)]">
-            {isLoading ? (
-              <div className="p-8 text-center text-xs text-[var(--muted-foreground)]">Loading appointments...</div>
-            ) : bookings.length === 0 ? (
-              <div className="p-8 text-center space-y-2">
-                <CalendarDays className="w-8 h-8 text-[var(--muted-foreground)] mx-auto opacity-50" />
-                <p className="text-xs font-bold text-[var(--foreground)]">No appointments scheduled</p>
-                <p className="text-[11px] text-[var(--muted-foreground)]">New customer bookings will appear here in real-time.</p>
-              </div>
-            ) : (
-              bookings.slice(0, 6).map((apt) => (
-                <div
-                  key={apt.bookingId}
-                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--muted)]/50 transition-colors"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center shrink-0 border border-[var(--primary-ring)]">
-                      <Scissors className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-black text-[var(--foreground)]">{apt.customerName}</h3>
-                      <p className="text-xs font-semibold text-[var(--primary)]">{apt.serviceName}</p>
-                      <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--muted-foreground)] font-medium">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-[var(--muted-foreground)]" />
-                          {bookingStart(apt)?.toLocaleString([], { hour: '2-digit', minute: '2-digit' }) || '—'}
-                        </span>
-                        <span>· Specialist: {apt.staffName || 'Any Specialist'}</span>
+        <div className="glass-card rounded-2xl overflow-hidden border border-[var(--border)]">
+          {isLoading && bookings.length === 0 ? (
+            <p className="p-8 text-center text-xs text-[var(--muted-foreground)]">Loading…</p>
+          ) : error ? (
+            <p className="p-8 text-center text-sm font-bold text-rose-600">{error}</p>
+          ) : todays.length === 0 ? (
+            <p className="p-8 text-center text-sm text-[var(--muted-foreground)]">No appointments today.</p>
+          ) : (
+            <ul className="divide-y divide-[var(--border)]">
+              {todays.map((b) => (
+                <li key={b.bookingId}>
+                  <Link href="/admin/appointments" className="p-4 flex items-center justify-between gap-3 hover:bg-[var(--muted)]/50">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="w-16 shrink-0 text-center text-sm font-black text-[var(--primary)]">{wallClockTime(b.startTime)}</span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-[var(--foreground)] truncate">{b.customerName}</p>
+                        <p className="text-xs text-[var(--muted-foreground)] truncate">{b.serviceName}</p>
                       </div>
                     </div>
-                  </div>
-
-                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--border)]">
-                    <div className="text-right">
-                      <span className="text-sm font-black text-[var(--foreground)] block">
-                        ${formatMoney(apt.totalAmount)} {apt.currency || 'CAD'}
-                      </span>
-                      <Badge variant={apt.status} />
-                    </div>
-
-                    {/* Quick Action Triggers */}
-                    <div className="flex items-center gap-1">
-                      {apt.status === 'SCHEDULED' && (
-                        <button
-                          onClick={() => handleStatusUpdate(apt.bookingId, 'confirm')}
-                          className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50"
-                          title="Confirm Booking"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                        </button>
-                      )}
-
-                      {(apt.status === 'CONFIRMED' || apt.status === 'SCHEDULED') && (
-                        <button
-                          onClick={() => handleStatusUpdate(apt.bookingId, 'checkin')}
-                          className="p-1.5 rounded-lg text-purple-600 hover:bg-purple-50"
-                          title="Check In Customer"
-                        >
-                          <UserCheck className="w-4 h-4" />
-                        </button>
-                      )}
-
-                      {apt.status === 'CHECKED_IN' && (
-                        <button
-                          onClick={() => handleStatusUpdate(apt.bookingId, 'complete')}
-                          className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50"
-                          title="Complete Appointment"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                        </button>
-                      )}
-
-                      {apt.status !== 'COMPLETED' && apt.status !== 'CANCELLED' && (
-                        <button
-                          onClick={() => handleStatusUpdate(apt.bookingId, 'cancel')}
-                          className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50"
-                          title="Cancel Appointment"
-                        >
-                          <XCircle className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+                    <Badge variant={b.status} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-
-        {/* Side Cash Register Overview */}
-        <div className="space-y-4">
-          <h2 className="text-base font-extrabold text-[var(--foreground)]">Cash Terminal Summary</h2>
-
-          <div className="glass-card p-5 rounded-2xl space-y-4 border-l-4 border-l-emerald-600 border border-[var(--border)]">
-            <div className="flex items-center gap-2 text-sm font-bold text-[var(--foreground)]">
-              <Wallet className="w-5 h-5 text-emerald-600" />
-              <span>Phase 1 Cash Register</span>
-            </div>
-            <p className="text-xs text-[var(--muted-foreground)] leading-relaxed font-medium">
-              In-person cash settlement interface. Recorded payments post directly to General Ledger accounts.
-            </p>
-            <div className="p-4 rounded-xl bg-[var(--muted)] space-y-1">
-              <span className="text-[10px] uppercase tracking-wider font-extrabold text-[var(--muted-foreground)] block">
-                Total Cash Receipts Today
-              </span>
-              <span className="text-2xl font-black text-emerald-600 block">
-                ${formatMoney(todayRevenue)} CAD
-              </span>
-            </div>
-            <Link
-              href="/admin/invoices"
-              className="w-full py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] border border-[var(--border)] transition-colors flex items-center justify-center gap-1.5"
-            >
-              <Receipt className="w-4 h-4 text-[var(--primary)]" />
-              <span>Go to Invoices Ledger</span>
-            </Link>
-          </div>
-        </div>
-      </div>
+        {stillToCome.length > 0 && (
+          <p className="text-xs text-[var(--muted-foreground)]">{stillToCome.length} still to finish today.</p>
+        )}
+      </section>
     </div>
   );
 }

@@ -70,7 +70,7 @@ export default function AdminStaffPage() {
   const [systemRole, setSystemRole] = useState<'STAFF' | 'ADMIN'>('STAFF');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('+1 (506) 883-2222');
+  const [phone, setPhone] = useState('');
   const [roleTitle, setRoleTitle] = useState('Barber Specialist');
   const [employmentType, setEmploymentType] = useState<'FULL_TIME' | 'PART_TIME' | 'CONTRACT'>('FULL_TIME');
   const [createLoginUser, setCreateLoginUser] = useState(false);
@@ -460,7 +460,7 @@ export default function AdminStaffPage() {
     setSystemRole(role);
     setFullName('');
     setEmail('');
-    setPhone('+1 (506) 883-2222');
+    setPhone('');
     setRoleTitle(role === 'ADMIN' ? 'Store Administrator' : 'Barber Specialist');
     setCreateLoginUser(role === 'ADMIN');
     setShowAddModal(true);

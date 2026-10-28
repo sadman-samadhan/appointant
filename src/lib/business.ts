@@ -12,13 +12,18 @@ export const BUSINESS = {
     region: 'New Brunswick',
     postalCode: 'E3B 1E8',
   },
-  phone: '+15068832222',
-  phoneDisplay: '(506) 883-2222',
+  phone: '+15062307560',
+  phoneDisplay: '(506) 230-7560',
   email: 'bdiamond@bd-bs.com',
   facebookUrl: 'https://www.facebook.com/bdiamondbarbershop',
   setmoreUrl: 'https://bdiamond.setmore.com',
   mapsUrl: 'https://www.google.com/maps/search/?api=1&query=593+King+Street+Fredericton+NB+E3B+1E8',
   currency: 'CAD',
+  // Sales tax added to every appointment when it is confirmed (New Brunswick HST).
+  taxRate: 0.15,
+  taxLabel: 'HST',
+  // GST/HST registration number (e.g. 123456789 RT0001), printed on the accountant report.
+  hstNumber: '',
   // Monday-first, as shown on the shop's booking page.
   hours: [
     { day: 'Monday', open: '9:00 AM', close: '7:00 PM' },

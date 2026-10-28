@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
     if (err instanceof AgentError && err.status === 400) {
       return NextResponse.json({ message: err.message }, { status: 400 });
     }
+    console.error('[booking-slots] failed', err instanceof Error ? err.message : err);
     return NextResponse.json({ message: 'Could not load available times. Please try again.' }, { status: 502 });
   }
 }

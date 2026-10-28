@@ -6,6 +6,9 @@ import { ArrowLeft, ArrowRight, Calendar, CheckCircle2, Clock, Phone, Scissors }
 import { useAuth } from '@/context/AuthContext';
 import { BUSINESS } from '@/lib/business';
 import { formatMoney, wallClockTime } from '@/lib/format';
+import { getStoredToken, refreshAuthToken } from '@/lib/api/client';
+import { openingHours } from '@/lib/slots';
+import { formatPhone, formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
 
 interface Service {
   serviceId: string;
@@ -37,15 +40,28 @@ function firstLine(text: string) {
   return line.length > 120 ? `${line.slice(0, 117)}…` : line;
 }
 
+// Sends the signed-in customer's token (when there is one) so bookings are linked to their account.
 async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) } });
+  const send = () => {
+    const token = getStoredToken();
+    return fetch(url, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers || {}),
+      },
+    });
+  };
+  let res = await send();
+  if (res.status === 401 && getStoredToken() && (await refreshAuthToken())) res = await send();
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || 'Something went wrong. Please try again.');
   return data as T;
 }
 
 export default function BookPage() {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
 
   const [services, setServices] = useState<Service[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -70,14 +86,18 @@ export default function BookPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
 
-  // Prefill from a signed-in account
+  // Prefill from a signed-in account (name and phone as the shop has them on file)
   useEffect(() => {
-    if (!user) return;
+    if (!user || !isAuthenticated) return;
     if (user.name) setName((v) => v || user.name);
-    const p = user.phone || user.mobile;
-    if (p) setPhone((v) => v || p);
     if (user.email) setEmail((v) => v || user.email || '');
-  }, [user]);
+    getJson<{ name?: string; phone?: string }>('/api/account/details')
+      .then((d) => {
+        if (d.name) setName(d.name);
+        if (d.phone) setPhone((v) => v || formatPhone(d.phone));
+      })
+      .catch(() => {});
+  }, [user, isAuthenticated]);
 
   useEffect(() => {
     getJson<{ services: Service[]; today?: string }>('/api/public/booking/services')
@@ -125,17 +145,27 @@ export default function BookPage() {
     const d = new Date(y, m - 1, dd);
     const out: string[] = [];
     for (let i = 0; i < 14; i++) {
-      out.push(localISO(d));
+      // Skip days the shop is closed.
+      if (openingHours(localISO(d))) out.push(localISO(d));
       d.setDate(d.getDate() + 1);
     }
     return out;
   }, [shopToday]);
+
+  // Start on the first open day (e.g. on a Sunday, Monday).
+  useEffect(() => {
+    if (days.length > 0 && !days.includes(date)) setDate(days[0]);
+  }, [days, date]);
 
   const categories = useMemo(() => Array.from(new Set(services.map((s) => s.category))), [services]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!service || !time) return;
+    if (!isValidPhone(phone)) {
+      setSubmitError(PHONE_ERROR);
+      return;
+    }
     setIsSubmitting(true);
     setSubmitError(null);
     try {
@@ -180,9 +210,15 @@ export default function BookPage() {
           </a>
           .
         </p>
-        <Link href="/" className="btn-primary inline-flex px-6 py-2.5 rounded-xl text-xs font-bold">
-          Back to home
-        </Link>
+        {isAuthenticated ? (
+          <Link href="/customer/profile" className="btn-primary inline-flex px-6 py-2.5 rounded-xl text-xs font-bold">
+            Back to account
+          </Link>
+        ) : (
+          <Link href="/" className="btn-primary inline-flex px-6 py-2.5 rounded-xl text-xs font-bold">
+            Back to home
+          </Link>
+        )}
       </div>
     );
   }
@@ -386,13 +422,19 @@ export default function BookPage() {
               <input
                 required
                 type="tel"
+                inputMode="numeric"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                autoComplete="tel"
-                placeholder="(506) 555-1234"
-                minLength={1}
-                className="w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)]"
+                onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                autoComplete="tel-national"
+                placeholder={PHONE_PLACEHOLDER}
+                aria-invalid={phone.length > 0 && !isValidPhone(phone)}
+                className={`w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border text-sm text-[var(--foreground)] ${
+                  phone.length >= 14 && !isValidPhone(phone) ? 'border-rose-500' : 'border-[var(--border-strong)]'
+                }`}
               />
+              {phone.length >= 14 && !isValidPhone(phone) && (
+                <p className="text-[11px] text-rose-600 mt-1">{PHONE_ERROR}</p>
+              )}
             </div>
           </div>
           <div>

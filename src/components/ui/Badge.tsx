@@ -14,6 +14,18 @@ export type BadgeVariant =
   | 'PARTIAL'
   | 'VOID';
 
+// Plain words for booking states; anything else is shown as-is.
+export const STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Booked',
+  LOCKED: 'Booked',
+  SCHEDULED: 'Booked',
+  CONFIRMED: 'Confirmed',
+  CHECKED_IN: 'Arrived',
+  COMPLETED: 'Done',
+  CANCELLED: 'Cancelled',
+  NO_SHOW: 'No-show',
+};
+
 interface BadgeProps {
   variant: BadgeVariant | string;
   size?: 'sm' | 'md';
@@ -44,7 +56,7 @@ export function Badge({ variant, size = 'sm' }: BadgeProps) {
 
   return (
     <span className={`inline-flex items-center font-bold rounded-full border ${currentStyle} ${sizeStyle}`}>
-      {normalized}
+      {STATUS_LABELS[normalized] || normalized}
     </span>
   );
 }

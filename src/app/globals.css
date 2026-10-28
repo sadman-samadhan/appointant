@@ -179,3 +179,21 @@ body {
 .home-theme .contact-row:hover {
   color: var(--foreground);
 }
+
+/* Printing (e.g. the accountant report): plain black on white, no app chrome. */
+@media print {
+  @page {
+    margin: 14mm;
+  }
+  body,
+  .glass-card {
+    background: #fff !important;
+    color: #000 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+  main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+}

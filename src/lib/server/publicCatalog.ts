@@ -4,7 +4,8 @@ import { servicePrice, serviceDuration, toList } from '@/lib/format';
 
 // The Core Backend has no anonymous endpoints, so the public service menu is read
 // server-side with a dedicated catalog account. Its credentials live only in server
-// env vars (CATALOG_USERID / CATALOG_PASSWORD) and never reach the browser; only a
+// env vars (CATALOG_USERID / CATALOG_PASSWORD, falling back to the online-booking account
+// BOOKING_AGENT_USERID / BOOKING_AGENT_PASSWORD) and never reach the browser; only a
 // whitelisted subset of fields is returned.
 const AUTH_BACKEND = process.env.AUTH_BACKEND_URL || 'http://3.6.123.11:3302';
 const CORE_BACKEND = process.env.CORE_BACKEND_URL || 'http://3.6.123.11:3301';
@@ -28,8 +29,8 @@ export type CatalogResult =
 let cachedToken: { value: string; expiresAt: number } | null = null;
 
 async function getCatalogToken(forceNew = false): Promise<string | null> {
-  const userid = process.env.CATALOG_USERID;
-  const password = process.env.CATALOG_PASSWORD;
+  const userid = process.env.CATALOG_USERID || process.env.BOOKING_AGENT_USERID;
+  const password = process.env.CATALOG_PASSWORD || process.env.BOOKING_AGENT_PASSWORD;
   if (!userid || !password) return null;
   if (!forceNew && cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.value;
 

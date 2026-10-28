@@ -3,38 +3,52 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  LayoutDashboard,
-  Calendar,
-  Scissors,
-  Users,
-  Receipt,
-  BookOpen,
-  DollarSign,
-  Briefcase,
-  UserCheck,
-  ExternalLink,
-} from 'lucide-react';
+import { LayoutDashboard, Calendar, Scissors, Wallet, UserCheck, Settings, ExternalLink } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 
-const navItems = [
-  { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+// Kept short on purpose: the barber only needs these. Older pages (staff, payroll, invoices,
+// expenses) still exist at their URLs but are left out of the menu; Accounting covers money.
+export const navItems = [
+  { label: 'Today', href: '/admin/dashboard', icon: LayoutDashboard },
   { label: 'Appointments', href: '/admin/appointments', icon: Calendar },
+  { label: 'Accounting', href: '/admin/accounting', icon: Wallet, adminOnly: true },
+  { label: 'Customers', href: '/admin/customers', icon: UserCheck },
   { label: 'Services', href: '/admin/services', icon: Scissors },
-  { label: 'Staff & Shifts', href: '/admin/staff', icon: Users },
-  { label: 'Payments', href: '/admin/invoices', icon: Receipt },
-  { label: 'Money Book', href: '/admin/accounting', icon: BookOpen, adminOnly: true },
-  { label: 'Expenses', href: '/admin/expenses', icon: DollarSign, adminOnly: true },
-  { label: 'Payroll', href: '/admin/payroll', icon: Briefcase, adminOnly: true },
-  { label: 'Customer', href: '/admin/customers', icon: UserCheck },
+  { label: 'Settings', href: '/admin/settings', icon: Settings, adminOnly: true },
 ];
 
 // Pages only the owner/administrator may open (enforced in the admin layout too).
 export const ADMIN_ONLY_ROUTES = [
   ...navItems.filter((item) => item.adminOnly).map((item) => item.href),
-  '/admin/settings',
+  '/admin/expenses',
+  '/admin/payroll',
 ];
+
+/** Bottom tab bar for phones (the sidebar only shows on large screens). */
+export function MobileNav() {
+  const pathname = usePathname();
+  const { isAdmin } = useAuth();
+  const items = navItems.filter((item) => (!item.adminOnly || isAdmin) && item.href !== '/admin/settings');
+  return (
+    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--card)] border-t border-[var(--border)] grid pb-[env(safe-area-inset-bottom)]" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+      {items.map((item) => {
+        const active = pathname === item.href || pathname?.startsWith(`${item.href}/`);
+        const Icon = item.icon;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`flex flex-col items-center gap-0.5 py-2 text-[10px] font-bold ${active ? 'text-[var(--primary)]' : 'text-[var(--muted-foreground)]'}`}
+          >
+            <Icon className="w-5 h-5" />
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -64,7 +78,7 @@ export function Sidebar() {
               {settings.siteName}
             </h2>
             <span className="text-[10px] font-semibold text-[var(--muted-foreground)] block">
-              Fredericton OS
+              Shop manager
             </span>
           </div>
         </div>

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import Link from 'next/link';
 import { Modal } from '@/components/ui/Modal';
 import { KPICard } from '@/components/ui/KPICard';
 import { useToast } from '@/context/ToastContext';
@@ -9,22 +10,27 @@ import {
   MoneyEntry,
   EntryType,
   PaidWith,
-  INCOME_CATEGORIES,
-  EXPENSE_CATEGORIES,
+  Category,
   addEntry,
+  defaultIncludesHst,
+  hstIncluded,
+  listCategories,
   listEntries,
+  rememberIncludesHst,
   removeEntry,
 } from '@/lib/moneyBook';
+import { BUSINESS } from '@/lib/business';
 import {
   ArrowDownCircle,
   ArrowUpCircle,
   ChevronLeft,
   ChevronRight,
+  FileText,
   PiggyBank,
+  Tags,
   RefreshCw,
   Trash2,
   Wallet,
-  BookOpen,
 } from 'lucide-react';
 
 function monthBounds(year: number, month: number) {
@@ -53,7 +59,12 @@ export default function MoneyBookPage() {
   const [entryType, setEntryType] = useState<EntryType>('IN');
   const [amount, setAmount] = useState('');
   const [entryDate, setEntryDate] = useState(todayISO());
-  const [category, setCategory] = useState(INCOME_CATEGORIES[0]);
+  const [allCategories, setAllCategories] = useState<Category[]>([]);
+  const [categoryId, setCategoryId] = useState('');
+  const categoryIdRef = useRef('');
+  categoryIdRef.current = categoryId;
+  const [subId, setSubId] = useState('');
+  const [includesHst, setIncludesHst] = useState(true);
   const [note, setNote] = useState('');
   const [paidWith, setPaidWith] = useState<PaidWith>('CASH');
   const [isSaving, setIsSaving] = useState(false);
@@ -78,10 +89,19 @@ export default function MoneyBookPage() {
     loadEntries();
   }, [loadEntries]);
 
+  useEffect(() => {
+    listCategories().then(setAllCategories).catch(() => {});
+  }, []);
+
+  // Income and expenses are shown before HST: the HST collected belongs to the CRA.
   const totals = useMemo(() => {
-    const moneyIn = entries.filter((e) => e.type === 'IN').reduce((s, e) => s + e.amount, 0);
-    const moneyOut = entries.filter((e) => e.type === 'OUT').reduce((s, e) => s + e.amount, 0);
-    return { moneyIn, moneyOut, profit: moneyIn - moneyOut };
+    const sum = (type: EntryType, f: (e: MoneyEntry) => number) =>
+      entries.filter((e) => e.type === type).reduce((s, e) => s + f(e), 0);
+    const income = sum('IN', (e) => e.amount - e.tax);
+    const expenses = sum('OUT', (e) => e.amount - e.tax);
+    const hstCollected = sum('IN', (e) => e.tax);
+    const hstPaid = sum('OUT', (e) => e.tax);
+    return { income, expenses, profit: income - expenses, hstCollected, hstPaid };
   }, [entries]);
 
   const byCategory = useMemo(() => {
@@ -89,11 +109,12 @@ export default function MoneyBookPage() {
     for (const e of entries) {
       const key = `${e.type}:${e.category}`;
       const cur = map.get(key) || { type: e.type, total: 0 };
-      cur.total += e.amount;
+      cur.total += e.amount - e.tax;
       map.set(key, cur);
     }
     return Array.from(map.entries())
       .map(([key, v]) => ({ category: key.split(':').slice(1).join(':'), ...v }))
+      .filter((c) => Math.abs(c.total) >= 0.005)
       .sort((a, b) => b.total - a.total);
   }, [entries]);
 
@@ -105,9 +126,27 @@ export default function MoneyBookPage() {
     setMonth(d.getMonth());
   };
 
-  const openModal = (type: EntryType) => {
+  const chooseCategory = (c: Category | undefined) => {
+    setCategoryId(c?.id || '');
+    setSubId('');
+    setIncludesHst(c ? defaultIncludesHst(c) : true);
+  };
+
+  const chooseType = (type: EntryType, list = allCategories) => {
     setEntryType(type);
-    setCategory(type === 'IN' ? INCOME_CATEGORIES[0] : EXPENSE_CATEGORIES[0]);
+    chooseCategory(list.find((c) => c.type === type));
+  };
+
+  const openModal = async (type: EntryType) => {
+    chooseType(type);
+    // Categories can be changed on the Categories page, so always show the current list.
+    listCategories()
+      .then((list) => {
+        setAllCategories(list);
+        // Keep what the owner already picked while the list was loading, if it still exists.
+        if (!list.some((c) => c.id === categoryIdRef.current && c.type === type)) chooseType(type, list);
+      })
+      .catch((err) => showError('Could Not Load Categories', err.message || 'Please try again.'));
     setAmount('');
     setNote('');
     setEntryDate(todayISO());
@@ -118,16 +157,30 @@ export default function MoneyBookPage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const value = parseFloat(amount);
+    if (!selectedCategory) {
+      showError('Category Required', 'Pick what it was for.');
+      return;
+    }
     if (!(value > 0)) {
       showError('Amount Required', 'Enter an amount greater than zero.');
       return;
     }
     setIsSaving(true);
     try {
-      await addEntry({ type: entryType, amount: value, date: entryDate, category, note, paidWith });
+      await addEntry({
+        type: entryType,
+        amount: value,
+        tax: includesHst ? hstIncluded(value) : 0,
+        date: entryDate,
+        category: selectedCategory,
+        sub: selectedSub,
+        note,
+        paidWith,
+      });
+      rememberIncludesHst(selectedCategory.id, includesHst);
       showSuccess(
-        entryType === 'IN' ? 'Money In Saved' : 'Money Out Saved',
-        `$${formatMoney(value)} CAD · ${category}`
+        entryType === 'IN' ? 'Income Saved' : 'Expense Saved',
+        `$${formatMoney(value)} CAD · ${selectedSub?.name || selectedCategory.name}`
       );
       setShowModal(false);
       loadEntries();
@@ -139,7 +192,7 @@ export default function MoneyBookPage() {
   };
 
   const handleRemove = async (entry: MoneyEntry) => {
-    if (!confirm(`Remove this ${entry.type === 'IN' ? 'money in' : 'money out'} entry of $${formatMoney(entry.amount)}?`)) return;
+    if (!confirm(`Remove this ${entry.type === 'IN' ? 'income' : 'expense'} entry of $${formatMoney(entry.amount)}?`)) return;
     setRemovingId(entry.id);
     try {
       await removeEntry(entry.id);
@@ -152,7 +205,12 @@ export default function MoneyBookPage() {
     }
   };
 
-  const categories = entryType === 'IN' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const categories = allCategories.filter((c) => c.type === entryType);
+  const selectedCategory = categories.find((c) => c.id === categoryId);
+  const selectedSub = selectedCategory?.subs.find((s) => s.id === subId) || null;
+  const subs = selectedCategory?.subs || [];
+  const amountValue = parseFloat(amount) || 0;
+  const hstOwed = totals.hstCollected - totals.hstPaid;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -160,27 +218,41 @@ export default function MoneyBookPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight flex items-center gap-2">
-            <BookOpen className="w-6 h-6 text-[var(--primary)]" />
-            Money Book
+            <Wallet className="w-6 h-6 text-[var(--primary)]" />
+            Accounting
           </h1>
           <p className="text-xs text-[var(--muted-foreground)] mt-0.5 font-medium">
-            Write down money coming in and going out. We keep the accounting behind the scenes.
+            Money from appointments is added automatically. Add other income and expenses yourself.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/admin/accounting/categories"
+            className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] border border-[var(--border)] text-[var(--foreground)] flex items-center gap-1.5"
+          >
+            <Tags className="w-4 h-4" />
+            <span>Categories</span>
+          </Link>
+          <Link
+            href="/admin/accounting/report"
+            className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] border border-[var(--border)] text-[var(--foreground)] flex items-center gap-1.5"
+          >
+            <FileText className="w-4 h-4" />
+            <span>Report for accountant</span>
+          </Link>
           <button
             onClick={() => openModal('IN')}
             className="px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
           >
             <ArrowDownCircle className="w-4 h-4" />
-            <span>Money In</span>
+            <span>Add income</span>
           </button>
           <button
             onClick={() => openModal('OUT')}
             className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
           >
             <ArrowUpCircle className="w-4 h-4" />
-            <span>Money Out</span>
+            <span>Add expense</span>
           </button>
         </div>
       </div>
@@ -216,17 +288,17 @@ export default function MoneyBookPage() {
       {/* Totals */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KPICard
-          label="Money In"
-          value={`$${formatMoney(totals.moneyIn)}`}
-          sub="Income this month"
+          label="Income"
+          value={`$${formatMoney(totals.income)}`}
+          sub="This month, before HST"
           icon={ArrowDownCircle}
           accentColor="text-emerald-600"
           iconBgColor="bg-emerald-50 dark:bg-emerald-950/40"
         />
         <KPICard
-          label="Money Out"
-          value={`$${formatMoney(totals.moneyOut)}`}
-          sub="Spending this month"
+          label="Expenses"
+          value={`$${formatMoney(totals.expenses)}`}
+          sub="This month, before HST"
           icon={ArrowUpCircle}
           accentColor="text-rose-600"
           iconBgColor="bg-rose-50 dark:bg-rose-950/40"
@@ -234,12 +306,22 @@ export default function MoneyBookPage() {
         <KPICard
           label={totals.profit >= 0 ? 'Profit' : 'Loss'}
           value={`${totals.profit < 0 ? '-' : ''}$${formatMoney(Math.abs(totals.profit))}`}
-          sub="Money in minus money out"
+          sub="Income minus expenses"
           icon={PiggyBank}
           accentColor={totals.profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}
           iconBgColor={totals.profit >= 0 ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'bg-rose-50 dark:bg-rose-950/40'}
         />
       </div>
+
+      {(totals.hstCollected > 0 || totals.hstPaid > 0) && (
+        <p className="text-xs text-[var(--muted-foreground)] -mt-2">
+          {BUSINESS.taxLabel} collected ${formatMoney(totals.hstCollected)} · {BUSINESS.taxLabel} paid on expenses $
+          {formatMoney(totals.hstPaid)} ·{' '}
+          <strong className="text-[var(--foreground)]">
+            {hstOwed >= 0 ? `Owed to the CRA: $${formatMoney(hstOwed)}` : `Refund from the CRA: $${formatMoney(-hstOwed)}`}
+          </strong>
+        </p>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Entries list */}
@@ -257,7 +339,7 @@ export default function MoneyBookPage() {
                       : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
                   }`}
                 >
-                  {f === 'ALL' ? 'All' : f === 'IN' ? 'Money In' : 'Money Out'}
+                  {f === 'ALL' ? 'All' : f === 'IN' ? 'Income' : 'Expenses'}
                 </button>
               ))}
             </div>
@@ -277,7 +359,7 @@ export default function MoneyBookPage() {
               <Wallet className="w-10 h-10 text-[var(--muted-foreground)] mx-auto opacity-40" />
               <h3 className="text-sm font-bold text-[var(--foreground)]">Nothing written down for {period.label}</h3>
               <p className="text-xs text-[var(--muted-foreground)]">
-                Use <strong>Money In</strong> when you get paid and <strong>Money Out</strong> when you pay for something.
+                Use <strong>Add income</strong> when you get paid and <strong>Add expense</strong> when you pay for something.
               </p>
             </div>
           ) : (
@@ -295,20 +377,25 @@ export default function MoneyBookPage() {
                       {entry.type === 'IN' ? <ArrowDownCircle className="w-4 h-4" /> : <ArrowUpCircle className="w-4 h-4" />}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-xs font-black text-[var(--foreground)]">{entry.category}</p>
+                      <p className="text-xs font-black text-[var(--foreground)]">
+                        {entry.category}
+                        {entry.subcategory ? ` · ${entry.subcategory}` : ''}
+                      </p>
                       <p className="text-[11px] text-[var(--muted-foreground)] truncate">
-                        {entry.date} · {entry.paidWith === 'BANK' ? 'Bank' : 'Cash'}
+                        {entry.date}
+                        {entry.fromAppointment ? '' : ` · ${entry.paidWith === 'BANK' ? 'Bank' : 'Cash'}`}
                         {entry.note ? ` · ${entry.note}` : ''}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`text-sm font-black ${entry.type === 'IN' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {entry.type === 'IN' ? '+' : '-'}${formatMoney(entry.amount)}
+                      {entry.type === 'IN' && entry.amount >= 0 ? '+' : '-'}${formatMoney(Math.abs(entry.amount))}
                     </span>
                     <button
                       onClick={() => handleRemove(entry)}
                       disabled={removingId === entry.id}
+                      hidden={entry.fromAppointment}
                       className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 disabled:opacity-40"
                       title="Remove entry"
                     >
@@ -323,7 +410,7 @@ export default function MoneyBookPage() {
 
         {/* Category breakdown */}
         <div className="glass-card rounded-2xl border border-[var(--border)] p-4 space-y-3 h-fit">
-          <h2 className="text-sm font-black text-[var(--foreground)]">Where the money went</h2>
+          <h2 className="text-sm font-black text-[var(--foreground)]">By category (before HST)</h2>
           {byCategory.length === 0 ? (
             <p className="text-xs text-[var(--muted-foreground)]">No entries yet this month.</p>
           ) : (
@@ -344,7 +431,7 @@ export default function MoneyBookPage() {
       <Modal
         isOpen={showModal}
         onClose={() => setShowModal(false)}
-        title={entryType === 'IN' ? 'Money In' : 'Money Out'}
+        title={entryType === 'IN' ? 'Add income' : 'Add expense'}
         maxWidth="sm"
       >
         <form onSubmit={handleSave} className="space-y-4">
@@ -353,10 +440,7 @@ export default function MoneyBookPage() {
               <button
                 key={t}
                 type="button"
-                onClick={() => {
-                  setEntryType(t);
-                  setCategory(t === 'IN' ? INCOME_CATEGORIES[0] : EXPENSE_CATEGORIES[0]);
-                }}
+                onClick={() => chooseType(t)}
                 className={`py-2 rounded-xl text-xs font-bold border transition-colors ${
                   entryType === t
                     ? t === 'IN'
@@ -365,13 +449,15 @@ export default function MoneyBookPage() {
                     : 'bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]'
                 }`}
               >
-                {t === 'IN' ? 'Money In' : 'Money Out'}
+                {t === 'IN' ? 'Income' : 'Expense'}
               </button>
             ))}
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Amount (CAD $)</label>
+            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">
+              {entryType === 'IN' ? 'Amount received (CAD $)' : 'Amount paid (CAD $)'}
+            </label>
             <input
               type="number"
               inputMode="decimal"
@@ -391,22 +477,63 @@ export default function MoneyBookPage() {
               {entryType === 'IN' ? 'What was it for?' : 'What did you pay for?'}
             </label>
             <div className="flex flex-wrap gap-1.5">
+              {categories.length === 0 && <p className="text-xs text-[var(--muted-foreground)]">Loading categories…</p>}
               {categories.map((c) => (
                 <button
-                  key={c}
+                  key={c.id}
                   type="button"
-                  onClick={() => setCategory(c)}
+                  onClick={() => chooseCategory(c)}
                   className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors ${
-                    category === c
+                    categoryId === c.id
                       ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
                       : 'bg-[var(--muted)] text-[var(--foreground)] border-[var(--border)]'
                   }`}
                 >
-                  {c}
+                  {c.name}
                 </button>
               ))}
             </div>
           </div>
+
+          {subs.length > 0 && (
+            <div>
+              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">What exactly? (optional)</label>
+              <div className="flex flex-wrap gap-1.5">
+                {subs.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setSubId(subId === s.id ? '' : s.id)}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors ${
+                      subId === s.id
+                        ? 'bg-[var(--primary-light)] text-[var(--primary)] border-[var(--primary)]'
+                        : 'bg-[var(--muted)] text-[var(--foreground)] border-[var(--border)]'
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <label className="flex items-start gap-2 text-xs text-[var(--foreground)] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includesHst}
+              onChange={(e) => setIncludesHst(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-[var(--primary)]"
+            />
+            <span>
+              <strong>Amount includes {BUSINESS.taxLabel}</strong>
+              {includesHst && amountValue > 0 && (
+                <span className="text-[var(--muted-foreground)]"> · {BUSINESS.taxLabel} ${formatMoney(hstIncluded(amountValue))}</span>
+              )}
+              <span className="block text-[11px] text-[var(--muted-foreground)]">
+                {entryType === 'IN' ? 'Tick if you charged the customer HST.' : 'Tick if the receipt shows HST.'}
+              </span>
+            </span>
+          </label>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -438,7 +565,7 @@ export default function MoneyBookPage() {
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Note (optional)</label>
             <input
               type="text"
-              placeholder={entryType === 'IN' ? 'e.g. Saturday walk-ins' : 'e.g. Hydro bill for October'}
+              placeholder={entryType === 'IN' ? 'e.g. Sold 2 pomades' : 'e.g. NB Power bill, October'}
               value={note}
               onChange={(e) => setNote(e.target.value)}
               className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)]"

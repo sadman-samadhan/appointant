@@ -7,6 +7,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useToast } from '@/context/ToastContext';
 import { Modal } from '@/components/ui/Modal';
+import { ApiError } from '@/lib/api/client';
+import { BUSINESS } from '@/lib/business';
 import {
   Lock,
   Mail,
@@ -69,7 +71,7 @@ export default function LoginPage() {
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginUserid.trim() || !loginPassword.trim()) {
-      showError('Input Required', 'Please enter both User ID and password.');
+      showError('Input Required', 'Please enter your email and password.');
       return;
     }
     setIsLoading(true);
@@ -133,10 +135,17 @@ export default function LoginPage() {
     setIsForgotLoading(true);
     try {
       await forgotPassword(forgotUserid.trim());
-      showSuccess('OTP Sent', `Verification code dispatched for ${forgotUserid}`);
+      showSuccess('Code Sent', `We emailed a reset code to ${forgotUserid}.`);
       setForgotStep('verify');
     } catch (err: any) {
-      showError('Request Failed', err.message || 'Could not request password OTP');
+      if (err instanceof ApiError && err.status === 404) {
+        showError('Email Not Found', 'No account uses this email. Check the spelling or create an account.');
+      } else {
+        showError(
+          'Could Not Send Code',
+          `We couldn't send the reset email right now. Please try again later or call us at ${BUSINESS.phoneDisplay}.`
+        );
+      }
     } finally {
       setIsForgotLoading(false);
     }
@@ -266,12 +275,13 @@ export default function LoginPage() {
               <form onSubmit={handleLoginSubmit} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-[var(--foreground)] mb-1">
-                    User ID / Email / Phone
+                    Email
                   </label>
                   <div className="relative">
                     <Mail className="w-4 h-4 text-[var(--muted-foreground)] absolute left-3 top-3" />
                     <input
-                      type="text"
+                      type="email"
+                      autoComplete="email"
                       required
                       value={loginUserid}
                       onChange={(e) => setLoginUserid(e.target.value)}
@@ -349,11 +359,12 @@ export default function LoginPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-[var(--foreground)] mb-1">User ID / Email</label>
+                  <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Email</label>
                   <div className="relative">
                     <Mail className="w-4 h-4 text-[var(--muted-foreground)] absolute left-3 top-3" />
                     <input
-                      type="text"
+                      type="email"
+                      autoComplete="email"
                       required
                       placeholder="e.g. john@example.com"
                       value={regUserid}
@@ -478,12 +489,12 @@ export default function LoginPage() {
         {forgotStep === 'request' && (
           <form onSubmit={handleRequestOtp} className="space-y-4">
             <p className="text-xs text-[var(--muted-foreground)]">
-              Enter your registered User ID or email. An OTP verification code will be dispatched.
+              Enter the email you sign in with. We&apos;ll email you a code to reset your password.
             </p>
             <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">User ID / Email</label>
+              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Email</label>
               <input
-                type="text"
+                type="email"
                 required
                 value={forgotUserid}
                 onChange={(e) => setForgotUserid(e.target.value)}
@@ -504,7 +515,7 @@ export default function LoginPage() {
                 disabled={isForgotLoading}
                 className="btn-primary px-4 py-2 rounded-xl text-xs font-bold"
               >
-                {isForgotLoading ? 'Sending OTP...' : 'Send OTP'}
+                {isForgotLoading ? 'Sending...' : 'Send code'}
               </button>
             </div>
           </form>

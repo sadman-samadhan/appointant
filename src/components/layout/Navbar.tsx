@@ -4,13 +4,9 @@ import React from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { LogOut, Sun, Moon, Plus, Wallet, Shield } from 'lucide-react';
+import { LogOut, Sun, Moon, Plus, Footprints, Shield } from 'lucide-react';
 
-interface NavbarProps {
-  onOpenCashModal?: () => void;
-}
-
-export function Navbar({ onOpenCashModal }: NavbarProps) {
+export function Navbar() {
   const { user, logout, isAdmin } = useAuth();
   const { settings, toggleDarkMode } = useTheme();
 
@@ -43,31 +39,21 @@ export function Navbar({ onOpenCashModal }: NavbarProps) {
         {/* Right Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
           <Link
-            href="/admin/appointments?walkIn=true"
-            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-sm"
-            title="Create Walk-In Appointment"
+            href="/admin/appointments?new=walkin"
+            className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-sm"
+            title="A customer without a booking"
           >
-            <Wallet className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Walk In</span>
+            <Footprints className="w-4 h-4" />
+            <span className="hidden sm:inline">Walk-in</span>
           </Link>
 
-          {onOpenCashModal && (
-            <button
-              onClick={onOpenCashModal}
-              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)] flex items-center gap-1.5 transition-colors"
-              title="Record cash received"
-            >
-              <Plus className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="hidden sm:inline">Cash In</span>
-            </button>
-          )}
-
           <Link
-            href="/admin/appointments?newBooking=true"
-            className="btn-primary px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm"
+            href="/admin/appointments?new=booking"
+            className="btn-primary px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm"
+            title="Book an appointment"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">New Booking</span>
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">New booking</span>
           </Link>
 
           {/* Theme Toggle */}
@@ -87,7 +73,7 @@ export function Navbar({ onOpenCashModal }: NavbarProps) {
             <div className="hidden md:block text-left">
               <p className="text-xs font-bold text-[var(--foreground)] leading-tight">{user?.name || (isAdmin ? 'Admin User' : 'Specialist')}</p>
               <p className="text-[10px] text-[var(--muted-foreground)] font-medium">
-                {isAdmin ? 'Salon Owner / Admin' : (user?.roleName || 'Staff Specialist')}
+                {isAdmin ? 'Owner' : 'Staff'}
               </p>
             </div>
             <button

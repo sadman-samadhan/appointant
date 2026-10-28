@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { placeGuestBooking, validateGuestBooking, STRICT_BOOKING_CHECKS } from '@/lib/server/onlineBooking';
+import { placeOnlineBooking, validateGuestBooking, STRICT_BOOKING_CHECKS } from '@/lib/server/onlineBooking';
+import { accountFromRequest } from '@/lib/server/customerAccount';
 import { AgentError, agentConfigured } from '@/lib/server/shopAgent';
 import { clientIp, rateLimited } from '@/lib/server/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
-// Guest online booking: the shop's server account books on the customer's behalf.
-// The booking is created as DRAFT; the shop confirms it in Admin → Appointments.
+// Online booking: the shop's server account books on the customer's behalf. A signed-in
+// customer's booking is linked to their account. The booking is created as DRAFT; the shop
+// confirms it in Admin → Appointments.
 export async function POST(req: NextRequest) {
   if (!agentConfigured()) {
     return NextResponse.json({ message: 'Online booking is not set up yet. Please call us.' }, { status: 503 });
@@ -35,7 +37,7 @@ export async function POST(req: NextRequest) {
   if (!value) return NextResponse.json({ message: error }, { status: 400 });
 
   try {
-    const result = await placeGuestBooking(value);
+    const result = await placeOnlineBooking(value, await accountFromRequest(req));
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     if (err instanceof AgentError && [400, 409].includes(err.status)) {

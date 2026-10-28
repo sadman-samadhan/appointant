@@ -17,5 +17,6 @@ export const CLIENT_NAME = 'B Diamond Barbershop';
 export const DEFAULT_CURRENCY = 'CAD';
 
 // How many customers the shop can serve at the same time (chairs/barbers working at once).
-// Every service gets a capacity rule with this limit so online booking never double-books.
-export const SHOP_CAPACITY = Number(process.env.NEXT_PUBLIC_SHOP_CAPACITY) || 3;
+// A time slot is offered only while fewer bookings than this overlap it (any service).
+// The backend availability engine also gets this limit as each service's capacity rule.
+export const SHOP_CAPACITY = Number(process.env.NEXT_PUBLIC_SHOP_CAPACITY) || 2;

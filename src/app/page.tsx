@@ -253,9 +253,9 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Reviews */}
-      {reviewsData && reviewsData.reviews.length > 0 && (
-        <section id="reviews" className="hero-wash scroll-mt-20 py-24 sm:py-28">
+      {/* Reviews: always present so the "Reviews" link has somewhere to go */}
+      <section id="reviews" className="hero-wash scroll-mt-20 py-24 sm:py-28">
+        {reviewsData && reviewsData.reviews.length > 0 ? (
           <div className="mx-auto grid max-w-6xl gap-14 px-5 sm:px-8 lg:grid-cols-[0.8fr_1.2fr]">
             <div>
               <p className="eyebrow">Reviews</p>
@@ -275,8 +275,34 @@ export default async function HomePage() {
               <ReviewsCarousel reviews={reviewsData.reviews} />
             </div>
           </div>
-        </section>
-      )}
+        ) : (
+          <div className="mx-auto max-w-3xl px-5 text-center sm:px-8">
+            <p className="eyebrow">Reviews</p>
+            <h2 className="mt-4 font-display text-4xl text-[var(--foreground)] sm:text-5xl">What clients say</h2>
+            <p className="mx-auto mt-6 max-w-md text-sm leading-relaxed text-[var(--muted-foreground)]">
+              Read what our customers say about us, or leave a review after your visit.
+            </p>
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <a
+                href={BUSINESS.mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cta-button px-6 py-3 text-sm"
+              >
+                Google reviews
+              </a>
+              <a
+                href={BUSINESS.facebookUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border-strong)] px-6 py-3 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--theme-primary)]/60"
+              >
+                Facebook
+              </a>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* About & visit */}
       <section id="visit" className="scroll-mt-20 bg-[var(--background)] py-24 sm:py-28">
