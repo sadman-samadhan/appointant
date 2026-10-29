@@ -1,6 +1,6 @@
 import 'server-only';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
-import { servicePrice, serviceDuration, toList } from '@/lib/format';
+import { sameName, servicePrice, serviceDuration, toList } from '@/lib/format';
 import { formatPhone, isValidPhone, phoneDigits, PHONE_ERROR } from '@/lib/phone';
 import { freeStartTimes, isTimeFree } from '@/lib/slots';
 import { agentRequest, AgentError } from './shopAgent';
@@ -167,7 +167,11 @@ export async function createCustomer(input: { name: string; phone?: string; emai
   return String(customerId);
 }
 
-/** Reuses the shop's existing customer with this phone number, or creates one. */
+/**
+ * Reuses the shop's existing customer with this phone number and name, or creates one.
+ * The name must match too: a family often shares one phone, and the booking must show the
+ * name that was typed.
+ */
 async function findOrCreateGuest(input: GuestBookingInput): Promise<string> {
   // Search is a text match on the stored number, so use the last 4 digits (contiguous in
   // any common format) and then require the full number to match.
@@ -177,7 +181,9 @@ async function findOrCreateGuest(input: GuestBookingInput): Promise<string> {
       'GET',
       `/api/v1/tenants/${DEFAULT_TENANT_ID}/customers?search=${encodeURIComponent(digits.slice(-4))}`
     );
-    const match = toList<any>(found, 'customers').find((c) => phoneDigits(customerPhone(c)) === digits);
+    const match = toList<any>(found, 'customers').find(
+      (c) => phoneDigits(customerPhone(c)) === digits && sameName(c?.customer?.fullName ?? c?.fullName, input.name)
+    );
     const id = match?.customerId || match?.customer?.customerId;
     if (id) return String(id);
   } catch {

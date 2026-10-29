@@ -8,7 +8,7 @@ import { useToast } from '@/context/ToastContext';
 import { BUSINESS } from '@/lib/business';
 import { formatMoney, todayISO, wallClockTime } from '@/lib/format';
 import { formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
-import { freeStartTimes, openingHours } from '@/lib/slots';
+import { freeStartTimes, minutesToTime, openingHours } from '@/lib/slots';
 import {
   ACTIVE_STATUSES,
   ShopBooking,
@@ -29,13 +29,13 @@ import {
   rescheduleBooking,
   taxOn,
 } from '@/lib/shopBookings';
-import { Banknote, CalendarClock, Check, Plus, RefreshCw, Search, UserCheck, UserX, X, Footprints } from 'lucide-react';
+import { Banknote, CalendarClock, Check, ChevronLeft, ChevronRight, Plus, RefreshCw, Search, UserCheck, UserX, X, Footprints } from 'lucide-react';
 
 const inputClass =
   'w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]';
 const labelClass = 'block text-xs font-bold text-[var(--foreground)] mb-1';
 
-type View = 'today' | 'upcoming' | 'all';
+type View = 'calendar' | 'today' | 'upcoming' | 'all';
 
 function addDays(iso: string, days: number) {
   const [y, m, d] = iso.split('-').map(Number);
@@ -49,6 +49,11 @@ function prettyDate(iso: string) {
   if (iso === addDays(todayISO(), 1)) return 'Tomorrow';
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function longDate(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 }
 
 function nowMinutes() {
@@ -141,6 +146,116 @@ function TimePicker({
   );
 }
 
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/** A month of days; each day shows how many appointments it has. Tapping a day picks it. */
+function MonthCalendar({
+  month,
+  selected,
+  counts,
+  onSelect,
+  onMonth,
+}: {
+  /** "YYYY-MM" */
+  month: string;
+  selected: string;
+  counts: Map<string, { total: number; toConfirm: number }>;
+  onSelect: (date: string) => void;
+  onMonth: (month: string) => void;
+}) {
+  const [y, m] = month.split('-').map(Number);
+  const first = new Date(y, m - 1, 1);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const lead = (first.getDay() + 6) % 7; // Monday-first
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const cells: (string | null)[] = [
+    ...Array.from({ length: lead }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => `${y}-${pad(m)}-${pad(i + 1)}`),
+  ];
+  const shift = (delta: number) => {
+    const d = new Date(y, m - 1 + delta, 1);
+    onMonth(`${d.getFullYear()}-${pad(d.getMonth() + 1)}`);
+  };
+  const today = todayISO();
+
+  return (
+    <div className="glass-card rounded-2xl border border-[var(--border)] p-3 sm:p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={() => shift(-1)} className="p-2 rounded-xl hover:bg-[var(--muted)] text-[var(--foreground)]" title="Previous month">
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-black text-[var(--foreground)]">
+            {first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+          </span>
+          {selected !== today && (
+            <button
+              onClick={() => {
+                onSelect(today);
+                onMonth(today.slice(0, 7));
+              }}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[var(--muted)] border border-[var(--border)] text-[var(--foreground)]"
+            >
+              Today
+            </button>
+          )}
+        </div>
+        <button onClick={() => shift(1)} className="p-2 rounded-xl hover:bg-[var(--muted)] text-[var(--foreground)]" title="Next month">
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center">
+        {WEEKDAYS.map((d) => (
+          <span key={d} className="text-[10px] font-bold uppercase text-[var(--muted-foreground)] py-1">
+            {d}
+          </span>
+        ))}
+        {cells.map((date, i) => {
+          if (!date) return <span key={`blank-${i}`} />;
+          const count = counts.get(date);
+          const closed = !openingHours(date);
+          const isSelected = date === selected;
+          return (
+            <button
+              key={date}
+              onClick={() => onSelect(date)}
+              title={closed ? 'Closed' : count ? `${count.total} appointment${count.total === 1 ? '' : 's'}` : 'No appointments'}
+              className={`relative h-12 sm:h-14 rounded-xl border flex flex-col items-center justify-center gap-0.5 transition-colors ${
+                isSelected
+                  ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                  : date === today
+                    ? 'border-[var(--primary)] text-[var(--foreground)] bg-[var(--card)]'
+                    : closed
+                      ? 'border-transparent text-[var(--muted-foreground)] opacity-50'
+                      : 'border-[var(--border)] text-[var(--foreground)] bg-[var(--card)] hover:bg-[var(--muted)]'
+              }`}
+            >
+              <span className="text-sm font-black leading-none">{Number(date.slice(8))}</span>
+              {count && count.total > 0 ? (
+                <span
+                  className={`text-[10px] font-black leading-none px-1.5 py-0.5 rounded-full ${
+                    isSelected ? 'bg-white/25 text-white' : 'bg-[var(--primary-light)] text-[var(--primary)]'
+                  }`}
+                >
+                  {count.total}
+                </span>
+              ) : (
+                <span className="text-[10px] leading-none">&nbsp;</span>
+              )}
+              {count && count.toConfirm > 0 && (
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500" title="Needs confirming" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-[var(--muted-foreground)] flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" /> has bookings to confirm · grey days are closed
+      </p>
+    </div>
+  );
+}
+
 function ActionButton({
   onClick,
   icon: Icon,
@@ -186,7 +301,9 @@ function AppointmentsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const [view, setView] = useState<View>('today');
+  const [view, setView] = useState<View>('calendar');
+  const [selectedDate, setSelectedDate] = useState(todayISO());
+  const [calendarMonth, setCalendarMonth] = useState(todayISO().slice(0, 7));
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [search, setSearch] = useState('');
 
@@ -247,12 +364,13 @@ function AppointmentsPage() {
     setNewName('');
     setNewPhone('');
     setNewServiceId('');
-    setNewDate(todayISO());
+    // From the calendar, book on the day being looked at (if it isn't in the past).
+    setNewDate(view === 'calendar' && selectedDate > todayISO() ? selectedDate : todayISO());
     setNewTime('');
     setNewNotes('');
     setNewError(null);
     setShowNew(true);
-  }, []);
+  }, [view, selectedDate]);
 
   const openWalkIn = useCallback(() => {
     setWalkServiceId('');
@@ -271,6 +389,12 @@ function AppointmentsPage() {
     else openNew();
     router.replace('/admin/appointments');
   }, [searchParams, openNew, openWalkIn, router]);
+
+  const showDay = (date: string) => {
+    setView('calendar');
+    setSelectedDate(date);
+    setCalendarMonth(date.slice(0, 7));
+  };
 
   const run = async (b: ShopBooking, action: () => Promise<unknown>, success: string) => {
     setBusyId(b.bookingId);
@@ -310,8 +434,8 @@ function AppointmentsPage() {
       await confirmBooking({ bookingId, servicePrice: service.price });
       setShowNew(false);
       showSuccess('Booked', `${newName.trim()} · ${prettyDate(newDate)} at ${wallClockTime(newTime)}`);
-      setView(newDate === todayISO() ? 'today' : 'upcoming');
-      setStatusFilter('ACTIVE');
+      showDay(newDate);
+      setStatusFilter('ALL');
       reload();
     } catch (err: any) {
       setNewError(err.message || 'Could not save the appointment.');
@@ -334,7 +458,7 @@ function AppointmentsPage() {
       await recordWalkIn({ service: walkService, customerName: walkName, amountPaid: amount });
       setShowWalkIn(false);
       showSuccess('Walk-in saved', `$${formatMoney(amount)} added to today’s income.`);
-      setView('today');
+      showDay(todayISO());
       setStatusFilter('ALL');
       reload();
     } catch (err: any) {
@@ -398,8 +522,23 @@ function AppointmentsPage() {
 
   // ---------- List ----------
   const today = todayISO();
-  const visible = [...bookings, ...walkIns]
-    .filter((b) => (view === 'today' ? b.date === today : view === 'upcoming' ? b.date >= today : true))
+  const everything = [...bookings, ...walkIns];
+  const dayCounts = useMemo(() => {
+    const map = new Map<string, { total: number; toConfirm: number }>();
+    for (const b of everything) {
+      if (b.status === 'CANCELLED') continue;
+      const c = map.get(b.date) || { total: 0, toConfirm: 0 };
+      c.total += 1;
+      if (['DRAFT', 'LOCKED', 'SCHEDULED'].includes(b.status)) c.toConfirm += 1;
+      map.set(b.date, c);
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookings, walkIns]);
+  const visible = everything
+    .filter((b) =>
+      view === 'calendar' ? b.date === selectedDate : view === 'today' ? b.date === today : view === 'upcoming' ? b.date >= today : true
+    )
     .filter((b) =>
       statusFilter === 'ALL'
         ? true
@@ -514,9 +653,10 @@ function AppointmentsPage() {
       {/* Filters */}
       <div className="glass-card p-3 rounded-2xl border border-[var(--border)] space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-xl bg-[var(--muted)] p-1">
+          <div className="flex w-full sm:w-auto rounded-xl bg-[var(--muted)] p-1">
             {(
               [
+                ['calendar', 'Calendar'],
                 ['today', 'Today'],
                 ['upcoming', 'Upcoming'],
                 ['all', 'All'],
@@ -525,7 +665,7 @@ function AppointmentsPage() {
               <button
                 key={v}
                 onClick={() => setView(v)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold ${view === v ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
+                className={`flex-1 sm:flex-none px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold ${view === v ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
               >
                 {label}
               </button>
@@ -551,6 +691,26 @@ function AppointmentsPage() {
         </div>
       </div>
 
+      {view === 'calendar' && (
+        <MonthCalendar month={calendarMonth} selected={selectedDate} counts={dayCounts} onSelect={setSelectedDate} onMonth={setCalendarMonth} />
+      )}
+
+      {view === 'calendar' && (
+        <div className="flex items-end justify-between gap-3 px-1">
+          <div>
+            <h2 className="text-base font-black text-[var(--foreground)]">{longDate(selectedDate)}</h2>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {(() => {
+                const hours = openingHours(selectedDate);
+                const count = dayCounts.get(selectedDate)?.total || 0;
+                const open = hours ? `Open ${wallClockTime(minutesToTime(hours.open))} – ${wallClockTime(minutesToTime(hours.close))}` : 'Closed';
+                return `${open} · ${count} appointment${count === 1 ? '' : 's'}`;
+              })()}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* List */}
       <div className="glass-card rounded-2xl overflow-hidden border border-[var(--border)]">
         {isLoading && bookings.length === 0 ? (
@@ -564,7 +724,9 @@ function AppointmentsPage() {
           <div className="p-12 text-center space-y-1">
             <p className="text-sm font-bold text-[var(--foreground)]">No appointments here</p>
             <p className="text-xs text-[var(--muted-foreground)]">
-              {view === 'today' ? 'Nothing on today’s list. ' : ''}Try another tab or “All statuses”.
+              {view === 'calendar'
+                ? 'Nothing booked on this day. Pick another day, or press New booking.'
+                : `${view === 'today' ? 'Nothing on today’s list. ' : ''}Try another tab or “All statuses”.`}
             </p>
           </div>
         ) : (
@@ -574,7 +736,9 @@ function AppointmentsPage() {
                 <div className="flex items-start gap-3 min-w-0">
                   <div className="w-16 shrink-0 text-center rounded-xl bg-[var(--primary-light)] py-2">
                     <p className="text-sm font-black text-[var(--primary)] leading-tight">{wallClockTime(b.startTime)}</p>
-                    {view !== 'today' && <p className="text-[10px] font-bold text-[var(--muted-foreground)] mt-0.5">{prettyDate(b.date)}</p>}
+                    {view !== 'today' && view !== 'calendar' && (
+                      <p className="text-[10px] font-bold text-[var(--muted-foreground)] mt-0.5">{prettyDate(b.date)}</p>
+                    )}
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">

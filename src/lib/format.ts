@@ -63,3 +63,9 @@ export function bookingLocalDate(b: { date?: unknown; startTime?: unknown } | nu
   const [y, m, d] = day.split('-').map(Number);
   return new Date(y, m - 1, d, time ? Number(time[1]) : 0, time ? Number(time[2]) : 0);
 }
+
+/** Whether two typed names are the same person's name (ignores case and extra spaces). */
+export function sameName(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+  return norm(a) !== '' && norm(a) === norm(b);
+}

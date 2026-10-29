@@ -4,7 +4,7 @@
 import { apiRequest, generateIdempotencyKey } from '@/lib/api/client';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { BUSINESS } from '@/lib/business';
-import { servicePrice, serviceDuration, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
+import { sameName, servicePrice, serviceDuration, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
 import { addAutoIncome, hstIncluded, listEntries, WALK_IN_CATEGORY } from '@/lib/moneyBook';
 import { formatPhone, phoneDigits } from '@/lib/phone';
 
@@ -80,7 +80,11 @@ function contactPhone(c: any): string {
   return contacts.find((ct) => ct.type === 'PHONE')?.value || '';
 }
 
-/** Reuses the shop's customer with this phone number, or creates a new customer. */
+/**
+ * Reuses the shop's customer with this phone number and name, or creates a new customer.
+ * The name must match too: a family often shares one phone, and the booking must show the
+ * name that was typed.
+ */
 export async function findOrCreateCustomer(name: string, phone?: string): Promise<string> {
   const digits = phoneDigits(phone);
   if (digits.length === 10) {
@@ -88,7 +92,9 @@ export async function findOrCreateCustomer(name: string, phone?: string): Promis
       const found = await apiRequest<any>(
         `/api/v1/tenants/${DEFAULT_TENANT_ID}/customers?search=${encodeURIComponent(digits.slice(-4))}&limit=50`
       );
-      const match = toList<any>(found, 'customers').find((c) => phoneDigits(contactPhone(c)) === digits);
+      const match = toList<any>(found, 'customers').find(
+        (c) => phoneDigits(contactPhone(c)) === digits && sameName(c?.customer?.fullName ?? c?.fullName, name)
+      );
       const id = match?.customerId || match?.customer?.customerId;
       if (id) return String(id);
     } catch {
