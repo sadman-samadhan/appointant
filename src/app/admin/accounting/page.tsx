@@ -33,22 +33,41 @@ import {
   Wallet,
 } from 'lucide-react';
 
-function monthBounds(year: number, month: number) {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const lastDay = new Date(year, month + 1, 0).getDate();
+type PeriodMode = 'day' | 'month' | 'year';
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const isoOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const dateOf = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
+/** The dates covered by a day, month or year around `anchor`, and how to name it. */
+function periodBounds(mode: PeriodMode, anchor: string) {
+  const d = dateOf(anchor);
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  if (mode === 'day') {
+    const label =
+      anchor === todayISO()
+        ? `Today, ${d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}`
+        : d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    return { from: anchor, to: anchor, label, word: 'This day' };
+  }
+  if (mode === 'year') return { from: `${y}-01-01`, to: `${y}-12-31`, label: String(y), word: 'This year' };
   return {
-    from: `${year}-${pad(month + 1)}-01`,
-    to: `${year}-${pad(month + 1)}-${pad(lastDay)}`,
-    label: new Date(year, month, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+    from: `${y}-${pad(m + 1)}-01`,
+    to: isoOf(new Date(y, m + 1, 0)),
+    label: d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+    word: 'This month',
   };
 }
 
 export default function MoneyBookPage() {
   const { showSuccess, showError } = useToast();
 
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth());
+  const [mode, setMode] = useState<PeriodMode>('month');
+  const [anchor, setAnchor] = useState(todayISO());
   const [entries, setEntries] = useState<MoneyEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -70,7 +89,8 @@ export default function MoneyBookPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  const period = monthBounds(year, month);
+  const period = periodBounds(mode, anchor);
+  const isCurrent = period.from <= todayISO() && todayISO() <= period.to;
 
   const loadEntries = useCallback(async () => {
     setIsLoading(true);
@@ -120,10 +140,12 @@ export default function MoneyBookPage() {
 
   const visibleEntries = filter === 'ALL' ? entries : entries.filter((e) => e.type === filter);
 
-  const shiftMonth = (delta: number) => {
-    const d = new Date(year, month + delta, 1);
-    setYear(d.getFullYear());
-    setMonth(d.getMonth());
+  const shiftPeriod = (delta: number) => {
+    const d = dateOf(anchor);
+    if (mode === 'day') d.setDate(d.getDate() + delta);
+    else if (mode === 'month') d.setMonth(d.getMonth() + delta, 1);
+    else d.setFullYear(d.getFullYear() + delta, 0, 1);
+    setAnchor(isoOf(d));
   };
 
   const chooseCategory = (c: Category | undefined) => {
@@ -257,12 +279,42 @@ export default function MoneyBookPage() {
         </div>
       </div>
 
-      {/* Month switcher */}
-      <div className="glass-card p-3 rounded-2xl flex items-center justify-between border border-[var(--border)]">
+      {/* Period: a day, a month or a year */}
+      <div className="glass-card p-3 rounded-2xl border border-[var(--border)] space-y-3">
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <div className="flex rounded-xl bg-[var(--muted)] p-1">
+          {(
+            [
+              ['day', 'Day'],
+              ['month', 'Month'],
+              ['year', 'Year'],
+            ] as [PeriodMode, string][]
+          ).map(([m, label]) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold ${
+                mode === m ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {!isCurrent && (
+          <button
+            onClick={() => setAnchor(todayISO())}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--muted)] border border-[var(--border)] text-[var(--foreground)]"
+          >
+            Back to today
+          </button>
+        )}
+      </div>
+      <div className="flex items-center justify-between">
         <button
-          onClick={() => shiftMonth(-1)}
+          onClick={() => shiftPeriod(-1)}
           className="p-2 rounded-xl hover:bg-[var(--muted)] text-[var(--foreground)]"
-          title="Previous month"
+          title={`Previous ${mode}`}
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
@@ -277,12 +329,13 @@ export default function MoneyBookPage() {
           </button>
         </div>
         <button
-          onClick={() => shiftMonth(1)}
+          onClick={() => shiftPeriod(1)}
           className="p-2 rounded-xl hover:bg-[var(--muted)] text-[var(--foreground)]"
-          title="Next month"
+          title={`Next ${mode}`}
         >
           <ChevronRight className="w-4 h-4" />
         </button>
+      </div>
       </div>
 
       {/* Totals */}
@@ -290,7 +343,7 @@ export default function MoneyBookPage() {
         <KPICard
           label="Income"
           value={`$${formatMoney(totals.income)}`}
-          sub="This month, before HST"
+          sub={`${period.word}, before HST`}
           icon={ArrowDownCircle}
           accentColor="text-emerald-600"
           iconBgColor="bg-emerald-50 dark:bg-emerald-950/40"
@@ -298,7 +351,7 @@ export default function MoneyBookPage() {
         <KPICard
           label="Expenses"
           value={`$${formatMoney(totals.expenses)}`}
-          sub="This month, before HST"
+          sub={`${period.word}, before HST`}
           icon={ArrowUpCircle}
           accentColor="text-rose-600"
           iconBgColor="bg-rose-50 dark:bg-rose-950/40"
@@ -385,6 +438,8 @@ export default function MoneyBookPage() {
                         {entry.date}
                         {entry.fromAppointment ? '' : ` · ${entry.paidWith === 'BANK' ? 'Bank' : 'Cash'}`}
                         {entry.note ? ` · ${entry.note}` : ''}
+                        {entry.tax > 0 && entry.category !== 'Sales tax' ? ` · incl. ${BUSINESS.taxLabel} $${formatMoney(entry.tax)}` : ''}
+                        {entry.tip > 0 && entry.fromAppointment ? ` · tip $${formatMoney(entry.tip)}` : ''}
                       </p>
                     </div>
                   </div>
@@ -412,7 +467,7 @@ export default function MoneyBookPage() {
         <div className="glass-card rounded-2xl border border-[var(--border)] p-4 space-y-3 h-fit">
           <h2 className="text-sm font-black text-[var(--foreground)]">By category (before HST)</h2>
           {byCategory.length === 0 ? (
-            <p className="text-xs text-[var(--muted-foreground)]">No entries yet this month.</p>
+            <p className="text-xs text-[var(--muted-foreground)]">Nothing recorded for {period.label}.</p>
           ) : (
             byCategory.map((c) => (
               <div key={`${c.type}-${c.category}`} className="flex items-center justify-between text-xs">

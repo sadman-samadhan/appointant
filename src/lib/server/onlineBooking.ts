@@ -1,12 +1,12 @@
 import 'server-only';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
-import { sameName, servicePrice, serviceDuration, toList } from '@/lib/format';
+import { sameName, servicePrice, serviceDuration, shopClock, SHOP_TIME_ZONE, toList } from '@/lib/format';
 import { formatPhone, isValidPhone, phoneDigits, PHONE_ERROR } from '@/lib/phone';
 import { freeStartTimes, isTimeFree } from '@/lib/slots';
 import { agentRequest, AgentError } from './shopAgent';
 import { ensureAccountCustomer, type AccountUser } from './customerAccount';
 
-export const SHOP_TIME_ZONE = 'America/Moncton';
+export { SHOP_TIME_ZONE };
 
 // Per-device booking limit (max 5 bookings/hour). Off while testing; set
 // BOOKING_STRICT_CHECKS=true on Vercel at launch. Phone numbers are always validated.
@@ -29,17 +29,7 @@ const TIME = /^\d{2}:\d{2}(:\d{2})?$/;
 
 /** Today's date and minutes-since-midnight in the shop's time zone. */
 function shopNow(): { date: string; minutes: number } {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: SHOP_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(new Date());
-  const get = (t: string) => parts.find((p) => p.type === t)?.value || '00';
-  return { date: `${get('year')}-${get('month')}-${get('day')}`, minutes: Number(get('hour')) * 60 + Number(get('minute')) };
+  return shopClock();
 }
 
 function addDays(iso: string, days: number): string {

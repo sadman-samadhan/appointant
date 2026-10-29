@@ -32,9 +32,29 @@ export function toList<T = any>(res: any, ...keys: string[]): T[] {
   return [];
 }
 
+// The shop is in Fredericton. "Today" and "now" are always the shop's, whatever the time
+// zone of the device in use (e.g. an owner or developer abroad), so a day's money and
+// appointments land on the shop's day.
+export const SHOP_TIME_ZONE = 'America/Moncton';
+
+/** The shop's calendar date and minutes since midnight at `at`. */
+export function shopClock(at: Date = new Date()): { date: string; minutes: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: SHOP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(at);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || '00';
+  return { date: `${get('year')}-${get('month')}-${get('day')}`, minutes: Number(get('hour')) * 60 + Number(get('minute')) };
+}
+
+/** Today's date at the shop (YYYY-MM-DD). */
 export function todayISO(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return shopClock().date;
 }
 
 // Booking times are the shop's local wall-clock time. The backend stores them with a

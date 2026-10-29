@@ -72,6 +72,12 @@ const TIPS_CODE = '4200';
 const NOTE_SEPARATOR = ' — ';
 const SUB_SEPARATOR = ' › ';
 const MAX_SUBS = 9;
+const BILL_TAG = /\s*\[(INV-[^\]\s]+)\]/;
+
+/** Marks an entry as part of a bill, so it is shown together with the bill's payment. */
+export function billTag(invoiceNumber: string): string {
+  return `[${invoiceNumber}]`;
+}
 
 // Starting categories, made once. Removing one disables it, so it is not made again.
 type Seed = { code: string; name: string; type: 'REVENUE' | 'EXPENSE' | 'ASSET'; hst: boolean; subs?: string[] };
@@ -499,21 +505,66 @@ async function loadInvoices(): Promise<Map<string, InvoiceInfo>> {
   );
 }
 
+/**
+ * The backend books a bill's payment on its own; the app adds the bill's HST and tip as
+ * separate entries. The owner sees one entry per appointment, so those are folded in here.
+ */
+export function mergeBillParts(entries: MoneyEntry[]): MoneyEntry[] {
+  const bills = entries.filter((e) => e.fromAppointment);
+  const merged = new Map(bills.map((e) => [e.id, { ...e }]));
+  const out: MoneyEntry[] = [];
+  for (const e of entries) {
+    if (e.fromAppointment) continue;
+    const isPart = e.type === 'IN' && (e.category === SALES_TAX_CATEGORY || (e.tip > 0 && e.tip === e.amount));
+    let bill: MoneyEntry | undefined;
+    if (isPart) {
+      const tag = e.note.match(BILL_TAG)?.[1];
+      if (tag) {
+        bill = bills.find((b) => b.reference === tag);
+      } else {
+        // Older entries carry only the customer's name: "HST — Name" or "Name".
+        const name = e.note.split(NOTE_SEPARATOR).pop()?.trim().toLowerCase();
+        const near = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) <= 86400000;
+        const candidates = bills.filter((b) => near(b.date, e.date) && !!name && b.note.toLowerCase().endsWith(` for ${name}`));
+        if (candidates.length === 1) bill = candidates[0];
+      }
+    }
+    const target = bill && merged.get(bill.id);
+    if (target) {
+      target.amount = round(target.amount + e.amount);
+      target.tax = round(target.tax + e.tax);
+      target.tip = round(target.tip + e.tip);
+    } else {
+      out.push({ ...e, note: e.note.replace(BILL_TAG, '') });
+    }
+  }
+  return [...out, ...merged.values()];
+}
+
+function shiftDay(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
 export async function listEntries(from: string, to: string): Promise<MoneyEntry[]> {
+  // A day either side too: a bill's HST and tip can be dated a day off the bill itself
+  // (e.g. saved near midnight), and they are shown on the bill's day.
   const [accounts, res, invoices] = await Promise.all([
     getAccounts().catch(() => [] as Account[]),
-    apiRequest<any>(`/api/v1/accounting/journals?from=${from}&to=${to}`),
+    apiRequest<any>(`/api/v1/accounting/journals?from=${shiftDay(from, -1)}&to=${shiftDay(to, 1)}`),
     loadInvoices().catch(() => new Map<string, InvoiceInfo>()),
   ]);
   const accountsById = new Map(accounts.map((a) => [a.accountId, a]));
-  return toList(res, 'journals')
+  const entries = toList(res, 'journals')
     .filter((j) => {
       // The backend doesn't reverse a bill's income when the bill is voided, so those are skipped.
       const inv = String(j.description || '').match(/^Invoice\s+(\S+)\s+created/i);
       return !(inv && ['VOID', 'CANCELLED'].includes(invoices.get(inv[1])?.status || ''));
     })
     .map((j) => journalToEntry(j, accountsById, invoices))
-    .filter((e): e is MoneyEntry => !!e && (!e.date || (e.date >= from && e.date <= to)))
+    .filter((e): e is MoneyEntry => !!e);
+  return mergeBillParts(entries)
+    .filter((e) => !e.date || (e.date >= from && e.date <= to))
     .sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1));
 }
 

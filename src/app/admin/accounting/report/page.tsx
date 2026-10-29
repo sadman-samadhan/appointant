@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { BUSINESS, FULL_ADDRESS } from '@/lib/business';
-import { formatMoney } from '@/lib/format';
+import { formatMoney, todayISO } from '@/lib/format';
 import { listEntries } from '@/lib/moneyBook';
 import { AccountantReport, ReportLine, buildReport, downloadFile, summaryCsv, transactionsCsv } from '@/lib/accountantReport';
 import { ArrowLeft, Download, Printer, RefreshCw } from 'lucide-react';
@@ -23,7 +23,7 @@ const PERIODS: { key: PeriodKey; label: string }[] = [
 const pad = (n: number) => String(n).padStart(2, '0');
 const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-function periodRange(key: PeriodKey, now = new Date()): { from: string; to: string } {
+function periodRange(key: PeriodKey, now = new Date(`${todayISO()}T12:00:00`)): { from: string; to: string } {
   const y = now.getFullYear();
   const m = now.getMonth();
   const q = Math.floor(m / 3) * 3;

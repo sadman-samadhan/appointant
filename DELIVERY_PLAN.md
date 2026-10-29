@@ -60,6 +60,7 @@ Not tested end-to-end: a booking made while **signed in as a customer**, and edi
 ## Test data left in the dev backend
 - Booking SAL-2026-000016 "TEST Claude QA 3": paid $28.75 but stuck as Arrived because of bug 4 (a voided test bill). SAL-000015 and SAL-000017 are cancelled.
 - Disabled test account 5399 "TEST Claude sub 2" and category "TEST Laundry 2" (removed; its test entry reversed).
+- Booking "TEST Claude Highlight" (Oct 31, Beard Trim): paid $27.30 incl. $2 tip on Oct 29 while testing; an arrived booking can't be cancelled. "TEST Mo Claude" / "TEST Mo Online" bookings are cancelled.
 - Customers "TEST Claude QA", "TEST Claude QA 3", "TEST Claude Walk-in". The test walk-in income was reversed.
 
 ## PDF check (2026-10-28)

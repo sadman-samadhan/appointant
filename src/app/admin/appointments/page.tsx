@@ -6,7 +6,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Badge, STATUS_LABELS } from '@/components/ui/Badge';
 import { useToast } from '@/context/ToastContext';
 import { BUSINESS } from '@/lib/business';
-import { formatMoney, todayISO, wallClockTime } from '@/lib/format';
+import { formatMoney, shopClock, todayISO, wallClockTime } from '@/lib/format';
 import { formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
 import { freeStartTimes, minutesToTime, openingHours } from '@/lib/slots';
 import {
@@ -57,8 +57,7 @@ function longDate(iso: string) {
 }
 
 function nowMinutes() {
-  const d = new Date();
-  return d.getHours() * 60 + d.getMinutes();
+  return shopClock().minutes;
 }
 
 /** Day buttons + free time buttons. Taken times are never offered, so the shop can't double-book. */
@@ -270,8 +269,9 @@ function ActionButton({
   disabled?: boolean;
 }) {
   const tones = {
-    primary: 'bg-[var(--primary)] text-white border-[var(--primary)]',
-    green: 'bg-emerald-600 text-white border-emerald-600',
+    // Outlined, so a button never looks as if it was already pressed.
+    primary: 'bg-[var(--card)] text-[var(--primary)] border-[var(--primary)] border-2 hover:bg-[var(--primary-light)]',
+    green: 'bg-[var(--card)] text-emerald-700 dark:text-emerald-400 border-emerald-500 border-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30',
     neutral: 'bg-[var(--card)] text-[var(--foreground)] border-[var(--border-strong)]',
     red: 'bg-[var(--card)] text-rose-600 border-rose-200 dark:border-rose-900',
   };
@@ -304,6 +304,8 @@ function AppointmentsPage() {
   const [view, setView] = useState<View>('calendar');
   const [selectedDate, setSelectedDate] = useState(todayISO());
   const [calendarMonth, setCalendarMonth] = useState(todayISO().slice(0, 7));
+  // The appointment that was just changed: highlighted with what happened, for a few seconds.
+  const [justDone, setJustDone] = useState<{ id: string; text: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [search, setSearch] = useState('');
 
@@ -396,11 +398,25 @@ function AppointmentsPage() {
     setCalendarMonth(date.slice(0, 7));
   };
 
-  const run = async (b: ShopBooking, action: () => Promise<unknown>, success: string) => {
+  const markDone = (id: string, text: string) => setJustDone({ id, text });
+
+  useEffect(() => {
+    if (!justDone) return;
+    // Bring the changed row into view once the list has reloaded.
+    const scroll = setTimeout(() => document.getElementById(`appt-${justDone.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
+    const clear = setTimeout(() => setJustDone(null), 10000);
+    return () => {
+      clearTimeout(scroll);
+      clearTimeout(clear);
+    };
+  }, [justDone]);
+
+  const run = async (b: ShopBooking, action: () => Promise<unknown>, success: string, done: string) => {
     setBusyId(b.bookingId);
     try {
       await action();
       showSuccess('Done', success);
+      markDone(b.bookingId, done);
       await reload();
     } catch (err: any) {
       showError('Something went wrong', err.message || 'Please try again.');
@@ -430,6 +446,7 @@ function AppointmentsPage() {
       }
       const customerId = await findOrCreateCustomer(newName.trim(), newPhone);
       const bookingId = await createBooking({ customerId, serviceId: service.serviceId, date: newDate, startTime: newTime, notes: newNotes.trim() });
+      markDone(bookingId, 'New booking');
       // Booked by the shop itself, so it is confirmed straight away (tax added automatically).
       await confirmBooking({ bookingId, servicePrice: service.price });
       setShowNew(false);
@@ -488,6 +505,7 @@ function AppointmentsPage() {
       const paid = await finishAndPay(payBooking, { tip });
       setPayBooking(null);
       showSuccess('Paid', `$${formatMoney(paid + tip)} from ${payBooking.customerName}. All done!`);
+      markDone(payBooking.bookingId, `Paid $${formatMoney(paid + tip)}`);
       reload();
     } catch (err: any) {
       showError('Payment failed', err.message || 'Please try again.');
@@ -501,7 +519,7 @@ function AppointmentsPage() {
     if (!cancelTarget) return;
     const target = cancelTarget;
     setCancelTarget(null);
-    await run(target, () => cancelBooking(target.bookingId, cancelReason.trim()), `${target.customerName}'s appointment was cancelled.`);
+    await run(target, () => cancelBooking(target.bookingId, cancelReason.trim()), `${target.customerName}'s appointment was cancelled.`, 'Cancelled');
   };
 
   const handleMove = async () => {
@@ -512,6 +530,8 @@ function AppointmentsPage() {
       await rescheduleBooking(target.bookingId, moveDate, moveTime);
       setMoveTarget(null);
       showSuccess('Time changed', `${target.customerName} · ${prettyDate(moveDate)} at ${wallClockTime(moveTime)}`);
+      markDone(target.bookingId, 'Time changed');
+      if (view === 'calendar') showDay(moveDate);
       reload();
     } catch (err: any) {
       showError('Could not change the time', err.message || 'Please try again.');
@@ -540,6 +560,7 @@ function AppointmentsPage() {
       view === 'calendar' ? b.date === selectedDate : view === 'today' ? b.date === today : view === 'upcoming' ? b.date >= today : true
     )
     .filter((b) =>
+      b.bookingId === justDone?.id ||
       statusFilter === 'ALL'
         ? true
         : statusFilter === 'ACTIVE'
@@ -595,7 +616,7 @@ function AppointmentsPage() {
               onClick={() => {
                 const service = serviceById(b.serviceId || '');
                 if (!service) return showError('Service not found', 'This service is no longer offered. Cancel and re-book instead.');
-                run(b, () => confirmBooking({ bookingId: b.bookingId, servicePrice: service.price }), `Confirmed. ${BUSINESS.taxLabel} ${Math.round(BUSINESS.taxRate * 100)}% added.`);
+                run(b, () => confirmBooking({ bookingId: b.bookingId, servicePrice: service.price }), `Confirmed. ${BUSINESS.taxLabel} ${Math.round(BUSINESS.taxRate * 100)}% added.`, 'Confirmed');
               }}
             />
             {changeTime}
@@ -605,14 +626,14 @@ function AppointmentsPage() {
       case 'CONFIRMED':
         return (
           <>
-            <ActionButton icon={UserCheck} label="Arrived" tone="primary" disabled={busy} onClick={() => run(b, () => markArrived(b.bookingId), `${b.customerName} has arrived.`)} />
+            <ActionButton icon={UserCheck} label="Arrived" tone="primary" disabled={busy} onClick={() => run(b, () => markArrived(b.bookingId), `${b.customerName} has arrived.`, 'Marked arrived')} />
             {changeTime}
             <ActionButton
               icon={UserX}
               label="No-show"
               disabled={busy}
               onClick={() => {
-                if (window.confirm(`Mark ${b.customerName} as a no-show?`)) run(b, () => markNoShow(b.bookingId), 'Marked as no-show.');
+                if (window.confirm(`Mark ${b.customerName} as a no-show?`)) run(b, () => markNoShow(b.bookingId), 'Marked as no-show.', 'Marked no-show');
               }}
             />
             {cancel}
@@ -732,7 +753,13 @@ function AppointmentsPage() {
         ) : (
           <ul className="divide-y divide-[var(--border)]">
             {visible.map((b) => (
-              <li key={b.bookingId} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <li
+                key={b.bookingId}
+                id={`appt-${b.bookingId}`}
+                className={`p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 transition-colors ${
+                  justDone?.id === b.bookingId ? 'bg-emerald-50 dark:bg-emerald-950/30 ring-2 ring-inset ring-emerald-500' : ''
+                }`}
+              >
                 <div className="flex items-start gap-3 min-w-0">
                   <div className="w-16 shrink-0 text-center rounded-xl bg-[var(--primary-light)] py-2">
                     <p className="text-sm font-black text-[var(--primary)] leading-tight">{wallClockTime(b.startTime)}</p>
@@ -749,6 +776,11 @@ function AppointmentsPage() {
                         </span>
                       ) : (
                         <Badge variant={b.status} />
+                      )}
+                      {justDone?.id === b.bookingId && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-black rounded-full bg-emerald-600 text-white">
+                          <Check className="w-3 h-3" /> {justDone.text}
+                        </span>
                       )}
                     </div>
                     <p className="text-xs font-bold text-[var(--primary)] mt-0.5">{b.serviceName} · ${formatMoney(shownTotal(b))}</p>

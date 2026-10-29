@@ -4,8 +4,8 @@
 import { apiRequest, generateIdempotencyKey } from '@/lib/api/client';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { BUSINESS } from '@/lib/business';
-import { sameName, servicePrice, serviceDuration, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
-import { addAutoIncome, hstIncluded, listEntries, WALK_IN_CATEGORY } from '@/lib/moneyBook';
+import { sameName, servicePrice, serviceDuration, shopClock, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
+import { addAutoIncome, billTag, hstIncluded, listEntries, WALK_IN_CATEGORY } from '@/lib/moneyBook';
 import { formatPhone, phoneDigits } from '@/lib/phone';
 
 export interface ShopBooking {
@@ -186,6 +186,7 @@ export async function rescheduleBooking(bookingId: string, date: string, startTi
 
 interface Bill {
   invoiceId: string;
+  invoiceNumber: string;
   total: number;
   amountPaid: number;
   balanceDue: number;
@@ -195,6 +196,7 @@ interface Bill {
 function toBill(inv: any): Bill {
   return {
     invoiceId: inv.invoiceId,
+    invoiceNumber: String(inv.invoiceNumber || ''),
     total: toNumber(inv.total),
     amountPaid: toNumber(inv.amountPaid),
     balanceDue: toNumber(inv.balanceDue ?? inv.total),
@@ -235,6 +237,9 @@ export async function billFor(booking: ShopBooking): Promise<{ bill: Bill; extra
   return { bill, extraTax, totalDue: money(bill.balanceDue + extraTax) };
 }
 
+// Accounting shows the HST and tip of a bill together with the bill's payment (see moneyBook).
+const billNote = (text: string, bill: Bill) => (bill.invoiceNumber ? `${text} ${billTag(bill.invoiceNumber)}` : text);
+
 /**
  * Takes the cash for an arrived appointment and marks it done. The payment is recorded
  * as income automatically; a tip is added to the Accounting book separately.
@@ -261,10 +266,10 @@ export async function finishAndPay(booking: ShopBooking, opts: { tip?: number } 
   }
   const today = todayISO();
   if (extraTax > 0) {
-    await addAutoIncome('salesTax', { amount: extraTax, date: today, note: `${BUSINESS.taxLabel} — ${booking.customerName}` });
+    await addAutoIncome('salesTax', { amount: extraTax, date: today, note: billNote(`${BUSINESS.taxLabel} — ${booking.customerName}`, bill) });
   }
   if (opts.tip && opts.tip > 0) {
-    await addAutoIncome('tip', { amount: opts.tip, date: today, note: booking.customerName });
+    await addAutoIncome('tip', { amount: opts.tip, date: today, note: billNote(booking.customerName, bill) });
   }
   return totalDue;
 }
@@ -297,7 +302,8 @@ export async function loadWalkIns(from: string, to: string): Promise<ShopBooking
     .map((e) => {
       const [serviceName, ...rest] = e.note.split(WALK_IN_SEPARATOR);
       const at = e.createdAt ? new Date(e.createdAt) : null;
-      const time = at && !isNaN(at.getTime()) ? `${pad(at.getHours())}:${pad(at.getMinutes())}:00` : '00:00:00';
+      const minutes = at && !isNaN(at.getTime()) ? shopClock(at).minutes : 0;
+      const time = `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}:00`;
       return {
         bookingId: e.id,
         bookingNumber: null,
