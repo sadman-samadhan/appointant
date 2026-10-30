@@ -380,6 +380,8 @@ export async function billFor(
       method: 'POST',
       body: JSON.stringify({
         currency: BUSINESS.currency,
+        // The shop's date, so a bill made after 9 PM isn't dated by the server's UTC clock (next day).
+        issueDate: todayISO(),
         notes: `${name} for ${booking.customerName}${name !== booking.serviceName ? ` (booked: ${booking.serviceName})` : ''}`,
         taxRate: BUSINESS.taxRate * 100,
         ...(discount + overTax > 0 ? { discountAmount: money(discount + overTax) } : {}),
