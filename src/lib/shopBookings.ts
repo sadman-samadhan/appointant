@@ -197,7 +197,7 @@ export async function confirmBooking(booking: { bookingId: string; servicePrice:
       vatAmount: taxOn(booking.servicePrice),
       tipAmount: money(extra?.tip || 0),
       discountAmount: money(extra?.discount || 0),
-      note: `${BUSINESS.taxLabel} ${Math.round(BUSINESS.taxRate * 100)}% added`,
+      // No note: the backend's confirm replaces the booking's notes with it.
     }),
   });
 }

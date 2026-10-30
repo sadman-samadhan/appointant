@@ -59,6 +59,8 @@ Not tested end-to-end: a booking made while **signed in as a customer**, and edi
 8. **Search hides contacts**: the tenant customer search returns only the contact that matched (e.g. the email), not the phone. *Workaround:* the full contact list is read separately.
 9. **Only confirmed bookings can be moved**: `reschedule` refuses bookings still to confirm, and can't change the barber. *Workaround:* the booking is made again at the new time / barber and the old one cancelled.
 10. **Barbers can't bill**: a barber's login gets 403 on billing, payments and accounting. *Workaround:* a barber's "Take payment" goes through the app's server (`/api/barber/bookings/[id]/pay`), which checks it is the barber's own arrived booking and records it with the shop account. Every payment, tip, HST line and walk-in notes who took the money ("Taken by …"); Accounting shows it per entry and as "Money taken by" totals.
+12. **Confirm overwrites notes**: `POST /bookings/{id}/confirm` with a `note` replaces the booking's notes. *Workaround:* the app confirms without a note.
+13. **No $0 bills**: `invoice-draft` with a 100% discount fails ("A journal line must have either debit or credit amount"). *Workaround:* a free service is charged $0.01.
 11. **Staff login**: an existing staff record can't be given a login later (no `userId` in the staff update). Archive and add them again with "Create a login". Passwords need 10+ characters with upper, lower, number and symbol.
 
 ## Test data left in the dev backend
@@ -69,6 +71,7 @@ Not tested end-to-end: a booking made while **signed in as a customer**, and edi
 - 2026-10-29 customer-side work: customer "TEST Phone Renamed" with cancelled test bookings, and SAL-2026-000041 (Nov 3, 3:00 PM, with Munim2), paid by Munim2 while testing barber payments: $26.00 incl. $3 tip, recorded on Oct 29. Archived staff "TEST Barber Claude".
 - Discount tests (Oct 29): SAL-2026-000044 (Nov 5) paid $17.25 after a $5 discount, SAL-2026-000045 (Nov 6) paid $23.00 after a $3 discount, both "TEST Phone Renamed". The test walk-in "TEST Claude Walkin B" was reversed.
 - Barber schedule / auto-assign / email tests (Oct 29): SAL-2026-000043, 000046, 000047, 000048, 000049 cancelled; test schedules removed (no schedules are set).
+- QA run (Oct 30): test bookings SAL-2026-000053–000063 cancelled; SAL-2026-000056 paid $0.01 (free-service test) and SAL-2026-000064 paid $25.00 by Munim2, both "TEST Phone Renamed".
 - Ankon Ghosh's booking SAL-2026-000027 (Nov 4, 12:30) was cancelled by mistake during testing and re-booked as SAL-2026-000035 (same time, service and status).
 - Staff "Munim" (no login, the email already had an account) and "Munim2" (barber login) were added by the client while testing.
 

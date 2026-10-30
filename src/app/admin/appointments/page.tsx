@@ -646,7 +646,8 @@ function AppointmentsPage() {
     setIsSaving(true);
     try {
       const free = freeAt({ bookings, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: target.bookingId }).get(moveTime) || [];
-      const staffId = moveBarberId || pickBarber(free, moveDate, bookings) || null;
+      // A barber's booking always stays theirs.
+      const staffId = isBarber ? myStaffId : moveBarberId || pickBarber(free, moveDate, bookings) || null;
       const barberChanged = (staffId || '') !== (target.staffId || '');
       const movedId = await rescheduleBooking(target.bookingId, moveDate, moveTime, {
         staffId,
@@ -1176,6 +1177,8 @@ function AppointmentsPage() {
               onDate={setMoveDate}
               onTime={(t) => {
                 setMoveTime(t);
+                // Picking a day clears the time; the barber stays until a new time is picked.
+                if (!t) return;
                 // Keep the barber when they are free at the new time.
                 const free = freeAt({ bookings, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: moveTarget.bookingId }).get(t) || [];
                 if (moveBarberId && !free.includes(moveBarberId)) setMoveBarberId('');

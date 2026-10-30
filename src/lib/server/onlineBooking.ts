@@ -93,7 +93,7 @@ export async function confirmOnline(bookingId: string, servicePrice: number) {
     vatAmount: vat,
     tipAmount: 0,
     discountAmount: 0,
-    note: `${BUSINESS.taxLabel} ${Math.round(BUSINESS.taxRate * 100)}% added`,
+    // No note: the backend's confirm replaces the booking's notes (the customer's) with it.
   });
 }
 
