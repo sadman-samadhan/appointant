@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { freeTimes } from '@/lib/server/onlineBooking';
+import { availability } from '@/lib/server/onlineBooking';
 import { AgentError, agentConfigured } from '@/lib/server/shopAgent';
 import { clientIp, rateLimited } from '@/lib/server/rateLimit';
 
@@ -18,7 +18,10 @@ export async function GET(req: NextRequest) {
   const exclude = req.nextUrl.searchParams.get('exclude') || undefined;
   const staffId = req.nextUrl.searchParams.get('staffId') || undefined;
   try {
-    return NextResponse.json({ date, times: await freeTimes(serviceId, date, exclude, staffId) });
+    const { free } = await availability(serviceId, date, exclude);
+    // Each time with the barbers free then; with a barber chosen, only that barber's times.
+    const entries = Array.from(free.entries()).filter(([, ids]) => !staffId || ids.includes(staffId));
+    return NextResponse.json({ date, times: entries.map(([t]) => t), barbers: Object.fromEntries(entries) });
   } catch (err) {
     if (err instanceof AgentError && err.status === 400) {
       return NextResponse.json({ message: err.message }, { status: 400 });

@@ -117,3 +117,78 @@ export function isTimeFree(input: Omit<FreeTimesInput, 'notBeforeMinutes'> & { s
   const capacity = input.capacity ?? SHOP_CAPACITY;
   return overlapping(busyRanges(input.date, input.bookings, input.excludeBookingId), start, start + duration) < capacity;
 }
+
+// ---- Barbers: who is working, and who is free at a time ----
+
+/** One day of a barber's weekly schedule (dayOfWeek: 0 = Sunday), as set in Staff. */
+export interface ScheduleDay {
+  dayOfWeek: number;
+  startTime?: string | null;
+  endTime?: string | null;
+  isActive?: boolean;
+}
+
+export interface BarberHours {
+  staffId: string;
+  name: string;
+  /** No rows (or no row for a day): the barber works whenever the shop is open. */
+  schedule: ScheduleDay[];
+}
+
+export interface BarberBusyBooking extends BusyBooking {
+  staffId?: string;
+}
+
+/** The minutes a barber works on a date (inside the shop's hours), or null when off. */
+export function barberHours(barber: BarberHours, date: string): { open: number; close: number } | null {
+  const shop = openingHours(date);
+  if (!shop) return null;
+  if (barber.schedule.length === 0) return shop;
+  const [y, m, d] = date.split('-').map(Number);
+  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const day = barber.schedule.find((s) => Number(s.dayOfWeek) === weekday);
+  // A day without a row in the schedule counts as the shop's hours; a day switched off is off.
+  if (!day) return shop;
+  if (day.isActive === false) return null;
+  const open = Math.max(shop.open, isoMinutes(day.startTime) ?? shop.open);
+  const close = Math.min(shop.close, isoMinutes(day.endTime) ?? shop.close);
+  return close > open ? { open, close } : null;
+}
+
+/**
+ * Free start times on a date and, for each, the barbers free then (working, and with no
+ * booking of their own overlapping). A booking with no barber (older bookings) takes one of
+ * the free barbers, and the shop's chairs (SHOP_CAPACITY) are never exceeded.
+ * With no barbers set up, this is the plain chair count (freeStartTimes) with no barbers.
+ */
+export function barberAvailability(input: Omit<FreeTimesInput, 'bookings'> & { barbers: BarberHours[]; bookings: BarberBusyBooking[] }): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const shopTimes = freeStartTimes(input);
+  if (input.barbers.length === 0) {
+    for (const t of shopTimes) out.set(t, []);
+    return out;
+  }
+  const duration = Math.max(5, input.durationMinutes || SLOT_STEP_MINUTES);
+  const ranges = (list: BarberBusyBooking[]) => busyRanges(input.date, list, input.excludeBookingId);
+  const unassigned = ranges(input.bookings.filter((b) => !b.staffId));
+  const perBarber = new Map(input.barbers.map((b) => [b.staffId, ranges(input.bookings.filter((x) => x.staffId === b.staffId))]));
+  for (const t of shopTimes) {
+    const start = isoMinutes(t) as number;
+    const end = start + duration;
+    const free = input.barbers
+      .filter((b) => {
+        const hours = barberHours(b, input.date);
+        return !!hours && start >= hours.open && end <= hours.close && overlapping(perBarber.get(b.staffId) || [], start, end) === 0;
+      })
+      .map((b) => b.staffId);
+    if (free.length > overlapping(unassigned, start, end)) out.set(t, free);
+  }
+  return out;
+}
+
+/** "Auto assign": of the barbers free at a time, the one with the fewest bookings that day. */
+export function pickBarber(freeIds: string[], date: string, bookings: BarberBusyBooking[]): string | undefined {
+  const load = (id: string) =>
+    bookings.filter((b) => b.staffId === id && wallClockDate(b.startTime) === date && !RELEASED_STATUSES.includes(String(b.status))).length;
+  return [...freeIds].sort((a, b) => load(a) - load(b))[0];
+}

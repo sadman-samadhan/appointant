@@ -82,6 +82,8 @@ export default function BookPage() {
   const [shopToday, setShopToday] = useState(localISO(new Date()));
   const [date, setDate] = useState(localISO(new Date()));
   const [times, setTimes] = useState<string[]>([]);
+  // For each free time, the barbers free then.
+  const [freeBarbers, setFreeBarbers] = useState<Record<string, string[]>>({});
   const [isLoadingTimes, setIsLoadingTimes] = useState(false);
   const [timesError, setTimesError] = useState<string | null>(null);
   const [time, setTime] = useState('');
@@ -132,18 +134,21 @@ export default function BookPage() {
     setIsLoadingTimes(true);
     setTimesError(null);
     setTime('');
+    setBarberId('');
     try {
-      const res = await getJson<{ times: string[] }>(
-        `/api/public/booking/slots?serviceId=${service.serviceId}&date=${date}${barberId ? `&staffId=${barberId}` : ''}`
+      const res = await getJson<{ times: string[]; barbers?: Record<string, string[]> }>(
+        `/api/public/booking/slots?serviceId=${service.serviceId}&date=${date}`
       );
       setTimes(res.times);
+      setFreeBarbers(res.barbers || {});
     } catch (err: any) {
       setTimes([]);
+      setFreeBarbers({});
       setTimesError(err.message);
     } finally {
       setIsLoadingTimes(false);
     }
-  }, [service, date, barberId]);
+  }, [service, date]);
 
   useEffect(() => {
     if (step === 2) loadTimes();
@@ -352,29 +357,6 @@ export default function BookPage() {
             </button>
           </div>
 
-          {barbers.length > 0 && (
-            <div>
-              <p className="text-xs font-bold text-[var(--foreground)] mb-2 flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5" /> Barber
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {[{ staffId: '', name: 'Any barber' }, ...barbers].map((b) => (
-                  <button
-                    key={b.staffId || 'any'}
-                    onClick={() => setBarberId(b.staffId)}
-                    className={`px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${
-                      b.staffId === barberId
-                        ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
-                        : 'bg-[var(--muted)] border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)]'
-                    }`}
-                  >
-                    {b.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           <div>
             <p className="text-xs font-bold text-[var(--foreground)] mb-2 flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5" /> Day
@@ -414,7 +396,10 @@ export default function BookPage() {
                 {times.map((t) => (
                   <button
                     key={t}
-                    onClick={() => setTime(t)}
+                    onClick={() => {
+                      setTime(t);
+                      setBarberId('');
+                    }}
                     className={`py-2 rounded-xl border text-xs font-bold transition-colors ${
                       t === time
                         ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
@@ -427,6 +412,31 @@ export default function BookPage() {
               </div>
             )}
           </div>
+
+          {/* After the time: who cuts. Only the barbers free at that time are offered. */}
+          {time && barbers.length > 0 && (freeBarbers[time] || []).length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-[var(--foreground)] mb-2 flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5" /> Barber at {wallClockTime(time)}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {[{ staffId: '', name: 'Auto assign' }, ...barbers.filter((b) => freeBarbers[time]?.includes(b.staffId))].map((b) => (
+                  <button
+                    key={b.staffId || 'auto'}
+                    onClick={() => setBarberId(b.staffId)}
+                    className={`px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${
+                      b.staffId === barberId
+                        ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                        : 'bg-[var(--muted)] border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)]'
+                    }`}
+                  >
+                    {b.name}
+                  </button>
+                ))}
+              </div>
+              {!barberId && <p className="text-[11px] text-[var(--muted-foreground)] mt-1.5">Auto assign gives you the first free barber.</p>}
+            </div>
+          )}
 
           {submitError && <p className="text-xs font-bold text-rose-600">{submitError}</p>}
 

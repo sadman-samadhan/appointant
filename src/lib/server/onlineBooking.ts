@@ -3,7 +3,7 @@ import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { BUSINESS } from '@/lib/business';
 import { sameName, servicePrice, serviceDuration, shopClock, SHOP_TIME_ZONE, toList } from '@/lib/format';
 import { formatPhone, isValidPhone, phoneDigits, PHONE_ERROR } from '@/lib/phone';
-import { freeStartTimes, isTimeFree } from '@/lib/slots';
+import { barberAvailability, isTimeFree, pickBarber, type BarberHours, type BarberBusyBooking } from '@/lib/slots';
 import { agentRequest, AgentError } from './shopAgent';
 import { ensureAccountCustomer, type AccountUser } from './customerAccount';
 
@@ -63,18 +63,25 @@ export interface Barber {
 
 /** Barbers customers can choose: active staff whose job title says "Barber". */
 export async function listBarbers(): Promise<Barber[]> {
-  const res = await agentRequest('GET', `/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}&limit=100`);
-  return toList<any>(res, 'staff')
-    .filter((s) => s?.staffId && s.status === 'ACTIVE' && /barber/i.test(String(s.roleTitle || '')))
-    .map((s) => ({ staffId: String(s.staffId), name: String(s.fullName || '').trim() }))
-    .filter((b) => b.name)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return (await barbersWithHours()).map(({ staffId, name }) => ({ staffId, name }));
 }
 
-async function findBarber(staffId: string): Promise<Barber> {
-  const barber = UUID.test(staffId) && (await listBarbers()).find((b) => b.staffId === staffId);
-  if (!barber) throw new AgentError('That barber is not taking online bookings. Please choose another.', 400);
-  return barber;
+/** The barbers with their weekly schedules (set in Staff; none set means all shop hours). */
+async function barbersWithHours(): Promise<BarberHours[]> {
+  const [res, schedules] = await Promise.all([
+    agentRequest('GET', `/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}&limit=100`),
+    agentRequest('GET', '/api/v1/availability/weekly-schedules?entityType=STAFF').catch(() => null),
+  ]);
+  const rows = toList<any>(schedules, 'schedules');
+  return toList<any>(res, 'staff')
+    .filter((s) => s?.staffId && s.status === 'ACTIVE' && /barber/i.test(String(s.roleTitle || '')))
+    .map((s) => ({
+      staffId: String(s.staffId),
+      name: String(s.fullName || '').trim(),
+      schedule: rows.filter((r) => String(r.entityId) === String(s.staffId)),
+    }))
+    .filter((b) => b.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Accepts an online booking: confirms it with HST added (as the shop's Confirm button did). */
@@ -120,31 +127,45 @@ export async function findService(serviceId: string): Promise<BookableService> {
   return service;
 }
 
+/** A date's bookings, each with its barber (the booking list doesn't say; each barber's is fetched). */
+async function bookingsWithBarbers(date: string, barbers: BarberHours[]): Promise<BarberBusyBooking[]> {
+  const [all, ...perBarber] = await Promise.all([bookingsOn(date), ...barbers.map((b) => bookingsOn(date, b.staffId))]);
+  const barberOf = new Map<string, string>();
+  perBarber.forEach((list, i) => list.forEach((b: any) => barberOf.set(String(b.bookingId), barbers[i].staffId)));
+  return all.map((b: any) => ({ ...b, staffId: barberOf.get(String(b.bookingId)) }));
+}
+
 /**
- * Free start times ("HH:MM:SS") for a service on a date. A time is taken by a booking of any
- * service. With a barber (`staffId`), the time must also be free in that barber's own bookings.
- * `excludeBookingId` leaves out a booking that is being moved.
+ * Free start times ("HH:MM:SS") for a service on a date, each with the barbers free then
+ * (working by their schedule, and not booked). `excludeBookingId` leaves out a booking being moved.
  */
-export async function freeTimes(serviceId: string, date: string, excludeBookingId?: string, staffId?: string): Promise<string[]> {
+export async function availability(serviceId: string, date: string, excludeBookingId?: string) {
   const dateError = checkBookableDate(date);
   if (dateError) throw new AgentError(dateError, 400);
-  const [service, bookings, barberBookings] = await Promise.all([
-    findService(serviceId),
-    bookingsOn(date),
-    staffId ? findBarber(staffId).then(() => bookingsOn(date, staffId)) : Promise.resolve(null),
-  ]);
+  const [service, barbers] = await Promise.all([findService(serviceId), barbersWithHours()]);
+  const bookings = await bookingsWithBarbers(date, barbers);
   const now = shopNow();
-  const base = {
+  const free = barberAvailability({
     date,
     durationMinutes: service.durationMinutes,
+    bookings,
+    barbers,
     excludeBookingId,
     // Today: only times still ahead of the clock, with a little notice.
     notBeforeMinutes: date === now.date ? now.minutes + 15 : undefined,
-  };
-  const times = freeStartTimes({ ...base, bookings });
-  if (!barberBookings) return times;
-  const barberFree = new Set(freeStartTimes({ ...base, bookings: barberBookings, capacity: 1 }));
-  return times.filter((t) => barberFree.has(t));
+  });
+  return { service, barbers, bookings, free };
+}
+
+/** Free start times for a service on a date; with a barber (`staffId`), the times that barber is free. */
+export async function freeTimes(serviceId: string, date: string, excludeBookingId?: string, staffId?: string): Promise<string[]> {
+  const { barbers, free } = await availability(serviceId, date, excludeBookingId);
+  if (staffId && !barbers.some((b) => b.staffId === staffId)) {
+    throw new AgentError('That barber is not taking online bookings. Please choose another.', 400);
+  }
+  return Array.from(free.entries())
+    .filter(([, ids]) => !staffId || ids.includes(staffId))
+    .map(([t]) => t);
 }
 
 export interface GuestBookingInput {
@@ -238,14 +259,18 @@ async function findOrCreateGuest(input: GuestBookingInput): Promise<string> {
  * signed in are linked to the account's customer record so they show up under "My account".
  */
 export async function placeOnlineBooking(input: GuestBookingInput, account?: AccountUser | null) {
-  const service = await findService(input.serviceId);
-
   // Re-check the slot right before booking; someone else may have taken it.
-  const times = await freeTimes(input.serviceId, input.date, undefined, input.staffId);
-  const barber = input.staffId ? await findBarber(input.staffId) : null;
-  if (!times.includes(input.startTime)) {
+  const { service, barbers, bookings, free } = await availability(input.serviceId, input.date);
+  const freeBarbers = free.get(input.startTime);
+  if (input.staffId && !barbers.some((b) => b.staffId === input.staffId)) {
+    throw new AgentError('That barber is not taking online bookings. Please choose another.', 400);
+  }
+  if (!freeBarbers || (input.staffId && !freeBarbers.includes(input.staffId))) {
     throw new AgentError('Sorry, that time is not available any more. Please pick another time.', 409);
   }
+  // A chosen barber, or "Auto assign": the free barber with the fewest bookings that day.
+  const barberId = input.staffId || pickBarber(freeBarbers, input.date, bookings);
+  const barber = barbers.find((b) => b.staffId === barberId) || null;
 
   let customerId: string;
   if (account) {
