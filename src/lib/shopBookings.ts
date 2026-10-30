@@ -6,7 +6,7 @@ import { apiRequest } from '@/lib/api/request';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { BUSINESS } from '@/lib/business';
 import { sameName, servicePrice, serviceDuration, shopClock, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
-import { addAutoIncome, addRefund, billTag, listEntries, REFUNDS_CATEGORY, TAKEN_BY_PREFIX, walkInTag, WALK_IN_CATEGORY, type PaidWith } from '@/lib/moneyBook';
+import { addAutoIncome, addRefund, addTaxCorrection, billTag, listEntries, REFUNDS_CATEGORY, TAKEN_BY_PREFIX, walkInTag, WALK_IN_CATEGORY, type PaidWith } from '@/lib/moneyBook';
 import { formatPhone, phoneDigits } from '@/lib/phone';
 import type { BarberHours, TimeBlock } from '@/lib/slots';
 
@@ -343,11 +343,12 @@ export const maxDiscount = (price: number) => Math.max(0, money(price - 0.01));
 /**
  * What the customer owes for an arrived appointment (makes the bill if needed).
  *
- * The backend's bill leaves the booking's tax out of its total (it records the tax but
- * doesn't add it), and it won't complete a booking whose bills include a voided one, so the
- * bill can't simply be redone. Instead the gap between the booking total and the bill is
- * returned as `extraTax`: the customer pays both, and the gap is booked as tax income.
- * Once the backend adds tax itself the gap is zero.
+ * The backend puts the booking's HST on the bill as it was booked, whatever the bill's price.
+ * - A dearer service (an upgrade) leaves HST short: the gap is returned as `extraTax`, the
+ *   customer pays both, and the gap is booked as tax income. (Older bills left the tax out
+ *   of their total altogether; the same gap covers them.)
+ * - A discount or a cheaper service leaves HST too high: the excess is added to the bill's
+ *   discount so the customer pays the right total, and moved from HST back to income.
  */
 export async function billFor(
   booking: ShopBooking,
@@ -371,16 +372,24 @@ export async function billFor(
     : money((booked + extra - discount) * (1 + BUSINESS.taxRate));
   if (!bill && opts.create) {
     const name = opts.service?.name || booking.serviceName;
+    const bookedTax = toNumber(details?.taxAmount);
+    const rightTax = money((booked + extra - discount) * BUSINESS.taxRate);
+    // Can't take the bill below one cent (see maxDiscount).
+    const overTax = Math.max(0, Math.min(money(bookedTax - rightTax), money(booked + extra - 0.01 - discount)));
     const created = await apiRequest<any>(`/api/v1/bookings/${booking.bookingId}/invoice-draft`, {
       method: 'POST',
       body: JSON.stringify({
         currency: BUSINESS.currency,
         notes: `${name} for ${booking.customerName}${name !== booking.serviceName ? ` (booked: ${booking.serviceName})` : ''}`,
-        ...(discount > 0 ? { discountAmount: discount } : {}),
+        taxRate: BUSINESS.taxRate * 100,
+        ...(discount + overTax > 0 ? { discountAmount: money(discount + overTax) } : {}),
         ...(extra > 0 ? { otherAmount: extra } : {}),
       }),
     });
     bill = toBill(created);
+    if (overTax > 0) {
+      await addTaxCorrection({ amount: overTax, date: todayISO(), note: billNote(booking.customerName, bill) });
+    }
   }
   if (!bill) return { bill: null, extraTax: 0, totalDue: expected, price, discountable };
   const extraTax = bill.amountPaid > 0 ? 0 : Math.max(0, money(expected - bill.total));
@@ -445,7 +454,10 @@ export async function refundableFor(booking: ShopBooking): Promise<number> {
   const refunded = (await listEntries(since, todayISO()))
     .filter((e) => e.category === REFUNDS_CATEGORY && e.reference === bill.invoiceNumber)
     .reduce((sum, e) => sum - e.amount, 0);
-  const left = money((bill.subtotal - bill.discount) * (1 + BUSINESS.taxRate) - refunded);
+  // Newer bills include HST in their total (a discounted one's extra discount is HST moved back);
+  // older ones left it out and it was charged on top.
+  const charged = Math.max(money((bill.subtotal - bill.discount) * (1 + BUSINESS.taxRate)), bill.total);
+  const left = money(charged - refunded);
   if (!(left > 0)) throw new Error('This appointment was already refunded in full.');
   return left;
 }

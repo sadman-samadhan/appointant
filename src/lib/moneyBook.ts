@@ -381,6 +381,29 @@ export async function addAutoIncome(
 }
 
 /**
+ * HST the backend put on a discounted bill above what is owed: moved back to service income.
+ * No money moves; Accounting folds it into the bill's entry (see journalToEntry).
+ */
+export async function addTaxCorrection(input: { amount: number; date: string; note: string }) {
+  const amount = Math.round(toNumber(input.amount) * 100) / 100;
+  if (!(amount > 0)) return;
+  const revenue = await ensureAccount(SERVICE_CODE, 'Service Revenue', 'REVENUE');
+  const taxAcc = await ensureAccount(TAX_CODE, 'Tax Payable', 'LIABILITY');
+  await apiRequest('/api/v1/accounting/journals', {
+    method: 'POST',
+    body: JSON.stringify({
+      branchId: DEFAULT_BRANCH_ID,
+      description: `${SALES_TAX_CATEGORY}${NOTE_SEPARATOR}${input.note}`,
+      entryDate: input.date,
+      lines: [
+        { accountId: taxAcc.accountId, debitAmount: amount, creditAmount: 0 },
+        { accountId: revenue.accountId, debitAmount: 0, creditAmount: amount },
+      ],
+    }),
+  });
+}
+
+/**
  * Money given back to a customer (all or part of a payment): takes the HST share back off the
  * tax owed and the rest off service income, paid out of the cash drawer or the bank.
  */
@@ -543,8 +566,16 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
     category = type === 'IN' ? 'Other income' : 'Other expense';
     note = description;
   }
-  // Older "Sales tax" entries were booked to revenue; it is still all HST.
-  if (category === SALES_TAX_CATEGORY) tax = amount;
+  // Older "Sales tax" entries were booked to revenue; it is still all HST. One that moved no
+  // money is a correction (addTaxCorrection): HST taken off, the same amount added to income.
+  if (category === SALES_TAX_CATEGORY) {
+    if (moneyLine) {
+      tax = amount;
+    } else {
+      tax = taxNet;
+      amount = 0;
+    }
+  }
   if (categoryAcc?.accountCode === TIPS_CODE) tip = amount;
 
   return {

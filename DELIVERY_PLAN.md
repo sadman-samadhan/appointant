@@ -49,22 +49,25 @@ All work items are done. The build passes, and these were tested in the browser 
 Not tested end-to-end: a booking made while **signed in as a customer**, and editing details as a customer. No customer test account was available.
 
 ## Backend bugs found (frontend works around them; the backend team should fix)
-1. **Forgot password**: `POST /auth/forgot-password` returns 500 for real accounts, so no email is sent.
-2. **Time zone**: the backend stores shop wall-clock times with a `Z` (UTC) suffix and rejects any time earlier than its UTC clock. Same-day times in the next 3–4 hours can't be booked. *Workaround:* those times aren't offered, and walk-ins are recorded as income instead of as bookings.
-3. **Bills leave out tax**: `invoice-draft` records the tax but doesn't add it to the total. *Workaround:* the customer is charged the full booking total, and the missing tax is recorded as "Sales tax" income.
-4. **Voided bills**: voiding doesn't reverse the bill's income, and `complete` still counts a voided bill as unpaid. *Workaround:* the app never voids bills, and Accounting skips income from voided bills.
-5. **Arrived is final**: `CHECKED_IN` can't be cancelled or marked no-show. Arrived only offers "Finish & take payment".
-6. **Default tax**: the tenant setting `taxRate` is 10%. The app applies 15% on confirm. Setting it to 15 in tenant settings would make new online bookings show 15% from the start.
-7. No endpoint to change a user's sign-in email. Customers can edit their name and phone; email is read-only.
-8. **Search hides contacts**: the tenant customer search returns only the contact that matched (e.g. the email), not the phone. *Workaround:* the full contact list is read separately.
-9. **Only confirmed bookings can be moved**: `reschedule` refuses bookings still to confirm, and can't change the barber. *Workaround:* the booking is made again at the new time / barber and the old one cancelled.
-10. **Barbers can't bill**: a barber's login gets 403 on billing, payments and accounting. *Workaround:* a barber's "Take payment" goes through the app's server (`/api/barber/bookings/[id]/pay`), which checks it is the barber's own arrived booking and records it with the shop account. Every payment, tip, HST line and walk-in notes who took the money ("Taken by …"); Accounting shows it per entry and as "Money taken by" totals.
-12. **Confirm overwrites notes**: `POST /bookings/{id}/confirm` with a `note` replaces the booking's notes. *Workaround:* the app confirms without a note.
-13. **No $0 bills**: `invoice-draft` with a 100% discount fails ("A journal line must have either debit or credit amount"). *Workaround:* a free service is charged $0.01.
-14. **Refunds use the bank and keep the HST**: `POST /payments/{id}/refund` always credits the Bank account (even for a cash payment) and doesn't reverse the HST. *Workaround:* the app records refunds itself (Refunds entry, HST share off the tax owed, cash or card as chosen).
-15. **No card payment method**: `paymentMethod` is CASH, CHECK or BANK_TRANSFER. *Workaround:* card and debit are recorded as BANK_TRANSFER with reference "Card".
-16. **Proxies and 204**: fixed in the frontend (a DELETE's 204 was reported as a 502).
-11. **Staff login**: an existing staff record can't be given a login later (no `userId` in the staff update). Archive and add them again with "Create a login". Passwords need 10+ characters with upper, lower, number and symbol.
+Re-checked against the live backend on 2026-10-30 (evening). ✅ fixed · ⚠️ partly fixed · ❌ not fixed · ❔ not re-tested.
+
+1. ❌ **Forgot password**: `POST /auth/forgot-password` now answers 503 "Could not send the password reset email" (was 500). Still no email. It also answers 404 "User not found" for unknown emails, which tells anyone which emails have accounts.
+2. ✅ **Time zone**: same-day times later today can be booked; earlier times today are refused. (Times are still stored with a `Z` suffix, but compared correctly.)
+3. ✅ **Bills leave out tax**: the bill total now includes the tax. **New problem (17 below).**
+4. ✅ **Voided bills**: voiding reverses the bill's income, and a new bill can be made after a void.
+5. ✅ **Arrived is final**: an arrived booking can now be marked no-show. (The app still offers only "Finish & take payment" for Arrived.)
+6. ⚠️ **Default tax**: `taxRate` can now be set in tenant settings, but it is still 10%. Set it to 15.
+7. ❔ No endpoint to change a user's sign-in email (none in the Core API; the Auth API docs need a login to read).
+8. ✅ **Search hides contacts**: searching by name or phone now returns every contact.
+9. ✅ **Only confirmed bookings can be moved**: drafts can be rescheduled, and `reschedule` takes a `staffId` to change the barber.
+10. ❔ **Barbers can't bill**: not re-tested (needs a barber sign-in). The app's server route still works either way.
+11. ✅ **Staff login**: the staff update now takes `createUser` + `password` (or `userId`) for staff with no login (from the API description; not tried, as it creates a real login).
+12. ✅ **Confirm overwrites notes**: confirm's note is now added below the booking's notes.
+13. ❌ **No $0 bills**: a 100% discount still fails ("A journal line must have either debit or credit amount").
+14. ⚠️ **Refunds**: a cash payment is now refunded from Cash, but the whole amount still comes off service income and the HST is not reversed. The app still records refunds itself.
+15. ❌ **No card payment method**: payments still take only CASH, CHECK or BANK_TRANSFER.
+16. ✅ **Proxies and 204**: fixed in the frontend.
+17. ❌ **New: bill tax ignores discounts and upgrades**: the bill copies the booking's HST as booked ($3.30 on a $22 trim) even when the bill has a discount or an extra charge. $22 − $5 discount gave a $20.30 total instead of $19.55. *Workaround (app):* the extra HST is added to the bill's discount so the customer pays the right total, and a "Sales tax" correction moves it from HST back to income. Upgrades already add the missing HST. A "free" service now costs the booked HST plus $0.01 (e.g. $3.31), since the bill can't go lower; this needs 13 and 17 fixed.
 
 ## Test data left in the dev backend
 - Booking SAL-2026-000016 "TEST Claude QA 3": paid $28.75 but stuck as Arrived because of bug 4 (a voided test bill). SAL-000015 and SAL-000017 are cancelled.
@@ -76,6 +79,7 @@ Not tested end-to-end: a booking made while **signed in as a customer**, and edi
 - Barber schedule / auto-assign / email tests (Oct 29): SAL-2026-000043, 000046, 000047, 000048, 000049 cancelled; test schedules removed (no schedules are set).
 - QA run (Oct 30): test bookings SAL-2026-000053–000063 cancelled; SAL-2026-000056 paid $0.01 (free-service test) and SAL-2026-000064 paid $25.00 by Munim2, both "TEST Phone Renamed".
 - Six-fixes test (Oct 30): SAL-2026-000005 "TEST USER" (Oct 26) paid $23.00 then refunded in full; SAL-2026-000065 paid $25.00 by card (Munim2) with $5.00 refunded by card; SAL-2026-000066 paid $43.70 and refunded in full; SAL-2026-000067 paid $43.70 by card after an upgrade to Haircut & Beard Trim Combo. Test walk-ins C–F reversed; test days off removed.
+- Backend re-check (Oct 30 evening): SAL-2026-000068, 000070 and 000071 marked no-show; SAL-2026-000069 paid $25.30 cash and refunded through the backend (shows in Accounting as a -$25.30 refund); SAL-2026-000072 paid $19.55 after a $5 discount (the fix for 17). Voided test bills INV-20261030-BE6F57, -C3E1A7 and two on SAL-000071.
 - Ankon Ghosh's booking SAL-2026-000027 (Nov 4, 12:30) was cancelled by mistake during testing and re-booked as SAL-2026-000035 (same time, service and status).
 - Staff "Munim" (no login, the email already had an account) and "Munim2" (barber login) were added by the client while testing.
 
