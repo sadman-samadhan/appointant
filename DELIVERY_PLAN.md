@@ -68,6 +68,7 @@ Not tested end-to-end: a booking made while **signed in as a customer**, and edi
 - Customers "TEST Claude QA", "TEST Claude QA 3", "TEST Claude Walk-in". The test walk-in income was reversed.
 - 2026-10-29 customer-side work: customer "TEST Phone Renamed" with cancelled test bookings, and SAL-2026-000041 (Nov 3, 3:00 PM, with Munim2), paid by Munim2 while testing barber payments: $26.00 incl. $3 tip, recorded on Oct 29. Archived staff "TEST Barber Claude".
 - Discount tests (Oct 29): SAL-2026-000044 (Nov 5) paid $17.25 after a $5 discount, SAL-2026-000045 (Nov 6) paid $23.00 after a $3 discount, both "TEST Phone Renamed". The test walk-in "TEST Claude Walkin B" was reversed.
+- Barber schedule / auto-assign / email tests (Oct 29): SAL-2026-000043, 000046, 000047, 000048, 000049 cancelled; test schedules removed (no schedules are set).
 - Ankon Ghosh's booking SAL-2026-000027 (Nov 4, 12:30) was cancelled by mistake during testing and re-booked as SAL-2026-000035 (same time, service and status).
 - Staff "Munim" (no login, the email already had an account) and "Munim2" (barber login) were added by the client while testing.
 
@@ -82,4 +83,6 @@ Every item is fixed in the frontend except:
 ## Needs from the client / backend team
 - HST registration number for the report header (`hstNumber` in `src/lib/business.ts`).
 - Vercel env vars: `BOOKING_AGENT_USERID`, `BOOKING_AGENT_PASSWORD` (the owner account) and `BOOKING_STRICT_CHECKS=true`.
+- Vercel env vars for customer emails: `SMTP_HOST=premium180.web-hosting.com`, `SMTP_PORT=465`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` (see `.env.example`). Until they are set, no email is sent.
+- Backend (Auth Service): password reset and sign-up codes are sent by the Auth Service, not the website. Its `/auth/forgot-password` returns 500 (probably no mail server set up there). Give it the same mail server settings, and add an email code step to `/auth/register` if sign-up codes are wanted.
 - Backend: fix `/auth/forgot-password` (500, no email sent). Add an endpoint to change a user's sign-in email if that's required.
