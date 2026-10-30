@@ -57,8 +57,9 @@ async function arrivedBookingOf(barber: Barber, bookingId: string): Promise<Shop
 }
 
 /** What the customer owes (makes the bill if needed). */
-export async function barberAmountDue(barber: Barber, bookingId: string): Promise<number> {
-  return (await billFor(await arrivedBookingOf(barber, bookingId))).totalDue;
+export async function barberAmountDue(barber: Barber, bookingId: string): Promise<{ totalDue: number; price: number }> {
+  const { totalDue, price } = await billFor(await arrivedBookingOf(barber, bookingId), { create: false });
+  return { totalDue, price };
 }
 
 /** Takes the payment, marks the appointment done and records the barber as having taken it. */

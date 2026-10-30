@@ -67,6 +67,7 @@ Not tested end-to-end: a booking made while **signed in as a customer**, and edi
 - Booking "TEST Claude Highlight" (Oct 31, Beard Trim): paid $27.30 incl. $2 tip on Oct 29 while testing; an arrived booking can't be cancelled. "TEST Mo Claude" / "TEST Mo Online" bookings are cancelled.
 - Customers "TEST Claude QA", "TEST Claude QA 3", "TEST Claude Walk-in". The test walk-in income was reversed.
 - 2026-10-29 customer-side work: customer "TEST Phone Renamed" with cancelled test bookings, and SAL-2026-000041 (Nov 3, 3:00 PM, with Munim2), paid by Munim2 while testing barber payments: $26.00 incl. $3 tip, recorded on Oct 29. Archived staff "TEST Barber Claude".
+- Discount tests (Oct 29): SAL-2026-000044 (Nov 5) paid $17.25 after a $5 discount, SAL-2026-000045 (Nov 6) paid $23.00 after a $3 discount, both "TEST Phone Renamed". The test walk-in "TEST Claude Walkin B" was reversed.
 - Ankon Ghosh's booking SAL-2026-000027 (Nov 4, 12:30) was cancelled by mistake during testing and re-booked as SAL-2026-000035 (same time, service and status).
 - Staff "Munim" (no login, the email already had an account) and "Munim2" (barber login) were added by the client while testing.
 

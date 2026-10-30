@@ -6,7 +6,7 @@ import { apiRequest } from '@/lib/api/request';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { BUSINESS } from '@/lib/business';
 import { sameName, servicePrice, serviceDuration, shopClock, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
-import { addAutoIncome, billTag, hstIncluded, listEntries, TAKEN_BY_PREFIX, WALK_IN_CATEGORY } from '@/lib/moneyBook';
+import { addAutoIncome, billTag, listEntries, TAKEN_BY_PREFIX, WALK_IN_CATEGORY } from '@/lib/moneyBook';
 import { formatPhone, phoneDigits } from '@/lib/phone';
 
 export interface ShopBooking {
@@ -257,6 +257,8 @@ interface Bill {
   total: number;
   amountPaid: number;
   balanceDue: number;
+  /** Discount on the bill, before tax. */
+  discount: number;
   customerId?: string;
 }
 
@@ -267,6 +269,7 @@ function toBill(inv: any): Bill {
     total: toNumber(inv.total),
     amountPaid: toNumber(inv.amountPaid),
     balanceDue: toNumber(inv.balanceDue ?? inv.total),
+    discount: toNumber(inv.discountAmount),
     customerId: inv.customerId,
   };
 }
@@ -289,19 +292,33 @@ async function findBill(bookingId: string): Promise<Bill | null> {
  * returned as `extraTax`: the customer pays both, and the gap is booked as tax income.
  * Once the backend adds tax itself the gap is zero.
  */
-export async function billFor(booking: ShopBooking): Promise<{ bill: Bill; extraTax: number; totalDue: number }> {
+export async function billFor(
+  booking: ShopBooking,
+  opts: { discount?: number; create?: boolean } = { create: true }
+): Promise<{ bill: Bill | null; extraTax: number; totalDue: number; price: number; discountable: boolean }> {
   const details = await apiRequest<any>(`/api/v1/bookings/${booking.bookingId}`);
   let bill = await findBill(booking.bookingId);
-  if (!bill) {
+  const fullTotal = money(toNumber(details?.totalPrice ?? booking.total));
+  // The price before HST; a discount comes off it (and so off the HST too).
+  const price = money(fullTotal / (1 + BUSINESS.taxRate));
+  // A discount goes on the bill when it is made; an existing bill can't be changed.
+  const discountable = !bill;
+  const discount = bill ? bill.discount : Math.min(price, Math.max(0, money(opts.discount || 0)));
+  const expected = money(fullTotal - discount * (1 + BUSINESS.taxRate));
+  if (!bill && opts.create) {
     const created = await apiRequest<any>(`/api/v1/bookings/${booking.bookingId}/invoice-draft`, {
       method: 'POST',
-      body: JSON.stringify({ currency: BUSINESS.currency, notes: `${booking.serviceName} for ${booking.customerName}` }),
+      body: JSON.stringify({
+        currency: BUSINESS.currency,
+        notes: `${booking.serviceName} for ${booking.customerName}`,
+        ...(discount > 0 ? { discountAmount: discount } : {}),
+      }),
     });
     bill = toBill(created);
   }
-  const expected = money(toNumber(details?.totalPrice ?? booking.total));
+  if (!bill) return { bill: null, extraTax: 0, totalDue: expected, price, discountable };
   const extraTax = bill.amountPaid > 0 ? 0 : Math.max(0, money(expected - bill.total));
-  return { bill, extraTax, totalDue: money(bill.balanceDue + extraTax) };
+  return { bill, extraTax, totalDue: money(bill.balanceDue + extraTax), price, discountable };
 }
 
 // Accounting shows the HST and tip of a bill together with the bill's payment (see moneyBook).
@@ -315,9 +332,10 @@ export const takenByNote = (name: string) => `${TAKEN_BY_PREFIX}${name}`;
  * as income automatically; a tip is added to the Accounting book separately. `takenBy` is
  * who took the money (the barber, or "Owner"), kept with the payment for the day's cash-up.
  */
-export async function finishAndPay(booking: ShopBooking, opts: { tip?: number; takenBy?: string } = {}) {
+export async function finishAndPay(booking: ShopBooking, opts: { tip?: number; takenBy?: string; discount?: number } = {}) {
   const by = opts.takenBy?.trim() ? ` — ${takenByNote(opts.takenBy.trim())}` : '';
-  const { bill, extraTax, totalDue } = await billFor(booking);
+  const { bill: made, extraTax, totalDue } = await billFor(booking, { discount: opts.discount, create: true });
+  const bill = made as Bill;
   if (bill.balanceDue > 0) {
     await apiRequest('/api/v1/payments', {
       method: 'POST',
@@ -355,15 +373,30 @@ const WALK_IN_SEPARATOR = ' · ';
  * Walk-ins are not made as backend bookings: the backend refuses any booking time earlier
  * than its UTC clock (3-4 hours ahead of the shop), so "now" can't be booked.
  */
-export async function recordWalkIn(input: { service: ShopService; customerName?: string; amountPaid: number; takenBy?: string }) {
+export async function recordWalkIn(input: {
+  service: ShopService;
+  customerName?: string;
+  /** The price charged before HST (the service price, or less for a discount). */
+  price: number;
+  tip?: number;
+  /** The day of the visit (default today). */
+  date?: string;
+  takenBy?: string;
+}) {
   const name = input.customerName?.trim() || 'Walk-in customer';
+  const by = input.takenBy?.trim() ? ` — ${takenByNote(input.takenBy.trim())}` : '';
+  const date = input.date || todayISO();
+  const price = money(input.price);
+  if (!(price > 0)) throw new Error('Enter the price.');
   await addAutoIncome('walkIn', {
-    amount: money(input.amountPaid),
-    // The price shown for a walk-in includes HST.
-    tax: hstIncluded(money(input.amountPaid)),
-    date: todayISO(),
-    note: `${input.service.name}${WALK_IN_SEPARATOR}${name}${input.takenBy?.trim() ? ` — ${takenByNote(input.takenBy.trim())}` : ''}`,
+    amount: money(price + taxOn(price)),
+    tax: taxOn(price),
+    date,
+    note: `${input.service.name}${WALK_IN_SEPARATOR}${name}${by}`,
   });
+  if (input.tip && input.tip > 0) {
+    await addAutoIncome('tip', { amount: money(input.tip), date, note: `Walk-in${WALK_IN_SEPARATOR}${name}${by}` });
+  }
 }
 
 /** Walk-in sales between two dates, shaped like bookings for the appointment list. */

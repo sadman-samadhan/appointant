@@ -81,6 +81,30 @@ async function barberPay<T>(bookingId: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+/** "Cash given" → how much to hand back (or what is still owed). */
+function ChangeCalculator({ total }: { total: number }) {
+  const [given, setGiven] = useState('');
+  const cash = parseFloat(given);
+  const diff = Number.isFinite(cash) ? money(cash - total) : null;
+  return (
+    <div className="grid grid-cols-2 gap-3 items-end">
+      <div>
+        <label className={labelClass}>Cash given ($)</label>
+        <input type="number" inputMode="decimal" step="0.01" min="0" value={given} onChange={(e) => setGiven(e.target.value)} placeholder="e.g. 100" className={inputClass} />
+      </div>
+      <div className="pb-1">
+        {diff === null ? (
+          <p className="text-[11px] text-[var(--muted-foreground)]">Type the cash the customer gave to see the change.</p>
+        ) : diff >= 0 ? (
+          <p className="text-sm font-black text-emerald-700">Give back ${formatMoney(diff)}</p>
+        ) : (
+          <p className="text-sm font-black text-rose-600">Still owed ${formatMoney(-diff)}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Free start times on a date; with a barber, also free in that barber's own bookings. */
 function freeTimesFor(input: { bookings: ShopBooking[]; durationMinutes: number; date: string; excludeBookingId?: string; staffId?: string }) {
   const base = {
@@ -381,13 +405,17 @@ function AppointmentsPage() {
   const [showWalkIn, setShowWalkIn] = useState(false);
   const [walkServiceId, setWalkServiceId] = useState('');
   const [walkName, setWalkName] = useState('');
-  const [walkAmount, setWalkAmount] = useState('');
+  const [walkPrice, setWalkPrice] = useState('');
+  const [walkTip, setWalkTip] = useState('');
+  const [walkDate, setWalkDate] = useState(todayISO());
   const [walkError, setWalkError] = useState<string | null>(null);
 
   // Per-booking dialogs
   const [payBooking, setPayBooking] = useState<ShopBooking | null>(null);
-  const [payDue, setPayDue] = useState<number | null>(null);
+  // What is owed (incl. HST), the price before HST, and whether a discount can still go on the bill.
+  const [payInfo, setPayInfo] = useState<{ totalDue: number; price: number; discountable: boolean } | null>(null);
   const [payTip, setPayTip] = useState('');
+  const [payDiscount, setPayDiscount] = useState('');
   const [cancelTarget, setCancelTarget] = useState<ShopBooking | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [moveTarget, setMoveTarget] = useState<ShopBooking | null>(null);
@@ -443,7 +471,9 @@ function AppointmentsPage() {
   const openWalkIn = useCallback(() => {
     setWalkServiceId('');
     setWalkName('');
-    setWalkAmount('');
+    setWalkPrice('');
+    setWalkTip('');
+    setWalkDate(todayISO());
     setWalkError(null);
     setShowWalkIn(true);
   }, []);
@@ -535,20 +565,22 @@ function AppointmentsPage() {
   };
 
   const walkService = serviceById(walkServiceId);
-  const walkDue = walkService ? money(walkService.price + taxOn(walkService.price)) : 0;
+  const walkPriceNum = money(parseFloat(walkPrice) || 0);
+  const walkTipNum = money(parseFloat(walkTip) || 0);
+  const walkTotal = money(walkPriceNum + taxOn(walkPriceNum) + walkTipNum);
 
   const handleWalkIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!walkService) return setWalkError('Choose the service.');
-    const amount = parseFloat(walkAmount);
-    if (!(amount > 0)) return setWalkError('Enter the amount the customer paid.');
+    if (!(walkPriceNum > 0)) return setWalkError('Enter the price.');
+    if (walkDate > todayISO()) return setWalkError('A walk-in can’t be in the future.');
     setIsSaving(true);
     setWalkError(null);
     try {
-      await recordWalkIn({ service: walkService, customerName: walkName, amountPaid: amount, takenBy });
+      await recordWalkIn({ service: walkService, customerName: walkName, price: walkPriceNum, tip: walkTipNum, date: walkDate, takenBy });
       setShowWalkIn(false);
-      showSuccess('Walk-in saved', `$${formatMoney(amount)} added to today’s income.`);
-      showDay(todayISO());
+      showSuccess('Walk-in saved', `$${formatMoney(walkTotal)} added to ${walkDate === todayISO() ? 'today’s' : prettyDate(walkDate) + '’s'} income.`);
+      showDay(walkDate);
       setStatusFilter('ALL');
       reload();
     } catch (err: any) {
@@ -560,10 +592,14 @@ function AppointmentsPage() {
 
   const openPay = async (b: ShopBooking) => {
     setPayBooking(b);
-    setPayDue(null);
+    setPayInfo(null);
     setPayTip('');
+    setPayDiscount('');
     try {
-      setPayDue(isBarber ? (await barberPay<{ totalDue: number }>(b.bookingId)).totalDue : (await billFor(b)).totalDue);
+      // Only works out the amount; the bill is made when the cash is taken (so a discount can go on it).
+      const info = isBarber ? await barberPay<{ totalDue: number; price: number }>(b.bookingId) : await billFor(b, { create: false });
+      // Discounts are the owner's call.
+      setPayInfo({ totalDue: info.totalDue, price: info.price, discountable: !isBarber && 'discountable' in info && !!info.discountable });
     } catch (err: any) {
       setPayBooking(null);
       showError('Could not make the bill', err.message || 'Please try again.');
@@ -572,12 +608,12 @@ function AppointmentsPage() {
 
   const handlePay = async () => {
     if (!payBooking) return;
-    const tip = parseFloat(payTip) || 0;
+    const tip = money(parseFloat(payTip) || 0);
     setIsSaving(true);
     try {
       const paid = isBarber
         ? (await barberPay<{ paid: number }>(payBooking.bookingId, { method: 'POST', body: JSON.stringify({ tip }) })).paid
-        : await finishAndPay(payBooking, { tip, takenBy });
+        : await finishAndPay(payBooking, { tip, takenBy, discount: payDiscountNum });
       setPayBooking(null);
       showSuccess('Paid', `$${formatMoney(paid + tip)} from ${payBooking.customerName}. All done!`);
       markDone(payBooking.bookingId, `Paid $${formatMoney(paid + tip)}`);
@@ -589,6 +625,10 @@ function AppointmentsPage() {
       setIsSaving(false);
     }
   };
+
+  const payDiscountNum = payInfo?.discountable ? Math.min(payInfo.price, money(parseFloat(payDiscount) || 0)) : 0;
+  const payDueNow = payInfo ? money(Math.max(0, payInfo.totalDue - payDiscountNum * (1 + BUSINESS.taxRate))) : null;
+  const payTotal = payDueNow === null ? null : money(payDueNow + (parseFloat(payTip) || 0));
 
   const handleCancel = async () => {
     if (!cancelTarget) return;
@@ -987,7 +1027,7 @@ function AppointmentsPage() {
       {/* Walk-in */}
       <Modal isOpen={showWalkIn} onClose={() => setShowWalkIn(false)} title="Walk-in customer" maxWidth="sm">
         <form onSubmit={handleWalkIn} className="space-y-4">
-          <p className="text-xs text-[var(--muted-foreground)]">For a customer served without a booking. Saves the visit and adds the cash to today’s income.</p>
+          <p className="text-xs text-[var(--muted-foreground)]">For a customer served without a booking. Saves the visit and adds the money to that day’s income.</p>
           <div>
             <label className={labelClass}>Service</label>
             <select
@@ -995,7 +1035,7 @@ function AppointmentsPage() {
               onChange={(e) => {
                 setWalkServiceId(e.target.value);
                 const s = serviceById(e.target.value);
-                setWalkAmount(s ? formatMoney(s.price + taxOn(s.price)) : '');
+                setWalkPrice(s ? formatMoney(s.price) : '');
               }}
               className={inputClass}
             >
@@ -1007,18 +1047,37 @@ function AppointmentsPage() {
               ))}
             </select>
           </div>
-          <div>
-            <label className={labelClass}>Amount paid ($)</label>
-            <input type="number" inputMode="decimal" step="0.01" min="0" value={walkAmount} onChange={(e) => setWalkAmount(e.target.value)} className={`${inputClass} text-lg font-black`} />
-            {walkService && (
-              <p className="text-[11px] text-[var(--muted-foreground)] mt-1">
-                Price ${formatMoney(walkService.price)} + {BUSINESS.taxLabel} ${formatMoney(taxOn(walkService.price))} = ${formatMoney(walkDue)}. Extra counts as a tip.
-              </p>
-            )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Price before {BUSINESS.taxLabel} ($)</label>
+              <input type="number" inputMode="decimal" step="0.01" min="0" value={walkPrice} onChange={(e) => setWalkPrice(e.target.value)} className={inputClass} />
+              {walkService && walkPriceNum < walkService.price && walkPriceNum > 0 && (
+                <p className="text-[11px] text-emerald-700 mt-1">Discount ${formatMoney(walkService.price - walkPriceNum)}</p>
+              )}
+            </div>
+            <div>
+              <label className={labelClass}>Tip ($)</label>
+              <input type="number" inputMode="decimal" step="0.01" min="0" value={walkTip} onChange={(e) => setWalkTip(e.target.value)} placeholder="0.00" className={inputClass} />
+            </div>
           </div>
-          <div>
-            <label className={labelClass}>Customer name (optional)</label>
-            <input value={walkName} onChange={(e) => setWalkName(e.target.value)} placeholder="Walk-in customer" className={inputClass} />
+          {walkService && walkPriceNum > 0 && (
+            <div className="p-3 rounded-xl bg-[var(--muted)] text-xs space-y-0.5">
+              <p className="flex justify-between"><span>Price</span><span>${formatMoney(walkPriceNum)}</span></p>
+              <p className="flex justify-between"><span>{BUSINESS.taxLabel}</span><span>${formatMoney(taxOn(walkPriceNum))}</span></p>
+              {walkTipNum > 0 && <p className="flex justify-between"><span>Tip</span><span>${formatMoney(walkTipNum)}</span></p>}
+              <p className="flex justify-between text-sm font-black text-[var(--foreground)] pt-1"><span>Total</span><span>${formatMoney(walkTotal)}</span></p>
+            </div>
+          )}
+          {walkService && walkPriceNum > 0 && <ChangeCalculator total={walkTotal} />}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Date</label>
+              <input type="date" value={walkDate} max={todayISO()} min={addDays(todayISO(), -60)} onChange={(e) => setWalkDate(e.target.value || todayISO())} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Customer name (optional)</label>
+              <input value={walkName} onChange={(e) => setWalkName(e.target.value)} placeholder="Walk-in customer" className={inputClass} />
+            </div>
           </div>
           {walkError && <p className="text-xs font-bold text-rose-600">{walkError}</p>}
           <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
@@ -1038,16 +1097,31 @@ function AppointmentsPage() {
               <p className="text-sm font-bold text-[var(--foreground)]">{payBooking.customerName}</p>
               <p className="text-xs text-[var(--muted-foreground)]">{payBooking.serviceName}</p>
               <p className="text-3xl font-black text-[var(--foreground)] pt-2">
-                {payDue === null ? '…' : `$${formatMoney(payDue)}`} <span className="text-xs font-bold text-[var(--muted-foreground)]">incl. {BUSINESS.taxLabel}</span>
+                {payTotal === null ? '…' : `$${formatMoney(payTotal)}`}{' '}
+                <span className="text-xs font-bold text-[var(--muted-foreground)]">
+                  incl. {BUSINESS.taxLabel}
+                  {parseFloat(payTip) > 0 ? ' and tip' : ''}
+                </span>
               </p>
+              {payDiscountNum > 0 && <p className="text-xs font-bold text-emerald-700">Discount ${formatMoney(payDiscountNum)} (before {BUSINESS.taxLabel})</p>}
             </div>
-            <div>
-              <label className={labelClass}>Tip (optional, $)</label>
-              <input type="number" inputMode="decimal" step="0.01" min="0" value={payTip} onChange={(e) => setPayTip(e.target.value)} placeholder="0.00" className={inputClass} />
+            <div className={`grid gap-3 ${payInfo?.discountable ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {payInfo?.discountable && (
+                <div>
+                  <label className={labelClass}>Discount ($)</label>
+                  <input type="number" inputMode="decimal" step="0.01" min="0" max={payInfo.price} value={payDiscount} onChange={(e) => setPayDiscount(e.target.value)} placeholder="0.00" className={inputClass} />
+                  <p className="text-[11px] text-[var(--muted-foreground)] mt-1">Price ${formatMoney(payInfo.price)} before {BUSINESS.taxLabel}</p>
+                </div>
+              )}
+              <div>
+                <label className={labelClass}>Tip (optional, $)</label>
+                <input type="number" inputMode="decimal" step="0.01" min="0" value={payTip} onChange={(e) => setPayTip(e.target.value)} placeholder="0.00" className={inputClass} />
+              </div>
             </div>
+            {payTotal !== null && <ChangeCalculator total={payTotal} />}
             <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
               <button type="button" onClick={() => setPayBooking(null)} className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]">Close</button>
-              <button onClick={handlePay} disabled={isSaving || payDue === null} className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">
+              <button onClick={handlePay} disabled={isSaving || payTotal === null} className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">
                 {isSaving ? 'Saving…' : 'Cash received'}
               </button>
             </div>

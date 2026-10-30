@@ -19,7 +19,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   if (!agentConfigured()) return NextResponse.json({ message: 'Ask the owner to take the payment.' }, { status: 503 });
   try {
     const barber = await barberFromRequest(req);
-    return NextResponse.json({ totalDue: await barberAmountDue(barber, (await params).bookingId) });
+    return NextResponse.json(await barberAmountDue(barber, (await params).bookingId));
   } catch (err) {
     return failure(err, 'bill');
   }
