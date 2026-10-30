@@ -6,7 +6,7 @@ import { apiRequest } from '@/lib/api/request';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { BUSINESS } from '@/lib/business';
 import { sameName, servicePrice, serviceDuration, shopClock, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
-import { addAutoIncome, billTag, listEntries, TAKEN_BY_PREFIX, WALK_IN_CATEGORY } from '@/lib/moneyBook';
+import { addAutoIncome, billTag, listEntries, TAKEN_BY_PREFIX, WALK_IN_CATEGORY, type PaidWith } from '@/lib/moneyBook';
 import { formatPhone, phoneDigits } from '@/lib/phone';
 import type { BarberHours } from '@/lib/slots';
 
@@ -342,7 +342,11 @@ export const takenByNote = (name: string) => `${TAKEN_BY_PREFIX}${name}`;
  * as income automatically; a tip is added to the Accounting book separately. `takenBy` is
  * who took the money (the barber, or "Owner"), kept with the payment for the day's cash-up.
  */
-export async function finishAndPay(booking: ShopBooking, opts: { tip?: number; takenBy?: string; discount?: number } = {}) {
+export async function finishAndPay(
+  booking: ShopBooking,
+  opts: { tip?: number; takenBy?: string; discount?: number; paidWith?: PaidWith } = {}
+) {
+  const card = opts.paidWith === 'BANK';
   const by = opts.takenBy?.trim() ? ` — ${takenByNote(opts.takenBy.trim())}` : '';
   const { bill: made, extraTax, totalDue } = await billFor(booking, { discount: opts.discount, create: true });
   const bill = made as Bill;
@@ -354,7 +358,9 @@ export async function finishAndPay(booking: ShopBooking, opts: { tip?: number; t
         invoiceId: bill.invoiceId,
         amount: bill.balanceDue,
         currency: BUSINESS.currency,
-        paymentMethod: 'CASH',
+        // The backend has no card method: card and debit go in as a bank transfer, marked "Card".
+        paymentMethod: card ? 'BANK_TRANSFER' : 'CASH',
+        ...(card ? { referenceNumber: 'Card' } : {}),
         paymentDate: todayISO(),
         notes: `${booking.serviceName} — ${booking.customerName}${by}`,
         idempotencyKey: generateIdempotencyKey(),
@@ -366,10 +372,10 @@ export async function finishAndPay(booking: ShopBooking, opts: { tip?: number; t
   }
   const today = todayISO();
   if (extraTax > 0) {
-    await addAutoIncome('salesTax', { amount: extraTax, date: today, note: billNote(`${BUSINESS.taxLabel} — ${booking.customerName}${by}`, bill) });
+    await addAutoIncome('salesTax', { amount: extraTax, date: today, note: billNote(`${BUSINESS.taxLabel} — ${booking.customerName}${by}`, bill), paidWith: opts.paidWith });
   }
   if (opts.tip && opts.tip > 0) {
-    await addAutoIncome('tip', { amount: opts.tip, date: today, note: billNote(`${booking.customerName}${by}`, bill) });
+    await addAutoIncome('tip', { amount: opts.tip, date: today, note: billNote(`${booking.customerName}${by}`, bill), paidWith: opts.paidWith });
   }
   return totalDue;
 }
@@ -392,6 +398,7 @@ export async function recordWalkIn(input: {
   /** The day of the visit (default today). */
   date?: string;
   takenBy?: string;
+  paidWith?: PaidWith;
 }) {
   const name = input.customerName?.trim() || 'Walk-in customer';
   const by = input.takenBy?.trim() ? ` — ${takenByNote(input.takenBy.trim())}` : '';
@@ -403,9 +410,10 @@ export async function recordWalkIn(input: {
     tax: taxOn(price),
     date,
     note: `${input.service.name}${WALK_IN_SEPARATOR}${name}${by}`,
+    paidWith: input.paidWith,
   });
   if (input.tip && input.tip > 0) {
-    await addAutoIncome('tip', { amount: money(input.tip), date, note: `Walk-in${WALK_IN_SEPARATOR}${name}${by}` });
+    await addAutoIncome('tip', { amount: money(input.tip), date, note: `Walk-in${WALK_IN_SEPARATOR}${name}${by}`, paidWith: input.paidWith });
   }
 }
 

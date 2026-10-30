@@ -73,7 +73,7 @@ export function buildReport(all: MoneyEntry[], from: string, to: string): Accoun
   const paidIn = incomeEntries.filter((e) => e.amount > 0);
   const paidOut = [...outEntries, ...incomeEntries.filter((e) => e.amount < 0)];
   const sumBy = (list: MoneyEntry[], how: 'CASH' | 'BANK') =>
-    round(list.filter((e) => !e.fromAppointment && e.paidWith === how).reduce((s, e) => s + Math.abs(e.amount), 0));
+    round(list.filter((e) => e.paidWith === how).reduce((s, e) => s + Math.abs(e.amount), 0));
 
   return {
     from,
@@ -120,7 +120,7 @@ export function transactionsCsv(r: AccountantReport): string {
       e.subcategory,
       e.note,
       e.reference,
-      e.fromAppointment ? 'Appointment bill' : e.paidWith === 'BANK' ? 'Bank' : 'Cash',
+      e.paidWith === 'BANK' ? (e.fromAppointment || e.takenBy ? 'Card' : 'Bank') : 'Cash',
       e.takenBy,
       e.amount - e.tax - e.tip,
       e.tax,
@@ -162,9 +162,9 @@ export function summaryCsv(r: AccountantReport): string {
     [],
     ['MONEY RECEIVED AND PAID'],
     ['Appointment bills paid', '', r.money.appointments],
-    ['Cash received', '', r.money.cashIn],
+    ['Cash received (appointments included)', '', r.money.cashIn],
     ['Cash paid out', '', r.money.cashOut],
-    ['Bank received', '', r.money.bankIn],
+    ['Card / bank received (appointments included)', '', r.money.bankIn],
     ['Bank paid out', '', r.money.bankOut],
   ]);
 }

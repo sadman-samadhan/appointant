@@ -63,6 +63,12 @@ function periodBounds(mode: PeriodMode, anchor: string) {
   };
 }
 
+/** Cash, or card (money to the bank) for customer payments; Bank for other entries. */
+function paidLabel(e: MoneyEntry) {
+  if (e.paidWith !== 'BANK') return 'Cash';
+  return e.type === 'IN' && (e.fromAppointment || e.takenBy) ? 'Card' : 'Bank';
+}
+
 export default function MoneyBookPage() {
   const { showSuccess, showError } = useToast();
 
@@ -153,12 +159,14 @@ export default function MoneyBookPage() {
 
   // Money each person took in the period (what they should hand over, HST and tips included).
   const takenByPerson = useMemo(() => {
-    const map = new Map<string, { total: number; count: number }>();
+    const map = new Map<string, { total: number; count: number; cash: number; card: number }>();
     for (const e of entries) {
       if (e.type !== 'IN' || !e.takenBy) continue;
-      const cur = map.get(e.takenBy) || { total: 0, count: 0 };
+      const cur = map.get(e.takenBy) || { total: 0, count: 0, cash: 0, card: 0 };
       cur.total += e.amount;
       cur.count += 1;
+      if (e.paidWith === 'BANK') cur.card += e.amount;
+      else cur.cash += e.amount;
       map.set(e.takenBy, cur);
     }
     return Array.from(map.entries()).sort((a, b) => b[1].total - a[1].total);
@@ -430,6 +438,10 @@ export default function MoneyBookPage() {
                 <span className="block text-[11px] text-[var(--muted-foreground)]">
                   ${formatMoney(t.total)} · {t.count} payment{t.count === 1 ? '' : 's'}
                 </span>
+                {/* What should be in the drawer vs what went to the bank. */}
+                <span className="block text-[11px] font-bold text-[var(--foreground)]">
+                  Cash ${formatMoney(t.cash)} · Card ${formatMoney(t.card)}
+                </span>
               </button>
             ))}
           </div>
@@ -528,7 +540,7 @@ export default function MoneyBookPage() {
                       </p>
                       <p className="text-[11px] text-[var(--muted-foreground)] truncate">
                         {entry.date}
-                        {entry.fromAppointment ? '' : ` · ${entry.paidWith === 'BANK' ? 'Bank' : 'Cash'}`}
+                        {` · ${paidLabel(entry)}`}
                         {entry.note ? ` · ${entry.note}` : ''}
                         {entry.tax > 0 && entry.category !== 'Sales tax' ? ` · incl. ${BUSINESS.taxLabel} $${formatMoney(entry.tax)}` : ''}
                         {entry.tip > 0 && entry.fromAppointment ? ` · tip $${formatMoney(entry.tip)}` : ''}

@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const tip = Math.max(0, Number(body?.tip) || 0);
   try {
     const barber = await barberFromRequest(req);
-    const paid = await barberTakePayment(barber, (await params).bookingId, tip);
+    const paid = await barberTakePayment(barber, (await params).bookingId, tip, body?.paidWith === 'BANK');
     return NextResponse.json({ paid, takenBy: barber.name });
   } catch (err) {
     return failure(err, 'payment');

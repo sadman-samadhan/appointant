@@ -7,6 +7,7 @@ import { Badge, STATUS_LABELS } from '@/components/ui/Badge';
 import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { getStoredToken, refreshAuthToken } from '@/lib/api/client';
+import type { PaidWith } from '@/lib/moneyBook';
 import { BUSINESS } from '@/lib/business';
 import { formatMoney, shopClock, todayISO, wallClockTime } from '@/lib/format';
 import { formatPhone, formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
@@ -80,6 +81,34 @@ async function barberPay<T>(bookingId: string, init?: RequestInit): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || 'Please try again.');
   return data as T;
+}
+
+/** Cash or card (debit and credit cards go to the bank, so Accounting can match the cash drawer). */
+function PaidWithPicker({ value, onChange }: { value: PaidWith; onChange: (v: PaidWith) => void }) {
+  return (
+    <div>
+      <p className={labelClass}>Paid with</p>
+      <div className="grid grid-cols-2 gap-2">
+        {(
+          [
+            ['CASH', 'Cash'],
+            ['BANK', 'Card / debit'],
+          ] as [PaidWith, string][]
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(v)}
+            className={`py-2 rounded-xl border-2 text-xs font-bold ${
+              value === v ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--foreground)]' : 'border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)]'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /** "Cash given" → how much to hand back (or what is still owed). */
@@ -409,6 +438,7 @@ function AppointmentsPage() {
   const [walkPrice, setWalkPrice] = useState('');
   const [walkTip, setWalkTip] = useState('');
   const [walkDate, setWalkDate] = useState(todayISO());
+  const [walkPaidWith, setWalkPaidWith] = useState<PaidWith>('CASH');
   const [walkError, setWalkError] = useState<string | null>(null);
 
   // Per-booking dialogs
@@ -417,6 +447,7 @@ function AppointmentsPage() {
   const [payInfo, setPayInfo] = useState<{ totalDue: number; price: number; discountable: boolean } | null>(null);
   const [payTip, setPayTip] = useState('');
   const [payDiscount, setPayDiscount] = useState('');
+  const [payWith, setPayWith] = useState<PaidWith>('CASH');
   const [cancelTarget, setCancelTarget] = useState<ShopBooking | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [moveTarget, setMoveTarget] = useState<ShopBooking | null>(null);
@@ -475,6 +506,7 @@ function AppointmentsPage() {
     setWalkPrice('');
     setWalkTip('');
     setWalkDate(todayISO());
+    setWalkPaidWith('CASH');
     setWalkError(null);
     setShowWalkIn(true);
   }, []);
@@ -580,7 +612,7 @@ function AppointmentsPage() {
     setIsSaving(true);
     setWalkError(null);
     try {
-      await recordWalkIn({ service: walkService, customerName: walkName, price: walkPriceNum, tip: walkTipNum, date: walkDate, takenBy });
+      await recordWalkIn({ service: walkService, customerName: walkName, price: walkPriceNum, tip: walkTipNum, date: walkDate, takenBy, paidWith: walkPaidWith });
       setShowWalkIn(false);
       showSuccess('Walk-in saved', `$${formatMoney(walkTotal)} added to ${walkDate === todayISO() ? 'today’s' : prettyDate(walkDate) + '’s'} income.`);
       showDay(walkDate);
@@ -598,6 +630,7 @@ function AppointmentsPage() {
     setPayInfo(null);
     setPayTip('');
     setPayDiscount('');
+    setPayWith('CASH');
     try {
       // Only works out the amount; the bill is made when the cash is taken (so a discount can go on it).
       const info = isBarber ? await barberPay<{ totalDue: number; price: number }>(b.bookingId) : await billFor(b, { create: false });
@@ -615,8 +648,8 @@ function AppointmentsPage() {
     setIsSaving(true);
     try {
       const paid = isBarber
-        ? (await barberPay<{ paid: number }>(payBooking.bookingId, { method: 'POST', body: JSON.stringify({ tip }) })).paid
-        : await finishAndPay(payBooking, { tip, takenBy, discount: payDiscountNum });
+        ? (await barberPay<{ paid: number }>(payBooking.bookingId, { method: 'POST', body: JSON.stringify({ tip, paidWith: payWith }) })).paid
+        : await finishAndPay(payBooking, { tip, takenBy, discount: payDiscountNum, paidWith: payWith });
       setPayBooking(null);
       showSuccess('Paid', `$${formatMoney(paid + tip)} from ${payBooking.customerName}. All done!`);
       markDone(payBooking.bookingId, `Paid $${formatMoney(paid + tip)}`);
@@ -1077,7 +1110,8 @@ function AppointmentsPage() {
               <p className="flex justify-between text-sm font-black text-[var(--foreground)] pt-1"><span>Total</span><span>${formatMoney(walkTotal)}</span></p>
             </div>
           )}
-          {walkService && walkPriceNum > 0 && <ChangeCalculator total={walkTotal} />}
+          {walkService && walkPriceNum > 0 && <PaidWithPicker value={walkPaidWith} onChange={setWalkPaidWith} />}
+          {walkService && walkPriceNum > 0 && walkPaidWith === 'CASH' && <ChangeCalculator total={walkTotal} />}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Date</label>
@@ -1092,7 +1126,7 @@ function AppointmentsPage() {
           <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
             <button type="button" onClick={() => setShowWalkIn(false)} className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]">Close</button>
             <button type="submit" disabled={isSaving} className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">
-              {isSaving ? 'Saving…' : 'Save & add cash'}
+              {isSaving ? 'Saving…' : walkPaidWith === 'CASH' ? 'Save & add cash' : 'Save card payment'}
             </button>
           </div>
         </form>
@@ -1130,11 +1164,12 @@ function AppointmentsPage() {
                 <input type="number" inputMode="decimal" step="0.01" min="0" value={payTip} onChange={(e) => setPayTip(e.target.value)} placeholder="0.00" className={inputClass} />
               </div>
             </div>
-            {payTotal !== null && <ChangeCalculator total={payTotal} />}
+            <PaidWithPicker value={payWith} onChange={setPayWith} />
+            {payTotal !== null && payWith === 'CASH' && <ChangeCalculator total={payTotal} />}
             <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
               <button type="button" onClick={() => setPayBooking(null)} className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]">Close</button>
               <button onClick={handlePay} disabled={isSaving || payTotal === null} className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">
-                {isSaving ? 'Saving…' : 'Cash received'}
+                {isSaving ? 'Saving…' : payWith === 'CASH' ? 'Cash received' : 'Card paid'}
               </button>
             </div>
           </div>

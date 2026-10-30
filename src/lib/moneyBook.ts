@@ -345,7 +345,10 @@ async function postEntry(input: {
 }
 
 /** Income the app records by itself: walk-in sales, HST on a bill, and tips. */
-export async function addAutoIncome(kind: 'walkIn' | 'salesTax' | 'tip', input: { amount: number; date: string; note?: string; tax?: number }) {
+export async function addAutoIncome(
+  kind: 'walkIn' | 'salesTax' | 'tip',
+  input: { amount: number; date: string; note?: string; tax?: number; paidWith?: PaidWith }
+) {
   const account =
     kind === 'walkIn'
       ? await ensureAccount(SERVICE_CODE, 'Service Revenue', 'REVENUE')
@@ -353,7 +356,7 @@ export async function addAutoIncome(kind: 'walkIn' | 'salesTax' | 'tip', input: 
         ? await ensureAccount(TAX_CODE, 'Tax Payable', 'LIABILITY')
         : await ensureAccount(TIPS_CODE, 'Tips', 'REVENUE');
   const label = kind === 'walkIn' ? WALK_IN_CATEGORY : kind === 'salesTax' ? SALES_TAX_CATEGORY : account.accountName;
-  await postEntry({ type: 'IN', paidWith: 'CASH', ...input, account, label });
+  await postEntry({ type: 'IN', ...input, paidWith: input.paidWith || 'CASH', account, label });
 }
 
 interface InvoiceInfo {
@@ -365,6 +368,8 @@ interface InvoiceInfo {
   total: number;
   notes: string;
   takenBy: string;
+  /** How the bill was paid: card and debit payments are recorded as bank transfers. */
+  paidWith: PaidWith | '';
 }
 
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -444,6 +449,7 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
   let subcategory = '';
   let note = noteAfterHead;
   let takenBy = '';
+  let billPaidWith: PaidWith | '' = '';
   const by = note.match(TAKEN_BY);
   if (by) {
     takenBy = by[1].trim();
@@ -459,6 +465,7 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
     note = inv?.notes || `Bill ${reference}`;
     if (inv) {
       takenBy = inv.takenBy;
+      if (inv.paidWith) billPaidWith = inv.paidWith;
       tip = inv.tip;
       // Older bills leave the tax out of their total; then it was booked separately as "Sales tax".
       const taxIncluded = inv.tax > 0 && inv.total >= inv.subtotal - inv.discount + inv.tip + inv.tax - 0.01;
@@ -492,7 +499,7 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
     category,
     subcategory,
     note,
-    paidWith: moneyLine?.acc?.accountCode === BANK_CODE ? 'BANK' : 'CASH',
+    paidWith: billPaidWith || (moneyLine?.acc?.accountCode === BANK_CODE ? 'BANK' : 'CASH'),
     reference,
     equipment,
     fromAppointment: !!invoiceMatch,
@@ -508,9 +515,11 @@ async function loadInvoices(): Promise<Map<string, InvoiceInfo>> {
   ]);
   // Who took each bill's payment is written in the payment's notes.
   const takenByInvoice = new Map<string, string>();
+  const methodByInvoice = new Map<string, PaidWith>();
   for (const p of toList<any>(payments, 'payments')) {
     const by = String(p?.notes || '').match(TAKEN_BY);
     if (p?.invoiceId && by) takenByInvoice.set(String(p.invoiceId), by[1].trim());
+    if (p?.invoiceId) methodByInvoice.set(String(p.invoiceId), p.paymentMethod === 'CASH' ? 'CASH' : 'BANK');
   }
   return new Map(
     toList<any>(res, 'invoices').map((inv) => [
@@ -524,6 +533,7 @@ async function loadInvoices(): Promise<Map<string, InvoiceInfo>> {
         total: toNumber(inv.total),
         notes: String(inv.notes || ''),
         takenBy: takenByInvoice.get(String(inv.invoiceId)) || '',
+        paidWith: methodByInvoice.get(String(inv.invoiceId)) || '',
       },
     ])
   );

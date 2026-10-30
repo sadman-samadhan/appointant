@@ -63,7 +63,7 @@ export async function barberAmountDue(barber: Barber, bookingId: string): Promis
 }
 
 /** Takes the payment, marks the appointment done and records the barber as having taken it. */
-export async function barberTakePayment(barber: Barber, bookingId: string, tip: number): Promise<number> {
+export async function barberTakePayment(barber: Barber, bookingId: string, tip: number, card = false): Promise<number> {
   const booking = await arrivedBookingOf(barber, bookingId);
-  return finishAndPay(booking, { tip: tip > 0 ? Math.round(tip * 100) / 100 : 0, takenBy: barber.name });
+  return finishAndPay(booking, { tip: tip > 0 ? Math.round(tip * 100) / 100 : 0, takenBy: barber.name, paidWith: card ? 'BANK' : 'CASH' });
 }

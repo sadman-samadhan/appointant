@@ -246,8 +246,8 @@ export default function AccountantReportPage() {
 
               <Section title="Money received and paid">
                 <Row label="Appointment bills paid" value={report.money.appointments} />
-                <Row label="Cash received" value={report.money.cashIn} />
-                <Row label="Bank received" value={report.money.bankIn} />
+                <Row label="Cash received (appointments included)" value={report.money.cashIn} />
+                <Row label="Card / bank received (appointments included)" value={report.money.bankIn} />
                 <Row label="Cash paid out" value={report.money.cashOut} />
                 <Row label="Bank paid out" value={report.money.bankOut} />
               </Section>
