@@ -58,7 +58,8 @@ const VTIMEZONE = [
 ];
 
 export function bookingIcs(info: BookingMailInfo, method: 'REQUEST' | 'CANCEL'): string {
-  const from = mailFrom();
+  // Just the address of "Name <address>".
+  const from = mailFrom().match(/<([^>]+)>/)?.[1] || mailFrom();
   const title = `${info.service}${info.barber ? ` with ${info.barber}` : ''} at ${BUSINESS.name}`;
   const lines = [
     'BEGIN:VCALENDAR',
