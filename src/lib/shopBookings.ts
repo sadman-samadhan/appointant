@@ -8,7 +8,7 @@ import { BUSINESS } from '@/lib/business';
 import { sameName, servicePrice, serviceDuration, shopClock, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
 import { addAutoIncome, billTag, listEntries, TAKEN_BY_PREFIX, walkInTag, WALK_IN_CATEGORY, type PaidWith } from '@/lib/moneyBook';
 import { formatPhone, phoneDigits } from '@/lib/phone';
-import type { BarberHours } from '@/lib/slots';
+import type { BarberHours, TimeBlock } from '@/lib/slots';
 
 export interface ShopBooking {
   bookingId: string;
@@ -77,6 +77,51 @@ export async function loadBarbers(): Promise<Barber[]> {
     }))
     .filter((b) => b.name)
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export interface DayOff extends TimeBlock {
+  id: string;
+  reason: string;
+}
+
+/** Days off and holidays (approved "block" overrides): a barber's, or the whole shop's. */
+export async function loadDaysOff(): Promise<DayOff[]> {
+  const res = await apiRequest<any>(`/api/v1/availability/overrides?branchId=${DEFAULT_BRANCH_ID}`);
+  return toList<any>(res, 'overrides')
+    .filter((o) => o?.type === 'BLOCK' && o.status === 'APPROVED')
+    .map((o) => ({
+      id: String(o.overrideId),
+      staffId: o.entityType === 'STAFF' ? String(o.entityId) : undefined,
+      date: String(o.date).slice(0, 10),
+      start: String(o.startTime || '00:00:00'),
+      end: String(o.endTime || '23:59:00'),
+      reason: String(o.reason || ''),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
+}
+
+/** Blocks a date (or part of it) for one barber, or for the whole shop when no barber is given. */
+export async function addDayOff(input: { staffId?: string; date: string; start?: string; end?: string; reason?: string }) {
+  const time = (t: string | undefined, fallback: string) => (t ? (t.length === 5 ? `${t}:00` : t) : fallback);
+  const created = await apiRequest<any>('/api/v1/availability/overrides', {
+    method: 'POST',
+    body: JSON.stringify({
+      entityType: input.staffId ? 'STAFF' : 'BRANCH',
+      entityId: input.staffId || DEFAULT_BRANCH_ID,
+      branchId: DEFAULT_BRANCH_ID,
+      date: input.date,
+      type: 'BLOCK',
+      startTime: time(input.start, '00:00:00'),
+      endTime: time(input.end, '23:59:00'),
+      reason: input.reason?.trim() || (input.staffId ? 'Day off' : 'Shop closed'),
+    }),
+  });
+  // The owner's own entry needs no review.
+  await apiRequest(`/api/v1/availability/overrides/${created?.overrideId}/approve`, { method: 'POST', body: '{}' });
+}
+
+export async function removeDayOff(id: string) {
+  await apiRequest(`/api/v1/availability/overrides/${id}`, { method: 'DELETE' });
 }
 
 /**

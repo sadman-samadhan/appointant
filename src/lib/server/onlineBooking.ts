@@ -7,7 +7,7 @@ import { barberAvailability, isTimeFree, pickBarber, type BarberHours, type Barb
 import { agentRequest, AgentError } from './shopAgent';
 import { sendBookingConfirmation } from './bookingEmails';
 import './shopCode';
-import { loadWalkIns } from '@/lib/shopBookings';
+import { loadDaysOff, loadWalkIns } from '@/lib/shopBookings';
 import { ensureAccountCustomer, type AccountUser } from './customerAccount';
 
 export { SHOP_TIME_ZONE };
@@ -154,7 +154,11 @@ async function todaysWalkIns(date: string): Promise<BarberBusyBooking[]> {
 export async function availability(serviceId: string, date: string, excludeBookingId?: string) {
   const dateError = checkBookableDate(date);
   if (dateError) throw new AgentError(dateError, 400);
-  const [service, barbers] = await Promise.all([findService(serviceId), barbersWithHours()]);
+  const [service, barbers, blocks] = await Promise.all([
+    findService(serviceId),
+    barbersWithHours(),
+    loadDaysOff().catch(() => []),
+  ]);
   const bookings = [...(await bookingsWithBarbers(date, barbers)), ...(date === shopNow().date ? await todaysWalkIns(date) : [])];
   const now = shopNow();
   const free = barberAvailability({
@@ -162,6 +166,7 @@ export async function availability(serviceId: string, date: string, excludeBooki
     durationMinutes: service.durationMinutes,
     bookings,
     barbers,
+    blocks,
     excludeBookingId,
     // Today: only times still ahead of the clock, with a little notice.
     notBeforeMinutes: date === now.date ? now.minutes + 15 : undefined,

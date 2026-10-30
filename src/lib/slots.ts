@@ -139,6 +139,25 @@ export interface BarberBusyBooking extends BusyBooking {
   staffId?: string;
 }
 
+/** Time blocked on one date (set under Staff → Days off & holidays): one barber, or the whole shop. */
+export interface TimeBlock {
+  /** No staffId: the whole shop is closed then. */
+  staffId?: string;
+  date: string;
+  /** "HH:MM[:SS]"; a whole day is 00:00–23:59. */
+  start: string;
+  end: string;
+}
+
+function blocked(blocks: TimeBlock[] | undefined, date: string, start: number, end: number, staffId?: string) {
+  return (blocks || []).some((b) => {
+    if (b.date !== date || (b.staffId && b.staffId !== staffId)) return false;
+    const from = isoMinutes(b.start) ?? 0;
+    const to = isoMinutes(b.end) ?? 24 * 60;
+    return from < end && start < (to >= 23 * 60 + 59 ? 24 * 60 : to);
+  });
+}
+
 /** The minutes a barber works on a date (inside the shop's hours), or null when off. */
 export function barberHours(barber: BarberHours, date: string): { open: number; close: number } | null {
   const shop = openingHours(date);
@@ -161,14 +180,20 @@ export function barberHours(barber: BarberHours, date: string): { open: number; 
  * the free barbers, and the shop's chairs (SHOP_CAPACITY) are never exceeded.
  * With no barbers set up, this is the plain chair count (freeStartTimes) with no barbers.
  */
-export function barberAvailability(input: Omit<FreeTimesInput, 'bookings'> & { barbers: BarberHours[]; bookings: BarberBusyBooking[] }): Map<string, string[]> {
+export function barberAvailability(
+  input: Omit<FreeTimesInput, 'bookings'> & { barbers: BarberHours[]; bookings: BarberBusyBooking[]; blocks?: TimeBlock[] }
+): Map<string, string[]> {
   const out = new Map<string, string[]>();
-  const shopTimes = freeStartTimes(input);
+  const duration = Math.max(5, input.durationMinutes || SLOT_STEP_MINUTES);
+  // A time the whole shop is closed (a holiday) is never offered.
+  const shopTimes = freeStartTimes(input).filter((t) => {
+    const start = isoMinutes(t) as number;
+    return !blocked(input.blocks?.filter((b) => !b.staffId), input.date, start, start + duration);
+  });
   if (input.barbers.length === 0) {
     for (const t of shopTimes) out.set(t, []);
     return out;
   }
-  const duration = Math.max(5, input.durationMinutes || SLOT_STEP_MINUTES);
   const ranges = (list: BarberBusyBooking[]) => busyRanges(input.date, list, input.excludeBookingId);
   const unassigned = ranges(input.bookings.filter((b) => !b.staffId));
   const perBarber = new Map(input.barbers.map((b) => [b.staffId, ranges(input.bookings.filter((x) => x.staffId === b.staffId))]));
@@ -178,7 +203,14 @@ export function barberAvailability(input: Omit<FreeTimesInput, 'bookings'> & { b
     const free = input.barbers
       .filter((b) => {
         const hours = barberHours(b, input.date);
-        return !!hours && start >= hours.open && end <= hours.close && overlapping(perBarber.get(b.staffId) || [], start, end) === 0;
+        return (
+          !!hours &&
+          start >= hours.open &&
+          end <= hours.close &&
+          overlapping(perBarber.get(b.staffId) || [], start, end) === 0 &&
+          // A day off or a few hours off for this barber.
+          !blocked(input.blocks?.filter((x) => x.staffId), input.date, start, end, b.staffId)
+        );
       })
       .map((b) => b.staffId);
     if (free.length > overlapping(unassigned, start, end)) out.set(t, free);

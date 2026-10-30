@@ -11,10 +11,11 @@ import type { PaidWith } from '@/lib/moneyBook';
 import { BUSINESS } from '@/lib/business';
 import { formatMoney, shopClock, todayISO, wallClockTime } from '@/lib/format';
 import { formatPhone, formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
-import { barberAvailability, minutesToTime, openingHours, pickBarber } from '@/lib/slots';
+import { barberAvailability, minutesToTime, openingHours, pickBarber, type TimeBlock } from '@/lib/slots';
 import {
   ACTIVE_STATUSES,
   Barber,
+  DayOff,
   ShopBooking,
   ShopService,
   billFor,
@@ -24,6 +25,7 @@ import {
   findOrCreateCustomer,
   finishAndPay,
   loadBarbers,
+  loadDaysOff,
   loadBookings,
   loadServices,
   loadWalkIns,
@@ -136,8 +138,9 @@ function ChangeCalculator({ total }: { total: number }) {
 }
 
 /** Free start times on a date, each with the barbers free then (by schedule and bookings). */
-function freeAt(input: { bookings: ShopBooking[]; barbers: Barber[]; durationMinutes: number; date: string; excludeBookingId?: string }) {
+function freeAt(input: { bookings: ShopBooking[]; barbers: Barber[]; blocks?: TimeBlock[]; durationMinutes: number; date: string; excludeBookingId?: string }) {
   return barberAvailability({
+    blocks: input.blocks,
     date: input.date,
     durationMinutes: input.durationMinutes,
     bookings: input.bookings,
@@ -175,9 +178,12 @@ function TimePicker({
   excludeBookingId,
   staffId,
   barbers,
+  blocks,
 }: {
   bookings: ShopBooking[];
   barbers: Barber[];
+  /** Days off and holidays. */
+  blocks?: TimeBlock[];
   durationMinutes: number;
   date: string;
   time: string;
@@ -191,7 +197,7 @@ function TimePicker({
   useEffect(() => {
     if (days.length > 0 && !days.includes(date)) onDate(days[0]);
   }, [days, date, onDate]);
-  const times = Array.from(freeAt({ bookings, barbers, durationMinutes, date, excludeBookingId }).entries())
+  const times = Array.from(freeAt({ bookings, barbers, blocks, durationMinutes, date, excludeBookingId }).entries())
     .filter(([, ids]) => !staffId || ids.length === 0 || ids.includes(staffId))
     .map(([t]) => t);
   return (
@@ -400,6 +406,7 @@ function AppointmentsPage() {
   const [walkIns, setWalkIns] = useState<ShopBooking[]>([]);
   const [services, setServices] = useState<ShopService[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
+  const [daysOff, setDaysOff] = useState<DayOff[]>([]);
   // A barber sees and works on only their own appointments.
   const { isBarber, isAdmin, user } = useAuth();
   const myStaffId = isBarber ? user?.staffId || '' : '';
@@ -460,8 +467,9 @@ function AppointmentsPage() {
   const [moveBarberId, setMoveBarberId] = useState('');
 
   const fetchBookings = useCallback(async () => {
-    const team = await loadBarbers().catch(() => [] as Barber[]);
+    const [team, off] = await Promise.all([loadBarbers().catch(() => [] as Barber[]), loadDaysOff().catch(() => [] as DayOff[])]);
     setBarbers(team);
+    setDaysOff(off);
     return loadBookings(team);
   }, []);
 
@@ -578,7 +586,7 @@ function AppointmentsPage() {
     try {
       // Re-check against the latest list in case the time was just taken online.
       const latest = await fetchBookings();
-      const free = freeAt({ bookings: [...latest, ...walkIns], barbers, durationMinutes: service.durationMinutes, date: newDate }).get(newTime);
+      const free = freeAt({ bookings: [...latest, ...walkIns], barbers, blocks: daysOff, durationMinutes: service.durationMinutes, date: newDate }).get(newTime);
       if (!free || (newBarberId && !free.includes(newBarberId))) {
         setBookings(latest);
         setNewTime('');
@@ -712,7 +720,7 @@ function AppointmentsPage() {
     const target = moveTarget;
     setIsSaving(true);
     try {
-      const free = freeAt({ bookings: busy, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: target.bookingId }).get(moveTime) || [];
+      const free = freeAt({ bookings: busy, barbers, blocks: daysOff, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: target.bookingId }).get(moveTime) || [];
       // A barber's booking always stays theirs.
       const staffId = isBarber ? myStaffId : moveBarberId || pickBarber(free, moveDate, busy) || null;
       const barberChanged = (staffId || '') !== (target.staffId || '');
@@ -965,7 +973,13 @@ function AppointmentsPage() {
               {(() => {
                 const hours = openingHours(selectedDate);
                 const count = dayCounts.get(selectedDate)?.total || 0;
-                const open = hours ? `Open ${wallClockTime(minutesToTime(hours.open))} – ${wallClockTime(minutesToTime(hours.close))}` : 'Closed';
+                const holiday = daysOff.find((d) => d.date === selectedDate && !d.staffId);
+                const off = daysOff.filter((d) => d.date === selectedDate && d.staffId).map((d) => barbers.find((b) => b.staffId === d.staffId)?.name).filter(Boolean);
+                const open = holiday
+                  ? `Shop closed${holiday.reason ? `: ${holiday.reason}` : ''}`
+                  : hours
+                    ? `Open ${wallClockTime(minutesToTime(hours.open))} – ${wallClockTime(minutesToTime(hours.close))}${off.length ? ` · off: ${off.join(', ')}` : ''}`
+                    : 'Closed';
                 return `${open} · ${count} appointment${count === 1 ? '' : 's'}`;
               })()}
             </p>
@@ -1075,6 +1089,7 @@ function AppointmentsPage() {
             <TimePicker
               bookings={busy}
               barbers={barbers}
+              blocks={daysOff}
               durationMinutes={newService.durationMinutes}
               date={newDate}
               time={newTime}
@@ -1088,7 +1103,7 @@ function AppointmentsPage() {
           {newService && newTime && barbers.length > 0 && (
             <BarberSelect
               barbers={barbers.filter((b) =>
-                freeAt({ bookings: busy, barbers, durationMinutes: newService.durationMinutes, date: newDate }).get(newTime)?.includes(b.staffId)
+                freeAt({ bookings: busy, barbers, blocks: daysOff, durationMinutes: newService.durationMinutes, date: newDate }).get(newTime)?.includes(b.staffId)
               )}
               time={newTime}
               value={newBarberId}
@@ -1301,6 +1316,7 @@ function AppointmentsPage() {
             <TimePicker
               bookings={busy}
               barbers={barbers}
+              blocks={daysOff}
               durationMinutes={moveService?.durationMinutes || 30}
               date={moveDate}
               time={moveTime}
@@ -1310,7 +1326,7 @@ function AppointmentsPage() {
                 // Picking a day clears the time; the barber stays until a new time is picked.
                 if (!t) return;
                 // Keep the barber when they are free at the new time.
-                const free = freeAt({ bookings: busy, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: moveTarget.bookingId }).get(t) || [];
+                const free = freeAt({ bookings: busy, barbers, blocks: daysOff, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: moveTarget.bookingId }).get(t) || [];
                 if (moveBarberId && !free.includes(moveBarberId)) setMoveBarberId('');
               }}
               excludeBookingId={moveTarget.bookingId}
@@ -1319,7 +1335,7 @@ function AppointmentsPage() {
             {moveTime && barbers.length > 0 && !isBarber && (
               <BarberSelect
                 barbers={barbers.filter((b) =>
-                  freeAt({ bookings: busy, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: moveTarget.bookingId })
+                  freeAt({ bookings: busy, barbers, blocks: daysOff, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: moveTarget.bookingId })
                     .get(moveTime)
                     ?.includes(b.staffId)
                 )}

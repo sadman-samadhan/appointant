@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiRequest } from '@/lib/api/client';
 import { isStrongPassword, PASSWORD_RULES } from '@/lib/password';
 import { Modal } from '@/components/ui/Modal';
+import { DaysOffCard } from '@/components/admin/DaysOffCard';
 import { useToast } from '@/context/ToastContext';
 import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
 import {
@@ -513,6 +514,7 @@ export default function AdminStaffPage() {
         </div>
       </div>
 
+      <DaysOffCard />
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-[var(--border)] pb-2">
         <button
