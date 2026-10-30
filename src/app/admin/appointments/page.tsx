@@ -292,15 +292,12 @@ function MonthCalendar({
               ) : (
                 <span className="text-[10px] leading-none">&nbsp;</span>
               )}
-              {count && count.toConfirm > 0 && (
-                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500" title="Needs confirming" />
-              )}
             </button>
           );
         })}
       </div>
       <p className="text-[10px] text-[var(--muted-foreground)] flex items-center gap-1.5">
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" /> has bookings to confirm · grey days are closed
+Grey days are closed
       </p>
     </div>
   );
@@ -688,40 +685,54 @@ function AppointmentsPage() {
         }}
       />
     );
+    const waiting = ['DRAFT', 'LOCKED', 'SCHEDULED', 'CONFIRMED'].includes(b.status);
+    // A past booking that never happened can only be removed.
+    if (waiting && b.date < today) {
+      return (
+        <ActionButton
+          icon={X}
+          label="Remove"
+          tone="red"
+          disabled={busy}
+          onClick={() => {
+            setCancelReason('Did not come');
+            setCancelTarget(b);
+          }}
+        />
+      );
+    }
+    // Bookings are accepted when they are made, so there is no Confirm step. An older booking
+    // still waiting to be accepted is confirmed (HST added) as the customer arrives.
+    const arrive = async () => {
+      if (b.status !== 'CONFIRMED') {
+        const service = serviceById(b.serviceId || '');
+        if (!service) throw new Error('This service is no longer offered. Cancel and re-book instead.');
+        await confirmBooking({ bookingId: b.bookingId, servicePrice: service.price });
+      }
+      await markArrived(b.bookingId);
+    };
     switch (b.status) {
       case 'DRAFT':
       case 'LOCKED':
       case 'SCHEDULED':
-        return (
-          <>
-            <ActionButton
-              icon={Check}
-              label="Confirm"
-              tone="primary"
-              disabled={busy}
-              onClick={() => {
-                const service = serviceById(b.serviceId || '');
-                if (!service) return showError('Service not found', 'This service is no longer offered. Cancel and re-book instead.');
-                run(b, () => confirmBooking({ bookingId: b.bookingId, servicePrice: service.price }), `Confirmed. ${BUSINESS.taxLabel} ${Math.round(BUSINESS.taxRate * 100)}% added.`, 'Confirmed');
-              }}
-            />
-            {changeTime}
-            {cancel}
-          </>
-        );
       case 'CONFIRMED':
         return (
           <>
-            <ActionButton icon={UserCheck} label="Arrived" tone="primary" disabled={busy} onClick={() => run(b, () => markArrived(b.bookingId), `${b.customerName} has arrived.`, 'Marked arrived')} />
+            {/* Arrived and No-show are for today's customers. */}
+            {b.date === today && (
+              <ActionButton icon={UserCheck} label="Arrived" tone="primary" disabled={busy} onClick={() => run(b, arrive, `${b.customerName} has arrived.`, 'Marked arrived')} />
+            )}
             {changeTime}
-            <ActionButton
-              icon={UserX}
-              label="No-show"
-              disabled={busy}
-              onClick={() => {
-                if (window.confirm(`Mark ${b.customerName} as a no-show?`)) run(b, () => markNoShow(b.bookingId), 'Marked as no-show.', 'Marked no-show');
-              }}
-            />
+            {b.date === today && b.status === 'CONFIRMED' && (
+              <ActionButton
+                icon={UserX}
+                label="No-show"
+                disabled={busy}
+                onClick={() => {
+                  if (window.confirm(`Mark ${b.customerName} as a no-show?`)) run(b, () => markNoShow(b.bookingId), 'Marked as no-show.', 'Marked no-show');
+                }}
+              />
+            )}
             {cancel}
           </>
         );
@@ -766,7 +777,8 @@ function AppointmentsPage() {
                 ['calendar', 'Calendar'],
                 ['today', 'Today'],
                 ['upcoming', 'Upcoming'],
-                ['all', 'All'],
+                // "All" is hidden for now (the view still works).
+                // ['all', 'All'],
               ] as [View, string][]
             ).map(([v, label]) => (
               <button
@@ -780,8 +792,6 @@ function AppointmentsPage() {
           </div>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]">
             <option value="ALL">All statuses</option>
-            <option value="ACTIVE">Not finished</option>
-            <option value="DRAFT">{STATUS_LABELS.DRAFT} (needs confirming)</option>
             <option value="CONFIRMED">{STATUS_LABELS.CONFIRMED}</option>
             <option value="CHECKED_IN">{STATUS_LABELS.CHECKED_IN}</option>
             <option value="COMPLETED">{STATUS_LABELS.COMPLETED}</option>

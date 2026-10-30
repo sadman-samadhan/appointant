@@ -64,7 +64,6 @@ export default function TodayPage() {
     .filter((b) => b.date === today && b.status !== 'CANCELLED')
     .sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)));
   const stillToCome = todays.filter((b) => ACTIVE_STATUSES.includes(b.status));
-  const needConfirm = bookings.filter((b) => b.date >= today && ['DRAFT', 'LOCKED', 'SCHEDULED'].includes(b.status)).length;
 
   const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
 
@@ -95,18 +94,6 @@ export default function TodayPage() {
           <span className="text-base font-black">Walk-in</span>
         </Link>
       </div>
-
-      {needConfirm > 0 && (
-        <Link
-          href="/admin/appointments"
-          className="flex items-center justify-between gap-3 p-4 rounded-2xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300"
-        >
-          <span className="text-sm font-bold">
-            {needConfirm} new online {needConfirm === 1 ? 'booking needs' : 'bookings need'} confirming
-          </span>
-          <ArrowRight className="w-4 h-4 shrink-0" />
-        </Link>
-      )}
 
       {/* Numbers */}
       <div className={`grid grid-cols-1 gap-3 ${isAdmin ? 'sm:grid-cols-3' : ''}`}>

@@ -4,7 +4,7 @@ import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { shopClock, toList, wallClockDate, wallClockTime } from '@/lib/format';
 import { formatPhone, phoneDigits } from '@/lib/phone';
 import { AgentError, agentRequest } from './shopAgent';
-import { checkBookableDate, createCustomer, findService, freeTimes } from './onlineBooking';
+import { checkBookableDate, confirmOnline, createCustomer, findService, freeTimes } from './onlineBooking';
 
 // Signed-in customers can't read the shop's records directly (the Core Backend only lets
 // shop members in), so their own data is read here: the Auth Service confirms who they
@@ -231,6 +231,7 @@ export async function rescheduleAccountBooking(account: AccountUser, bookingId: 
     startTime: time,
     notes: [detail?.notes, `Moved by the customer from ${from}`].filter(Boolean).join(' — '),
   });
+  await confirmOnline(String(created?.bookingId || ''), service.price).catch(() => {});
   await agentRequest('POST', `/api/v1/bookings/${bookingId}/cancel`, { reason: `Moved by the customer to ${date} ${time.slice(0, 5)}` });
   return String(created?.bookingId || bookingId);
 }

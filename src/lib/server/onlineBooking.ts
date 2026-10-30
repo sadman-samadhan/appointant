@@ -1,5 +1,6 @@
 import 'server-only';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
+import { BUSINESS } from '@/lib/business';
 import { sameName, servicePrice, serviceDuration, shopClock, SHOP_TIME_ZONE, toList } from '@/lib/format';
 import { formatPhone, isValidPhone, phoneDigits, PHONE_ERROR } from '@/lib/phone';
 import { freeStartTimes, isTimeFree } from '@/lib/slots';
@@ -74,6 +75,18 @@ async function findBarber(staffId: string): Promise<Barber> {
   const barber = UUID.test(staffId) && (await listBarbers()).find((b) => b.staffId === staffId);
   if (!barber) throw new AgentError('That barber is not taking online bookings. Please choose another.', 400);
   return barber;
+}
+
+/** Accepts an online booking: confirms it with HST added (as the shop's Confirm button did). */
+export async function confirmOnline(bookingId: string, servicePrice: number) {
+  if (!bookingId) return;
+  const vat = Math.round(servicePrice * BUSINESS.taxRate * 100) / 100;
+  await agentRequest('POST', `/api/v1/bookings/${bookingId}/confirm`, {
+    vatAmount: vat,
+    tipAmount: 0,
+    discountAmount: 0,
+    note: `${BUSINESS.taxLabel} ${Math.round(BUSINESS.taxRate * 100)}% added`,
+  });
 }
 
 /** The shop's current calendar date (YYYY-MM-DD). */
@@ -270,6 +283,11 @@ export async function placeOnlineBooking(input: GuestBookingInput, account?: Acc
     if (err instanceof AgentError && err.status === 409) throw err;
     /* the check is best-effort */
   }
+
+  // Online bookings are accepted straight away; confirming fixes the price with HST.
+  await confirmOnline(String(booking?.bookingId || ''), service.price).catch((err) =>
+    console.error('[online-booking] auto-confirm failed', err instanceof Error ? err.message : err)
+  );
 
   return {
     bookingNumber: booking?.bookingNumber || null,
