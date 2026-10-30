@@ -194,6 +194,19 @@ function makeStarterCategories(): Promise<void> {
   return starterCategoriesMade;
 }
 
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * The app's own category that a backend default account duplicates, if any. The backend's
+ * starting chart has non-system accounts such as "Product Sales" (4100) and "Equipment" (1500)
+ * beside the app's "Product sales" (4110) and "Equipment" (1510); only the app's is shown.
+ */
+function duplicateOf(a: Account, accounts: Account[]): Account | undefined {
+  if (a.parentAccountId || STARTER_CATEGORIES.some((s) => s.code === a.accountCode)) return undefined;
+  const starter = STARTER_CATEGORIES.find((s) => sameName(s.name, a.accountName));
+  return starter && accounts.find((x) => x.accountCode === starter.code && isActive(x) && x.accountType === a.accountType);
+}
+
 function categoryType(a: Account): EntryType | null {
   if (a.accountType === 'REVENUE') return 'IN';
   if (a.accountType === 'EXPENSE') return 'OUT';
@@ -210,7 +223,7 @@ export async function listCategories(): Promise<Category[]> {
     return i >= 0 ? i : 100;
   };
   return accounts
-    .filter((a) => !a.parentAccountId && !a.isSystem && categoryType(a))
+    .filter((a) => !a.parentAccountId && !a.isSystem && categoryType(a) && !duplicateOf(a, accounts))
     .map((a) => ({
       id: a.accountId,
       code: a.accountCode,
@@ -521,6 +534,8 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
     if (head !== REFUNDS_CATEGORY) note = description;
   } else if (categoryAcc) {
     // The account says the category, so a renamed category shows its new name on old entries too.
+    // An entry on a hidden backend duplicate shows under the app's category of that name.
+    categoryAcc = duplicateOf(categoryAcc, Array.from(accountsById.values())) || categoryAcc;
     const parent = categoryAcc.parentAccountId ? accountsById.get(categoryAcc.parentAccountId) : undefined;
     category = parent ? accountLabel(parent) : accountLabel(categoryAcc);
     subcategory = parent ? accountLabel(categoryAcc) : '';
