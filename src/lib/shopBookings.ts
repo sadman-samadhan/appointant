@@ -16,6 +16,9 @@ export interface ShopBooking {
   customerPhone: string;
   serviceId?: string;
   serviceName: string;
+  /** The barber the booking is with; none means any barber. */
+  staffId?: string;
+  staffName?: string;
   date: string;
   startTime: string;
   endTime?: string;
@@ -54,12 +57,43 @@ function normalizeBooking(b: any): ShopBooking {
   };
 }
 
-/** Every booking of the shop (the backend pages 20 at a time by default). */
-export async function loadBookings(): Promise<ShopBooking[]> {
-  const res = await apiRequest<any>(`/api/v1/bookings?branchId=${DEFAULT_BRANCH_ID}&limit=1000`);
+export interface Barber {
+  staffId: string;
+  name: string;
+}
+
+/** The shop's barbers: active staff whose job title says "Barber" (set in Staff). */
+export async function loadBarbers(): Promise<Barber[]> {
+  const res = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}&limit=100`);
+  return toList<any>(res, 'staff')
+    .filter((s) => s?.staffId && s.status === 'ACTIVE' && /barber/i.test(String(s.roleTitle || '')))
+    .map((s) => ({ staffId: String(s.staffId), name: String(s.fullName || '').trim() }))
+    .filter((b) => b.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Every booking of the shop (the backend pages 20 at a time by default), each with its barber.
+ * The booking list doesn't say who a booking is with, so each barber's bookings are fetched too.
+ */
+export async function loadBookings(barbers: Barber[] = []): Promise<ShopBooking[]> {
+  const [res, ...perBarber] = await Promise.all([
+    apiRequest<any>(`/api/v1/bookings?branchId=${DEFAULT_BRANCH_ID}&limit=1000`),
+    ...barbers.map((b) =>
+      apiRequest<any>(`/api/v1/bookings?branchId=${DEFAULT_BRANCH_ID}&staffId=${b.staffId}&limit=1000`).catch(() => null)
+    ),
+  ]);
+  const barberOf = new Map<string, Barber>();
+  perBarber.forEach((list, i) => {
+    for (const b of toList<any>(list, 'bookings')) barberOf.set(String(b.bookingId || b.id), barbers[i]);
+  });
   return toList<any>(res, 'bookings')
     .filter((b) => b && (b.bookingId || b.id))
-    .map(normalizeBooking);
+    .map(normalizeBooking)
+    .map((b) => {
+      const barber = barberOf.get(b.bookingId);
+      return barber ? { ...b, staffId: barber.staffId, staffName: barber.name } : b;
+    });
 }
 
 export async function loadServices(): Promise<ShopService[]> {
@@ -180,14 +214,23 @@ export async function cancelBooking(bookingId: string, reason: string) {
 }
 
 /**
- * Moves a booking to a new date and time. The backend only moves confirmed bookings, so one
- * still waiting to be confirmed is booked again at the new time and the old one cancelled.
- * Returns the booking's id, which is new in that case.
+ * Moves a booking to a new date and time, and/or another barber (`staffId`: null for any
+ * barber, left out to keep the barber). The backend only moves confirmed bookings and can't
+ * change the barber, so otherwise the booking is made again (confirmed again if it was, which
+ * needs `servicePrice`) and the old one cancelled. Returns the booking's id, which is new then.
  */
-export async function rescheduleBooking(bookingId: string, date: string, startTime: string): Promise<string> {
+export async function rescheduleBooking(
+  bookingId: string,
+  date: string,
+  startTime: string,
+  opts: { staffId?: string | null; servicePrice?: number } = {}
+): Promise<string> {
   const time = startTime.length === 5 ? `${startTime}:00` : startTime;
   const detail = await apiRequest<any>(`/api/v1/bookings/${bookingId}`);
-  if (['CONFIRMED', 'LOCKED'].includes(String(detail?.status))) {
+  const currentStaff: string | null = detail?.staff?.id ? String(detail.staff.id) : null;
+  const staffId = opts.staffId === undefined ? currentStaff : opts.staffId;
+  const confirmed = ['CONFIRMED', 'LOCKED'].includes(String(detail?.status));
+  if (confirmed && staffId === currentStaff) {
     await apiRequest(`/api/v1/bookings/${bookingId}/reschedule`, {
       method: 'POST',
       body: JSON.stringify({ date, startTime: time }),
@@ -197,11 +240,12 @@ export async function rescheduleBooking(bookingId: string, date: string, startTi
   const newId = await createBooking({
     customerId: String(detail?.customer?.id || ''),
     serviceId: String(detail?.service?.id || ''),
-    staffId: detail?.staff?.id ? String(detail.staff.id) : undefined,
+    staffId: staffId || undefined,
     date,
     startTime: time,
     notes: detail?.notes || undefined,
   });
+  if (confirmed && opts.servicePrice !== undefined) await confirmBooking({ bookingId: newId, servicePrice: opts.servicePrice });
   await cancelBooking(bookingId, `Moved to ${date} ${time.slice(0, 5)}`);
   return newId;
 }

@@ -11,6 +11,7 @@ import { formatPhone, formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHO
 import { freeStartTimes, minutesToTime, openingHours } from '@/lib/slots';
 import {
   ACTIVE_STATUSES,
+  Barber,
   ShopBooking,
   ShopService,
   billFor,
@@ -19,6 +20,7 @@ import {
   createBooking,
   findOrCreateCustomer,
   finishAndPay,
+  loadBarbers,
   loadBookings,
   loadServices,
   loadWalkIns,
@@ -60,6 +62,39 @@ function nowMinutes() {
   return shopClock().minutes;
 }
 
+/** Free start times on a date; with a barber, also free in that barber's own bookings. */
+function freeTimesFor(input: { bookings: ShopBooking[]; durationMinutes: number; date: string; excludeBookingId?: string; staffId?: string }) {
+  const base = {
+    date: input.date,
+    durationMinutes: input.durationMinutes,
+    excludeBookingId: input.excludeBookingId,
+    notBeforeMinutes: input.date === todayISO() ? nowMinutes() - 1 : undefined,
+  };
+  const times = freeStartTimes({ ...base, bookings: input.bookings });
+  if (!input.staffId) return times;
+  const barberFree = new Set(
+    freeStartTimes({ ...base, bookings: input.bookings.filter((b) => b.staffId === input.staffId), capacity: 1 })
+  );
+  return times.filter((t) => barberFree.has(t));
+}
+
+/** "Any barber" plus each barber, as a dropdown. */
+function BarberSelect({ barbers, value, onChange }: { barbers: Barber[]; value: string; onChange: (id: string) => void }) {
+  return (
+    <div>
+      <label className={labelClass}>Barber</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass}>
+        <option value="">Any barber</option>
+        {barbers.map((b) => (
+          <option key={b.staffId} value={b.staffId}>
+            {b.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 /** Day buttons + free time buttons. Taken times are never offered, so the shop can't double-book. */
 function TimePicker({
   bookings,
@@ -69,6 +104,7 @@ function TimePicker({
   onDate,
   onTime,
   excludeBookingId,
+  staffId,
 }: {
   bookings: ShopBooking[];
   durationMinutes: number;
@@ -77,18 +113,14 @@ function TimePicker({
   onDate: (d: string) => void;
   onTime: (t: string) => void;
   excludeBookingId?: string;
+  /** A chosen barber: the time must also be free in that barber's own bookings. */
+  staffId?: string;
 }) {
   const days = useMemo(() => Array.from({ length: 14 }, (_, i) => addDays(todayISO(), i)).filter((d) => openingHours(d)), []);
   useEffect(() => {
     if (days.length > 0 && !days.includes(date)) onDate(days[0]);
   }, [days, date, onDate]);
-  const times = freeStartTimes({
-    date,
-    durationMinutes,
-    bookings,
-    excludeBookingId,
-    notBeforeMinutes: date === todayISO() ? nowMinutes() - 1 : undefined,
-  });
+  const times = freeTimesFor({ bookings, durationMinutes, date, excludeBookingId, staffId });
   return (
     <div className="space-y-3">
       <div>
@@ -297,6 +329,9 @@ function AppointmentsPage() {
   const [bookings, setBookings] = useState<ShopBooking[]>([]);
   const [walkIns, setWalkIns] = useState<ShopBooking[]>([]);
   const [services, setServices] = useState<ShopService[]>([]);
+  const [barbers, setBarbers] = useState<Barber[]>([]);
+  // '' all barbers, 'none' bookings with no barber, else a staffId.
+  const [barberFilter, setBarberFilter] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -317,6 +352,7 @@ function AppointmentsPage() {
   const [newDate, setNewDate] = useState(todayISO());
   const [newTime, setNewTime] = useState('');
   const [newNotes, setNewNotes] = useState('');
+  const [newBarberId, setNewBarberId] = useState('');
   const [newError, setNewError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -336,12 +372,19 @@ function AppointmentsPage() {
   const [moveTarget, setMoveTarget] = useState<ShopBooking | null>(null);
   const [moveDate, setMoveDate] = useState(todayISO());
   const [moveTime, setMoveTime] = useState('');
+  const [moveBarberId, setMoveBarberId] = useState('');
+
+  const fetchBookings = useCallback(async () => {
+    const team = await loadBarbers().catch(() => [] as Barber[]);
+    setBarbers(team);
+    return loadBookings(team);
+  }, []);
 
   const reload = useCallback(async () => {
     setIsLoading(true);
     setLoadError(null);
     try {
-      setBookings(await loadBookings());
+      setBookings(await fetchBookings());
     } catch (err: any) {
       setLoadError(err.message || 'Could not load appointments.');
     } finally {
@@ -351,7 +394,7 @@ function AppointmentsPage() {
     loadWalkIns(addDays(todayISO(), -60), todayISO())
       .then(setWalkIns)
       .catch(() => setWalkIns([]));
-  }, []);
+  }, [fetchBookings]);
 
   useEffect(() => {
     reload();
@@ -370,6 +413,7 @@ function AppointmentsPage() {
     setNewDate(view === 'calendar' && selectedDate > todayISO() ? selectedDate : todayISO());
     setNewTime('');
     setNewNotes('');
+    setNewBarberId('');
     setNewError(null);
     setShowNew(true);
   }, [view, selectedDate]);
@@ -437,15 +481,22 @@ function AppointmentsPage() {
     setNewError(null);
     try {
       // Re-check against the latest list in case the time was just taken online.
-      const latest = await loadBookings();
-      const stillFree = freeStartTimes({ date: newDate, durationMinutes: service.durationMinutes, bookings: latest }).includes(newTime);
+      const latest = await fetchBookings();
+      const stillFree = freeTimesFor({ bookings: latest, durationMinutes: service.durationMinutes, date: newDate, staffId: newBarberId || undefined }).includes(newTime);
       if (!stillFree) {
         setBookings(latest);
         setNewTime('');
         throw new Error('That time was just taken. Please pick another time.');
       }
       const customerId = await findOrCreateCustomer(newName.trim(), newPhone);
-      const bookingId = await createBooking({ customerId, serviceId: service.serviceId, date: newDate, startTime: newTime, notes: newNotes.trim() });
+      const bookingId = await createBooking({
+        customerId,
+        serviceId: service.serviceId,
+        staffId: newBarberId || undefined,
+        date: newDate,
+        startTime: newTime,
+        notes: newNotes.trim(),
+      });
       markDone(bookingId, 'New booking');
       // Booked by the shop itself, so it is confirmed straight away (tax added automatically).
       await confirmBooking({ bookingId, servicePrice: service.price });
@@ -527,10 +578,15 @@ function AppointmentsPage() {
     const target = moveTarget;
     setIsSaving(true);
     try {
-      const movedId = await rescheduleBooking(target.bookingId, moveDate, moveTime);
+      const barberChanged = moveBarberId !== (target.staffId || '');
+      const movedId = await rescheduleBooking(target.bookingId, moveDate, moveTime, {
+        staffId: moveBarberId || null,
+        servicePrice: serviceById(target.serviceId || '')?.price,
+      });
       setMoveTarget(null);
-      showSuccess('Time changed', `${target.customerName} · ${prettyDate(moveDate)} at ${wallClockTime(moveTime)}`);
-      markDone(movedId, 'Time changed');
+      const barberName = barbers.find((b) => b.staffId === moveBarberId)?.name || 'any barber';
+      showSuccess('Changed', `${target.customerName} · ${prettyDate(moveDate)} at ${wallClockTime(moveTime)} · ${barberName}`);
+      markDone(movedId, barberChanged ? `Now with ${barberName}` : 'Time changed');
       if (view === 'calendar') showDay(moveDate);
       reload();
     } catch (err: any) {
@@ -569,6 +625,7 @@ function AppointmentsPage() {
             ? ['DRAFT', 'LOCKED', 'SCHEDULED'].includes(b.status)
             : b.status === statusFilter
     )
+    .filter((b) => (barberFilter === '' ? true : barberFilter === 'none' ? !b.staffId && !b.walkIn : b.staffId === barberFilter))
     .filter((b) => {
       const q = search.trim().toLowerCase();
       if (!q) return true;
@@ -593,11 +650,13 @@ function AppointmentsPage() {
     const changeTime = (
       <ActionButton
         icon={CalendarClock}
-        label="Change time"
+        label="Change time / barber"
         disabled={busy}
         onClick={() => {
           setMoveDate(b.date >= today ? b.date : today);
-          setMoveTime('');
+          // Keep the current time selected, so only the barber can be changed.
+          setMoveTime(b.date >= today ? `${String(b.startTime).slice(11, 16)}:00` : '');
+          setMoveBarberId(b.staffId || '');
           setMoveTarget(b);
         }}
       />
@@ -702,6 +761,17 @@ function AppointmentsPage() {
             <option value="CANCELLED">{STATUS_LABELS.CANCELLED}</option>
             <option value="NO_SHOW">{STATUS_LABELS.NO_SHOW}</option>
           </select>
+          {barbers.length > 0 && (
+            <select value={barberFilter} onChange={(e) => setBarberFilter(e.target.value)} className="px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]">
+              <option value="">All barbers</option>
+              {barbers.map((b) => (
+                <option key={b.staffId} value={b.staffId}>
+                  {b.name}
+                </option>
+              ))}
+              <option value="none">No barber chosen</option>
+            </select>
+          )}
           <button onClick={reload} title="Refresh" className="ml-auto p-2 rounded-xl bg-[var(--muted)] border border-[var(--border)] text-[var(--foreground)]">
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
@@ -784,6 +854,11 @@ function AppointmentsPage() {
                       )}
                     </div>
                     <p className="text-xs font-bold text-[var(--primary)] mt-0.5">{b.serviceName} · ${formatMoney(shownTotal(b))}</p>
+                    {!b.walkIn && barbers.length > 0 && (
+                      <p className="text-xs text-[var(--foreground)] mt-0.5">
+                        {b.staffName ? `with ${b.staffName}` : <span className="text-[var(--muted-foreground)]">Any barber</span>}
+                      </p>
+                    )}
                     {b.customerPhone && (
                       <a href={`tel:${b.customerPhone.replace(/\D/g, '')}`} className="text-xs text-[var(--muted-foreground)] hover:underline">
                         {b.customerPhone}
@@ -829,8 +904,26 @@ function AppointmentsPage() {
               ))}
             </select>
           </div>
+          {barbers.length > 0 && (
+            <BarberSelect
+              barbers={barbers}
+              value={newBarberId}
+              onChange={(id) => {
+                setNewBarberId(id);
+                setNewTime('');
+              }}
+            />
+          )}
           {newService && (
-            <TimePicker bookings={bookings} durationMinutes={newService.durationMinutes} date={newDate} time={newTime} onDate={setNewDate} onTime={setNewTime} />
+            <TimePicker
+              bookings={bookings}
+              durationMinutes={newService.durationMinutes}
+              date={newDate}
+              time={newTime}
+              onDate={setNewDate}
+              onTime={setNewTime}
+              staffId={newBarberId || undefined}
+            />
           )}
           <div>
             <label className={labelClass}>Note (optional)</label>
@@ -943,12 +1036,31 @@ function AppointmentsPage() {
       </Modal>
 
       {/* Change time */}
-      <Modal isOpen={!!moveTarget} onClose={() => setMoveTarget(null)} title="Change time" maxWidth="md">
+      <Modal isOpen={!!moveTarget} onClose={() => setMoveTarget(null)} title="Change time or barber" maxWidth="md">
         {moveTarget && (
           <div className="space-y-4">
             <p className="text-sm text-[var(--foreground)]">
-              <strong>{moveTarget.customerName}</strong> · {moveTarget.serviceName} (now {prettyDate(moveTarget.date)} at {wallClockTime(moveTarget.startTime)})
+              <strong>{moveTarget.customerName}</strong> · {moveTarget.serviceName} (now {prettyDate(moveTarget.date)} at {wallClockTime(moveTarget.startTime)}
+              {moveTarget.staffName ? ` with ${moveTarget.staffName}` : ''})
             </p>
+            {barbers.length > 0 && (
+              <BarberSelect
+                barbers={barbers}
+                value={moveBarberId}
+                onChange={(id) => {
+                  setMoveBarberId(id);
+                  // Keep the time when the new barber is free then.
+                  const free = freeTimesFor({
+                    bookings,
+                    durationMinutes: moveService?.durationMinutes || 30,
+                    date: moveDate,
+                    excludeBookingId: moveTarget.bookingId,
+                    staffId: id || undefined,
+                  });
+                  if (!free.includes(moveTime)) setMoveTime('');
+                }}
+              />
+            )}
             <TimePicker
               bookings={bookings}
               durationMinutes={moveService?.durationMinutes || 30}
@@ -957,11 +1069,12 @@ function AppointmentsPage() {
               onDate={setMoveDate}
               onTime={setMoveTime}
               excludeBookingId={moveTarget.bookingId}
+              staffId={moveBarberId || undefined}
             />
             <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
               <button type="button" onClick={() => setMoveTarget(null)} className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]">Close</button>
               <button onClick={handleMove} disabled={!moveTime || isSaving} className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold disabled:opacity-50">
-                {isSaving ? 'Saving…' : 'Save new time'}
+                {isSaving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>
