@@ -74,6 +74,8 @@ export default function MoneyBookPage() {
   const [filter, setFilter] = useState<'ALL' | EntryType>('ALL');
   // Show only the money one person took (for the day's cash-up).
   const [takenByFilter, setTakenByFilter] = useState('');
+  // One income or expense category ("IN:Services"), or '' for all.
+  const [categoryFilter, setCategoryFilter] = useState('');
 
   // Add entry form
   const [showModal, setShowModal] = useState(false);
@@ -142,7 +144,12 @@ export default function MoneyBookPage() {
 
   const visibleEntries = entries
     .filter((e) => filter === 'ALL' || e.type === filter)
+    .filter((e) => !categoryFilter || `${e.type}:${e.category}` === categoryFilter)
     .filter((e) => !takenByFilter || e.takenBy === takenByFilter);
+
+  // Categories with entries in the period, for the category filter.
+  const categoriesOf = (type: EntryType) =>
+    Array.from(new Set(entries.filter((e) => e.type === type).map((e) => e.category))).sort((a, b) => a.localeCompare(b));
 
   // Money each person took in the period (what they should hand over, HST and tips included).
   const takenByPerson = useMemo(() => {
@@ -318,6 +325,15 @@ export default function MoneyBookPage() {
             </button>
           ))}
         </div>
+        <label className="flex items-center gap-1.5 text-xs font-bold text-[var(--muted-foreground)]">
+          Pick a date
+          <input
+            type="date"
+            value={anchor}
+            onChange={(e) => e.target.value && setAnchor(e.target.value)}
+            className="px-2 py-1.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
+          />
+        </label>
         {!isCurrent && (
           <button
             onClick={() => setAnchor(todayISO())}
@@ -436,7 +452,10 @@ export default function MoneyBookPage() {
               {(['ALL', 'IN', 'OUT'] as const).map((f) => (
                 <button
                   key={f}
-                  onClick={() => setFilter(f)}
+                  onClick={() => {
+                    setFilter(f);
+                    setCategoryFilter('');
+                  }}
                   className={`px-2.5 py-1 rounded-lg transition-colors ${
                     filter === f
                       ? 'bg-[var(--primary)] text-white'
@@ -448,6 +467,28 @@ export default function MoneyBookPage() {
               ))}
             </div>
           </div>
+
+          {filter !== 'ALL' && (
+            <div className="px-4 py-3 border-b border-[var(--border)]">
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="w-full sm:w-auto px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
+              >
+                <option value="">{filter === 'IN' ? 'All income categories' : 'All expense categories'}</option>
+                {categoriesOf(filter).map((c) => (
+                  <option key={c} value={`${filter}:${c}`}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              {categoryFilter && (
+                <span className="ml-2 text-xs font-bold text-[var(--foreground)]">
+                  Total ${formatMoney(visibleEntries.reduce((sum, e) => sum + e.amount, 0))}
+                </span>
+              )}
+            </div>
+          )}
 
           {isLoading ? (
             <div className="p-12 text-center text-xs text-[var(--muted-foreground)]">Loading entries...</div>
@@ -524,13 +565,24 @@ export default function MoneyBookPage() {
             <p className="text-xs text-[var(--muted-foreground)]">Nothing recorded for {period.label}.</p>
           ) : (
             byCategory.map((c) => (
-              <div key={`${c.type}-${c.category}`} className="flex items-center justify-between text-xs">
+              <button
+                key={`${c.type}-${c.category}`}
+                onClick={() => {
+                  // Tap a category to list only its entries.
+                  const key = `${c.type}:${c.category}`;
+                  setFilter(c.type);
+                  setCategoryFilter((cur) => (cur === key ? '' : key));
+                }}
+                className={`w-full flex items-center justify-between text-xs rounded-lg px-1.5 py-1 -mx-1.5 hover:bg-[var(--muted)] ${
+                  categoryFilter === `${c.type}:${c.category}` ? 'bg-[var(--primary-light)]' : ''
+                }`}
+              >
                 <span className="font-semibold text-[var(--foreground)]">
                   <span className={c.type === 'IN' ? 'text-emerald-600' : 'text-rose-600'}>{c.type === 'IN' ? '▲' : '▼'}</span>{' '}
                   {c.category}
                 </span>
                 <span className="font-black text-[var(--foreground)]">${formatMoney(c.total)}</span>
-              </div>
+              </button>
             ))
           )}
         </div>
