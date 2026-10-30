@@ -204,7 +204,14 @@ export async function rescheduleAccountBooking(account: AccountUser, bookingId: 
   const time = `${startTime.slice(0, 5)}:00`;
   if (!/^\d{2}:\d{2}:00$/.test(time)) throw new AgentError('Choose a time.', 400);
   const service = await findService(booking.serviceId);
-  if (!(await freeTimes(service.serviceId, date, bookingId)).includes(time)) {
+  const detail = await agentRequest('GET', `/api/v1/bookings/${bookingId}`);
+  // The booking keeps its barber, if it has one.
+  const staffId: string | undefined = detail?.staff?.id ? String(detail.staff.id) : undefined;
+  const free = await freeTimes(service.serviceId, date, bookingId, staffId).catch((err) =>
+    // A barber who no longer takes online bookings: check the shop's times only.
+    staffId && err instanceof AgentError && err.status === 400 ? freeTimes(service.serviceId, date, bookingId) : Promise.reject(err)
+  );
+  if (!free.includes(time)) {
     throw new AgentError('Sorry, that time is not available any more. Please pick another time.', 409);
   }
   if (date === wallClockDate(booking.startTime) && time === `${wallClockTime24(booking.startTime)}:00`) return bookingId;
@@ -213,13 +220,13 @@ export async function rescheduleAccountBooking(account: AccountUser, bookingId: 
     await agentRequest('POST', `/api/v1/bookings/${bookingId}/reschedule`, { date, startTime: time });
     return bookingId;
   }
-  const detail = await agentRequest('GET', `/api/v1/bookings/${bookingId}`);
   const from = `${wallClockDate(booking.startTime)} ${wallClockTime(booking.startTime)}`;
   const created = await agentRequest('POST', '/api/v1/bookings', {
     tenantId: DEFAULT_TENANT_ID,
     branchId: DEFAULT_BRANCH_ID,
     customerId: detail?.customer?.id,
     serviceId: service.serviceId,
+    ...(staffId ? { staffId } : {}),
     date,
     startTime: time,
     notes: [detail?.notes, `Moved by the customer from ${from}`].filter(Boolean).join(' — '),

@@ -55,6 +55,27 @@ export async function listBookableServices(): Promise<BookableService[]> {
     .sort((a, b) => a.categoryOrder - b.categoryOrder || a.price - b.price);
 }
 
+export interface Barber {
+  staffId: string;
+  name: string;
+}
+
+/** Barbers customers can choose: active staff whose job title says "Barber". */
+export async function listBarbers(): Promise<Barber[]> {
+  const res = await agentRequest('GET', `/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}&limit=100`);
+  return toList<any>(res, 'staff')
+    .filter((s) => s?.staffId && s.status === 'ACTIVE' && /barber/i.test(String(s.roleTitle || '')))
+    .map((s) => ({ staffId: String(s.staffId), name: String(s.fullName || '').trim() }))
+    .filter((b) => b.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function findBarber(staffId: string): Promise<Barber> {
+  const barber = UUID.test(staffId) && (await listBarbers()).find((b) => b.staffId === staffId);
+  if (!barber) throw new AgentError('That barber is not taking online bookings. Please choose another.', 400);
+  return barber;
+}
+
 /** The shop's current calendar date (YYYY-MM-DD). */
 export function shopToday(): string {
   return shopNow().date;
@@ -69,11 +90,12 @@ export function checkBookableDate(date: string): string | null {
   return null;
 }
 
-/** Every booking on a date (any service, any status). The backend's dateTo is exclusive. */
-async function bookingsOn(date: string) {
+/** Every booking on a date (any service, any status), or only one barber's. The backend's dateTo is exclusive. */
+async function bookingsOn(date: string, staffId?: string) {
   const res = await agentRequest(
     'GET',
-    `/api/v1/bookings?branchId=${DEFAULT_BRANCH_ID}&dateFrom=${addDays(date, -1)}&dateTo=${addDays(date, 1)}&limit=500`
+    `/api/v1/bookings?branchId=${DEFAULT_BRANCH_ID}&dateFrom=${addDays(date, -1)}&dateTo=${addDays(date, 1)}&limit=500` +
+      (staffId ? `&staffId=${staffId}` : '')
   );
   return toList<any>(res, 'bookings');
 }
@@ -87,21 +109,29 @@ export async function findService(serviceId: string): Promise<BookableService> {
 
 /**
  * Free start times ("HH:MM:SS") for a service on a date. A time is taken by a booking of any
- * service. `excludeBookingId` leaves out a booking that is being moved.
+ * service. With a barber (`staffId`), the time must also be free in that barber's own bookings.
+ * `excludeBookingId` leaves out a booking that is being moved.
  */
-export async function freeTimes(serviceId: string, date: string, excludeBookingId?: string): Promise<string[]> {
+export async function freeTimes(serviceId: string, date: string, excludeBookingId?: string, staffId?: string): Promise<string[]> {
   const dateError = checkBookableDate(date);
   if (dateError) throw new AgentError(dateError, 400);
-  const [service, bookings] = await Promise.all([findService(serviceId), bookingsOn(date)]);
+  const [service, bookings, barberBookings] = await Promise.all([
+    findService(serviceId),
+    bookingsOn(date),
+    staffId ? findBarber(staffId).then(() => bookingsOn(date, staffId)) : Promise.resolve(null),
+  ]);
   const now = shopNow();
-  return freeStartTimes({
+  const base = {
     date,
     durationMinutes: service.durationMinutes,
-    bookings,
     excludeBookingId,
     // Today: only times still ahead of the clock, with a little notice.
     notBeforeMinutes: date === now.date ? now.minutes + 15 : undefined,
-  });
+  };
+  const times = freeStartTimes({ ...base, bookings });
+  if (!barberBookings) return times;
+  const barberFree = new Set(freeStartTimes({ ...base, bookings: barberBookings, capacity: 1 }));
+  return times.filter((t) => barberFree.has(t));
 }
 
 export interface GuestBookingInput {
@@ -112,6 +142,8 @@ export interface GuestBookingInput {
   phone: string;
   email?: string;
   notes?: string;
+  /** The chosen barber; none means any barber. */
+  staffId?: string;
 }
 
 export function validateGuestBooking(input: any): { value?: GuestBookingInput; error?: string } {
@@ -123,7 +155,9 @@ export function validateGuestBooking(input: any): { value?: GuestBookingInput; e
     phone: String(input?.phone || '').trim(),
     email: input?.email ? String(input.email).trim() : undefined,
     notes: input?.notes ? String(input.notes).trim().slice(0, 300) : undefined,
+    staffId: input?.staffId ? String(input.staffId) : undefined,
   };
+  if (value.staffId && !UUID.test(value.staffId)) return { error: 'Choose a barber.' };
   if (!UUID.test(value.serviceId)) return { error: 'Choose a service.' };
   const dateError = checkBookableDate(value.date);
   if (dateError) return { error: dateError };
@@ -194,7 +228,8 @@ export async function placeOnlineBooking(input: GuestBookingInput, account?: Acc
   const service = await findService(input.serviceId);
 
   // Re-check the slot right before booking; someone else may have taken it.
-  const times = await freeTimes(input.serviceId, input.date);
+  const times = await freeTimes(input.serviceId, input.date, undefined, input.staffId);
+  const barber = input.staffId ? await findBarber(input.staffId) : null;
   if (!times.includes(input.startTime)) {
     throw new AgentError('Sorry, that time is not available any more. Please pick another time.', 409);
   }
@@ -211,9 +246,10 @@ export async function placeOnlineBooking(input: GuestBookingInput, account?: Acc
     branchId: DEFAULT_BRANCH_ID,
     customerId,
     serviceId: input.serviceId,
+    ...(barber ? { staffId: barber.staffId } : {}),
     date: input.date,
     startTime: input.startTime,
-    notes: ['Booked online', input.notes].filter(Boolean).join(' — '),
+    notes: ['Booked online', barber ? `Barber: ${barber.name}` : '', input.notes].filter(Boolean).join(' — '),
   });
 
   // Two people may have pressed "Book" for the same time at the same moment. If this booking
@@ -238,6 +274,7 @@ export async function placeOnlineBooking(input: GuestBookingInput, account?: Acc
   return {
     bookingNumber: booking?.bookingNumber || null,
     service: service.name,
+    barber: barber?.name || null,
     price: service.price,
     date: input.date,
     startTime: input.startTime,

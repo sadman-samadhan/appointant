@@ -16,8 +16,9 @@ export async function GET(req: NextRequest) {
   const date = req.nextUrl.searchParams.get('date') || '';
   // When a customer moves a booking, its own time counts as free.
   const exclude = req.nextUrl.searchParams.get('exclude') || undefined;
+  const staffId = req.nextUrl.searchParams.get('staffId') || undefined;
   try {
-    return NextResponse.json({ date, times: await freeTimes(serviceId, date, exclude) });
+    return NextResponse.json({ date, times: await freeTimes(serviceId, date, exclude, staffId) });
   } catch (err) {
     if (err instanceof AgentError && err.status === 400) {
       return NextResponse.json({ message: err.message }, { status: 400 });

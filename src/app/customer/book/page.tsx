@@ -19,9 +19,15 @@ interface Service {
   category: string;
 }
 
+interface Barber {
+  staffId: string;
+  name: string;
+}
+
 interface Confirmation {
   bookingNumber: string | null;
   service: string;
+  barber: string | null;
   price: number;
   date: string;
   startTime: string;
@@ -69,6 +75,9 @@ export default function BookPage() {
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [service, setService] = useState<Service | null>(null);
+  const [barbers, setBarbers] = useState<Barber[]>([]);
+  // '' means any barber.
+  const [barberId, setBarberId] = useState('');
   // The shop's "today" (Fredericton time) comes from the server; the visitor may be elsewhere.
   const [shopToday, setShopToday] = useState(localISO(new Date()));
   const [date, setDate] = useState(localISO(new Date()));
@@ -99,9 +108,10 @@ export default function BookPage() {
   const needsPhone = !signedIn || (account !== null && !account.phone);
 
   useEffect(() => {
-    getJson<{ services: Service[]; today?: string }>('/api/public/booking/services')
-      .then(({ services: list, today }) => {
+    getJson<{ services: Service[]; barbers?: Barber[]; today?: string }>('/api/public/booking/services')
+      .then(({ services: list, barbers: team, today }) => {
         setServices(list);
+        setBarbers(team || []);
         if (today) {
           setShopToday(today);
           setDate(today);
@@ -124,7 +134,7 @@ export default function BookPage() {
     setTime('');
     try {
       const res = await getJson<{ times: string[] }>(
-        `/api/public/booking/slots?serviceId=${service.serviceId}&date=${date}`
+        `/api/public/booking/slots?serviceId=${service.serviceId}&date=${date}${barberId ? `&staffId=${barberId}` : ''}`
       );
       setTimes(res.times);
     } catch (err: any) {
@@ -133,7 +143,7 @@ export default function BookPage() {
     } finally {
       setIsLoadingTimes(false);
     }
-  }, [service, date]);
+  }, [service, date, barberId]);
 
   useEffect(() => {
     if (step === 2) loadTimes();
@@ -170,7 +180,17 @@ export default function BookPage() {
     try {
       const result = await getJson<Confirmation>('/api/public/booking', {
         method: 'POST',
-        body: JSON.stringify({ serviceId: service.serviceId, date, startTime: time, name, phone, email, notes, website }),
+        body: JSON.stringify({
+          serviceId: service.serviceId,
+          staffId: barberId || undefined,
+          date,
+          startTime: time,
+          name,
+          phone,
+          email,
+          notes,
+          website,
+        }),
       });
       setConfirmation(result);
     } catch (err: any) {
@@ -191,7 +211,10 @@ export default function BookPage() {
         <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
         <h1 className="text-xl font-black text-[var(--foreground)]">You&apos;re booked!</h1>
         <div className="p-4 rounded-2xl bg-[var(--muted)] text-left space-y-1">
-          <p className="text-sm font-black text-[var(--foreground)]">{confirmation.service}</p>
+          <p className="text-sm font-black text-[var(--foreground)]">
+            {confirmation.service}
+            {confirmation.barber && <span className="font-normal text-[var(--muted-foreground)]"> with {confirmation.barber}</span>}
+          </p>
           <p className="text-xs text-[var(--muted-foreground)]">
             {prettyDate(confirmation.date)} at {wallClockTime(confirmation.startTime)}
           </p>
@@ -329,6 +352,29 @@ export default function BookPage() {
             </button>
           </div>
 
+          {barbers.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-[var(--foreground)] mb-2 flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5" /> Barber
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {[{ staffId: '', name: 'Any barber' }, ...barbers].map((b) => (
+                  <button
+                    key={b.staffId || 'any'}
+                    onClick={() => setBarberId(b.staffId)}
+                    className={`px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${
+                      b.staffId === barberId
+                        ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                        : 'bg-[var(--muted)] border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)]'
+                    }`}
+                  >
+                    {b.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div>
             <p className="text-xs font-bold text-[var(--foreground)] mb-2 flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5" /> Day
@@ -406,7 +452,15 @@ export default function BookPage() {
       {step === 3 && service && (
         <form onSubmit={handleSubmit} className="glass-card p-5 rounded-2xl border border-[var(--border)] space-y-4">
           <div className="p-3 rounded-xl bg-[var(--muted)] text-xs">
-            <p className="font-black text-[var(--foreground)]">{service.name}</p>
+            <p className="font-black text-[var(--foreground)]">
+              {service.name}
+              {barberId && (
+                <span className="font-normal text-[var(--muted-foreground)]">
+                  {' '}
+                  with {barbers.find((b) => b.staffId === barberId)?.name}
+                </span>
+              )}
+            </p>
             <p className="text-[var(--muted-foreground)]">
               {prettyDate(date)} at {wallClockTime(time)} · ${formatMoney(service.price)} + tax · pay at the shop
             </p>

@@ -122,6 +122,7 @@ export async function findOrCreateCustomer(name: string, phone?: string): Promis
 export async function createBooking(input: {
   customerId: string;
   serviceId: string;
+  staffId?: string;
   date: string;
   startTime: string;
   notes?: string;
@@ -133,6 +134,7 @@ export async function createBooking(input: {
       branchId: DEFAULT_BRANCH_ID,
       customerId: input.customerId,
       serviceId: input.serviceId,
+      staffId: input.staffId || undefined,
       date: input.date,
       startTime: input.startTime.length === 5 ? `${input.startTime}:00` : input.startTime,
       notes: input.notes || undefined,
@@ -195,6 +197,7 @@ export async function rescheduleBooking(bookingId: string, date: string, startTi
   const newId = await createBooking({
     customerId: String(detail?.customer?.id || ''),
     serviceId: String(detail?.service?.id || ''),
+    staffId: detail?.staff?.id ? String(detail.staff.id) : undefined,
     date,
     startTime: time,
     notes: detail?.notes || undefined,
