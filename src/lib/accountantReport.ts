@@ -112,7 +112,7 @@ function toCsv(rows: (string | number)[][]): string {
 export function transactionsCsv(r: AccountantReport): string {
   const tax = BUSINESS.taxLabel;
   return toCsv([
-    ['Date', 'Type', 'Category', 'Sub-category', 'Description', 'Reference', 'Paid with', `Amount before ${tax}`, tax, 'Tip', 'Total'],
+    ['Date', 'Type', 'Category', 'Sub-category', 'Description', 'Reference', 'Paid with', 'Taken by', `Amount before ${tax}`, tax, 'Tip', 'Total'],
     ...r.entries.map((e) => [
       e.date,
       e.type === 'IN' ? 'Income' : 'Expense',
@@ -121,6 +121,7 @@ export function transactionsCsv(r: AccountantReport): string {
       e.note,
       e.reference,
       e.fromAppointment ? 'Appointment bill' : e.paidWith === 'BANK' ? 'Bank' : 'Cash',
+      e.takenBy,
       e.amount - e.tax - e.tip,
       e.tax,
       e.tip,

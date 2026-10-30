@@ -11,7 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 // expenses) still exist at their URLs but are left out of the menu; Accounting covers money.
 export const navItems = [
   { label: 'Today', href: '/admin/dashboard', icon: LayoutDashboard },
-  { label: 'Appointments', href: '/admin/appointments', icon: Calendar },
+  { label: 'Appointments', short: 'Bookings', href: '/admin/appointments', icon: Calendar },
   { label: 'Accounting', href: '/admin/accounting', icon: Wallet, adminOnly: true },
   { label: 'Customers', href: '/admin/customers', icon: UserCheck },
   { label: 'Services', href: '/admin/services', icon: Scissors },
@@ -50,7 +50,7 @@ export function MobileNav() {
             className={`flex flex-col items-center gap-0.5 py-2 text-[10px] font-bold ${active ? 'text-[var(--primary)]' : 'text-[var(--muted-foreground)]'}`}
           >
             <Icon className="w-5 h-5" />
-            {item.label}
+            <span className="max-w-full truncate px-0.5">{'short' in item ? item.short : item.label}</span>
           </Link>
         );
       })}

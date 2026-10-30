@@ -1,11 +1,12 @@
 // Appointment actions for the shop owner's screens. Each function is one thing the barber
 // does ("confirm", "finish & take payment", "walk-in sale"); the backend steps behind it
 // (tax, invoice, payment, status changes) happen here so the screens stay simple.
-import { apiRequest, generateIdempotencyKey } from '@/lib/api/client';
+import { generateIdempotencyKey } from '@/lib/api/client';
+import { apiRequest } from '@/lib/api/request';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { BUSINESS } from '@/lib/business';
 import { sameName, servicePrice, serviceDuration, shopClock, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
-import { addAutoIncome, billTag, hstIncluded, listEntries, WALK_IN_CATEGORY } from '@/lib/moneyBook';
+import { addAutoIncome, billTag, hstIncluded, listEntries, TAKEN_BY_PREFIX, WALK_IN_CATEGORY } from '@/lib/moneyBook';
 import { formatPhone, phoneDigits } from '@/lib/phone';
 
 export interface ShopBooking {
@@ -306,11 +307,16 @@ export async function billFor(booking: ShopBooking): Promise<{ bill: Bill; extra
 // Accounting shows the HST and tip of a bill together with the bill's payment (see moneyBook).
 const billNote = (text: string, bill: Bill) => (bill.invoiceNumber ? `${text} ${billTag(bill.invoiceNumber)}` : text);
 
+/** Written on a payment (and its HST and tip) so Accounting can show who took the money. */
+export const takenByNote = (name: string) => `${TAKEN_BY_PREFIX}${name}`;
+
 /**
  * Takes the cash for an arrived appointment and marks it done. The payment is recorded
- * as income automatically; a tip is added to the Accounting book separately.
+ * as income automatically; a tip is added to the Accounting book separately. `takenBy` is
+ * who took the money (the barber, or "Owner"), kept with the payment for the day's cash-up.
  */
-export async function finishAndPay(booking: ShopBooking, opts: { tip?: number } = {}) {
+export async function finishAndPay(booking: ShopBooking, opts: { tip?: number; takenBy?: string } = {}) {
+  const by = opts.takenBy?.trim() ? ` — ${takenByNote(opts.takenBy.trim())}` : '';
   const { bill, extraTax, totalDue } = await billFor(booking);
   if (bill.balanceDue > 0) {
     await apiRequest('/api/v1/payments', {
@@ -322,7 +328,7 @@ export async function finishAndPay(booking: ShopBooking, opts: { tip?: number } 
         currency: BUSINESS.currency,
         paymentMethod: 'CASH',
         paymentDate: todayISO(),
-        notes: `${booking.serviceName} — ${booking.customerName}`,
+        notes: `${booking.serviceName} — ${booking.customerName}${by}`,
         idempotencyKey: generateIdempotencyKey(),
       }),
     });
@@ -332,10 +338,10 @@ export async function finishAndPay(booking: ShopBooking, opts: { tip?: number } 
   }
   const today = todayISO();
   if (extraTax > 0) {
-    await addAutoIncome('salesTax', { amount: extraTax, date: today, note: billNote(`${BUSINESS.taxLabel} — ${booking.customerName}`, bill) });
+    await addAutoIncome('salesTax', { amount: extraTax, date: today, note: billNote(`${BUSINESS.taxLabel} — ${booking.customerName}${by}`, bill) });
   }
   if (opts.tip && opts.tip > 0) {
-    await addAutoIncome('tip', { amount: opts.tip, date: today, note: billNote(booking.customerName, bill) });
+    await addAutoIncome('tip', { amount: opts.tip, date: today, note: billNote(`${booking.customerName}${by}`, bill) });
   }
   return totalDue;
 }
@@ -349,14 +355,14 @@ const WALK_IN_SEPARATOR = ' · ';
  * Walk-ins are not made as backend bookings: the backend refuses any booking time earlier
  * than its UTC clock (3-4 hours ahead of the shop), so "now" can't be booked.
  */
-export async function recordWalkIn(input: { service: ShopService; customerName?: string; amountPaid: number }) {
+export async function recordWalkIn(input: { service: ShopService; customerName?: string; amountPaid: number; takenBy?: string }) {
   const name = input.customerName?.trim() || 'Walk-in customer';
   await addAutoIncome('walkIn', {
     amount: money(input.amountPaid),
     // The price shown for a walk-in includes HST.
     tax: hstIncluded(money(input.amountPaid)),
     date: todayISO(),
-    note: `${input.service.name}${WALK_IN_SEPARATOR}${name}`,
+    note: `${input.service.name}${WALK_IN_SEPARATOR}${name}${input.takenBy?.trim() ? ` — ${takenByNote(input.takenBy.trim())}` : ''}`,
   });
 }
 

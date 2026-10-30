@@ -72,6 +72,8 @@ export default function MoneyBookPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'ALL' | EntryType>('ALL');
+  // Show only the money one person took (for the day's cash-up).
+  const [takenByFilter, setTakenByFilter] = useState('');
 
   // Add entry form
   const [showModal, setShowModal] = useState(false);
@@ -138,7 +140,22 @@ export default function MoneyBookPage() {
       .sort((a, b) => b.total - a.total);
   }, [entries]);
 
-  const visibleEntries = filter === 'ALL' ? entries : entries.filter((e) => e.type === filter);
+  const visibleEntries = entries
+    .filter((e) => filter === 'ALL' || e.type === filter)
+    .filter((e) => !takenByFilter || e.takenBy === takenByFilter);
+
+  // Money each person took in the period (what they should hand over, HST and tips included).
+  const takenByPerson = useMemo(() => {
+    const map = new Map<string, { total: number; count: number }>();
+    for (const e of entries) {
+      if (e.type !== 'IN' || !e.takenBy) continue;
+      const cur = map.get(e.takenBy) || { total: 0, count: 0 };
+      cur.total += e.amount;
+      cur.count += 1;
+      map.set(e.takenBy, cur);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1].total - a[1].total);
+  }, [entries]);
 
   const shiftPeriod = (delta: number) => {
     const d = dateOf(anchor);
@@ -376,11 +393,45 @@ export default function MoneyBookPage() {
         </p>
       )}
 
+      {takenByPerson.length > 0 && (
+        <div className="glass-card p-4 rounded-2xl border border-[var(--border)] space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-black text-[var(--foreground)]">Money taken by</h2>
+            <span className="text-[11px] text-[var(--muted-foreground)]">{period.label} · tap a name to see their entries</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {takenByPerson.map(([name, t]) => (
+              <button
+                key={name}
+                onClick={() => setTakenByFilter((cur) => (cur === name ? '' : name))}
+                className={`px-3 py-2 rounded-xl border-2 text-left transition-colors ${
+                  takenByFilter === name
+                    ? 'border-[var(--primary)] bg-[var(--primary-light)]'
+                    : 'border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]'
+                }`}
+              >
+                <span className="block text-xs font-black text-[var(--foreground)]">{name}</span>
+                <span className="block text-[11px] text-[var(--muted-foreground)]">
+                  ${formatMoney(t.total)} · {t.count} payment{t.count === 1 ? '' : 's'}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Entries list */}
         <div className="lg:col-span-2 glass-card rounded-2xl overflow-hidden border border-[var(--border)]">
           <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
-            <h2 className="text-sm font-black text-[var(--foreground)]">Entries</h2>
+            <div>
+              <h2 className="text-sm font-black text-[var(--foreground)]">Entries</h2>
+              {takenByFilter && (
+                <button onClick={() => setTakenByFilter('')} className="text-[11px] font-bold text-[var(--primary)] hover:underline">
+                  Taken by {takenByFilter} ✕
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-1 text-[11px] font-bold">
               {(['ALL', 'IN', 'OUT'] as const).map((f) => (
                 <button
@@ -441,6 +492,9 @@ export default function MoneyBookPage() {
                         {entry.tax > 0 && entry.category !== 'Sales tax' ? ` · incl. ${BUSINESS.taxLabel} $${formatMoney(entry.tax)}` : ''}
                         {entry.tip > 0 && entry.fromAppointment ? ` · tip $${formatMoney(entry.tip)}` : ''}
                       </p>
+                      {entry.takenBy && (
+                        <p className="text-[11px] font-bold text-[var(--foreground)]">Taken by {entry.takenBy}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">

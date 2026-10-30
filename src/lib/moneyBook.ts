@@ -8,7 +8,7 @@
 // (never one of the backend's built-in "system" accounts, which can't be renamed once
 // used) and each sub-category is a child account. The owner can add, rename and remove
 // them; removing only disables the account, so past entries keep their category.
-import { apiRequest } from '@/lib/api/client';
+import { apiRequest } from '@/lib/api/request';
 import { DEFAULT_BRANCH_ID } from '@/lib/api/config';
 import { BUSINESS } from '@/lib/business';
 import { toList, toNumber } from '@/lib/format';
@@ -38,6 +38,8 @@ export interface MoneyEntry {
   fromAppointment: boolean;
   /** When it was written down (a real timestamp). */
   createdAt?: string;
+  /** Who took the money (a barber, or "Owner"); empty when not recorded. */
+  takenBy: string;
 }
 
 export interface SubCategory {
@@ -70,6 +72,9 @@ const SERVICE_CODE = '4000';
 const TAX_CODE = '2100';
 const TIPS_CODE = '4200';
 const NOTE_SEPARATOR = ' — ';
+export const TAKEN_BY_PREFIX = 'Taken by ';
+// "… — Taken by Munim [INV-…]": who took the money, written at the end of a note.
+const TAKEN_BY = /(?:^|\s—\s)Taken by (.+?)(?=\s*\[INV-|$)/;
 const SUB_SEPARATOR = ' › ';
 const MAX_SUBS = 9;
 const BILL_TAG = /\s*\[(INV-[^\]\s]+)\]/;
@@ -359,6 +364,7 @@ interface InvoiceInfo {
   tip: number;
   total: number;
   notes: string;
+  takenBy: string;
 }
 
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -437,6 +443,12 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
   let category: string;
   let subcategory = '';
   let note = noteAfterHead;
+  let takenBy = '';
+  const by = note.match(TAKEN_BY);
+  if (by) {
+    takenBy = by[1].trim();
+    note = note.replace(by[0], '').trim();
+  }
   let reference = '';
   let tip = 0;
 
@@ -446,6 +458,7 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
     const inv = invoices.get(reference);
     note = inv?.notes || `Bill ${reference}`;
     if (inv) {
+      takenBy = inv.takenBy;
       tip = inv.tip;
       // Older bills leave the tax out of their total; then it was booked separately as "Sales tax".
       const taxIncluded = inv.tax > 0 && inv.total >= inv.subtotal - inv.discount + inv.tip + inv.tax - 0.01;
@@ -484,11 +497,21 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
     equipment,
     fromAppointment: !!invoiceMatch,
     createdAt: j.createdAt,
+    takenBy,
   };
 }
 
 async function loadInvoices(): Promise<Map<string, InvoiceInfo>> {
-  const res = await apiRequest<any>('/api/v1/billing/invoices?limit=1000');
+  const [res, payments] = await Promise.all([
+    apiRequest<any>('/api/v1/billing/invoices?limit=1000'),
+    apiRequest<any>('/api/v1/payments?limit=1000').catch(() => null),
+  ]);
+  // Who took each bill's payment is written in the payment's notes.
+  const takenByInvoice = new Map<string, string>();
+  for (const p of toList<any>(payments, 'payments')) {
+    const by = String(p?.notes || '').match(TAKEN_BY);
+    if (p?.invoiceId && by) takenByInvoice.set(String(p.invoiceId), by[1].trim());
+  }
   return new Map(
     toList<any>(res, 'invoices').map((inv) => [
       String(inv.invoiceNumber),
@@ -500,6 +523,7 @@ async function loadInvoices(): Promise<Map<string, InvoiceInfo>> {
         tip: toNumber(inv.tipAmount),
         total: toNumber(inv.total),
         notes: String(inv.notes || ''),
+        takenBy: takenByInvoice.get(String(inv.invoiceId)) || '',
       },
     ])
   );
@@ -534,6 +558,7 @@ export function mergeBillParts(entries: MoneyEntry[]): MoneyEntry[] {
       target.amount = round(target.amount + e.amount);
       target.tax = round(target.tax + e.tax);
       target.tip = round(target.tip + e.tip);
+      if (!target.takenBy) target.takenBy = e.takenBy;
     } else {
       out.push({ ...e, note: e.note.replace(BILL_TAG, '') });
     }

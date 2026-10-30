@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Badge, STATUS_LABELS } from '@/components/ui/Badge';
 import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
+import { getStoredToken, refreshAuthToken } from '@/lib/api/client';
 import { BUSINESS } from '@/lib/business';
 import { formatMoney, shopClock, todayISO, wallClockTime } from '@/lib/format';
 import { formatPhone, formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
@@ -61,6 +62,23 @@ function longDate(iso: string) {
 
 function nowMinutes() {
   return shopClock().minutes;
+}
+
+/**
+ * A barber's payment goes through the server (the backend only lets the owner make bills);
+ * it is recorded as taken by the barber.
+ */
+async function barberPay<T>(bookingId: string, init?: RequestInit): Promise<T> {
+  const send = () =>
+    fetch(`/api/barber/bookings/${bookingId}/pay`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getStoredToken() || ''}` },
+    });
+  let res = await send();
+  if (res.status === 401 && (await refreshAuthToken())) res = await send();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || 'Please try again.');
+  return data as T;
 }
 
 /** Free start times on a date; with a barber, also free in that barber's own bookings. */
@@ -332,8 +350,10 @@ function AppointmentsPage() {
   const [services, setServices] = useState<ShopService[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   // A barber sees and works on only their own appointments.
-  const { isBarber, user } = useAuth();
+  const { isBarber, isAdmin, user } = useAuth();
   const myStaffId = isBarber ? user?.staffId || '' : '';
+  // Written on every payment and walk-in, so the owner can match each person's cash at day end.
+  const takenBy = isAdmin ? 'Owner' : user?.name || 'Staff';
   // '' all barbers, 'none' bookings with no barber, else a staffId.
   const [barberFilter, setBarberFilter] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -528,7 +548,7 @@ function AppointmentsPage() {
     setIsSaving(true);
     setWalkError(null);
     try {
-      await recordWalkIn({ service: walkService, customerName: walkName, amountPaid: amount });
+      await recordWalkIn({ service: walkService, customerName: walkName, amountPaid: amount, takenBy });
       setShowWalkIn(false);
       showSuccess('Walk-in saved', `$${formatMoney(amount)} added to today’s income.`);
       showDay(todayISO());
@@ -546,7 +566,7 @@ function AppointmentsPage() {
     setPayDue(null);
     setPayTip('');
     try {
-      setPayDue((await billFor(b)).totalDue);
+      setPayDue(isBarber ? (await barberPay<{ totalDue: number }>(b.bookingId)).totalDue : (await billFor(b)).totalDue);
     } catch (err: any) {
       setPayBooking(null);
       showError('Could not make the bill', err.message || 'Please try again.');
@@ -558,7 +578,9 @@ function AppointmentsPage() {
     const tip = parseFloat(payTip) || 0;
     setIsSaving(true);
     try {
-      const paid = await finishAndPay(payBooking, { tip });
+      const paid = isBarber
+        ? (await barberPay<{ paid: number }>(payBooking.bookingId, { method: 'POST', body: JSON.stringify({ tip }) })).paid
+        : await finishAndPay(payBooking, { tip, takenBy });
       setPayBooking(null);
       showSuccess('Paid', `$${formatMoney(paid + tip)} from ${payBooking.customerName}. All done!`);
       markDone(payBooking.bookingId, `Paid $${formatMoney(paid + tip)}`);
@@ -705,8 +727,6 @@ function AppointmentsPage() {
         );
       case 'CHECKED_IN':
         // The backend only allows completing an arrived booking (no cancel / no-show).
-        // Billing is the owner's: the backend doesn't let a barber's login make bills.
-        if (isBarber) return <span className="text-xs font-bold text-[var(--muted-foreground)]">Owner takes the payment</span>;
         return <ActionButton icon={Banknote} label="Finish & take payment" tone="green" disabled={busy} onClick={() => openPay(b)} />;
       default:
         return null;
