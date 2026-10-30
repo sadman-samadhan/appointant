@@ -450,6 +450,8 @@ function AppointmentsPage() {
   const [payTip, setPayTip] = useState('');
   const [payDiscount, setPayDiscount] = useState('');
   const [payWith, setPayWith] = useState<PaidWith>('CASH');
+  // The service actually done, when it differs from the one booked ('' = as booked).
+  const [payServiceId, setPayServiceId] = useState('');
   const [cancelTarget, setCancelTarget] = useState<ShopBooking | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [moveTarget, setMoveTarget] = useState<ShopBooking | null>(null);
@@ -649,6 +651,7 @@ function AppointmentsPage() {
     setPayTip('');
     setPayDiscount('');
     setPayWith('CASH');
+    setPayServiceId('');
     try {
       // Only works out the amount; the bill is made when the cash is taken (so a discount can go on it).
       const info = isBarber ? await barberPay<{ totalDue: number; price: number }>(b.bookingId) : await billFor(b, { create: false });
@@ -667,7 +670,13 @@ function AppointmentsPage() {
     try {
       const paid = isBarber
         ? (await barberPay<{ paid: number }>(payBooking.bookingId, { method: 'POST', body: JSON.stringify({ tip, paidWith: payWith }) })).paid
-        : await finishAndPay(payBooking, { tip, takenBy, discount: payDiscountNum, paidWith: payWith });
+        : await finishAndPay(payBooking, {
+            tip,
+            takenBy,
+            discount: payDiscountNum,
+            paidWith: payWith,
+            service: payService ? { name: payService.name, price: payService.price } : undefined,
+          });
       setPayBooking(null);
       showSuccess('Paid', `$${formatMoney(paid + tip)} from ${payBooking.customerName}. All done!`);
       markDone(payBooking.bookingId, `Paid $${formatMoney(paid + tip)}`);
@@ -680,8 +689,15 @@ function AppointmentsPage() {
     }
   };
 
-  const payDiscountNum = payInfo?.discountable ? Math.min(maxDiscount(payInfo.price), money(parseFloat(payDiscount) || 0)) : 0;
-  const payDueNow = payInfo ? money(Math.max(0, payInfo.totalDue - payDiscountNum * (1 + BUSINESS.taxRate))) : null;
+  const payService = payServiceId ? serviceById(payServiceId) : undefined;
+  // The price before HST: the service done (when changed) or the booked one.
+  const payPrice = payInfo ? (payInfo.discountable && payService ? payService.price : payInfo.price) : 0;
+  const payDiscountNum = payInfo?.discountable ? Math.min(maxDiscount(payPrice), money(parseFloat(payDiscount) || 0)) : 0;
+  const payDueNow = payInfo
+    ? payInfo.discountable
+      ? money((payPrice - payDiscountNum) * (1 + BUSINESS.taxRate))
+      : payInfo.totalDue
+    : null;
   const payTotal = payDueNow === null ? null : money(payDueNow + (parseFloat(payTip) || 0));
 
   const handleCancel = async () => {
@@ -1199,7 +1215,9 @@ function AppointmentsPage() {
           <div className="space-y-4">
             <div className="p-4 rounded-2xl bg-[var(--muted)]">
               <p className="text-sm font-bold text-[var(--foreground)]">{payBooking.customerName}</p>
-              <p className="text-xs text-[var(--muted-foreground)]">{payBooking.serviceName}</p>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                {payService ? `${payService.name} (booked: ${payBooking.serviceName})` : payBooking.serviceName}
+              </p>
               <p className="text-3xl font-black text-[var(--foreground)] pt-2">
                 {payTotal === null ? '…' : `$${formatMoney(payTotal)}`}{' '}
                 <span className="text-xs font-bold text-[var(--muted-foreground)]">
@@ -1208,16 +1226,32 @@ function AppointmentsPage() {
                 </span>
               </p>
               {payDiscountNum > 0 && <p className="text-xs font-bold text-emerald-700">Discount ${formatMoney(payDiscountNum)} (before {BUSINESS.taxLabel})</p>}
-              {payInfo && payDiscountNum > 0 && payDiscountNum >= maxDiscount(payInfo.price) && (
+              {payInfo && payDiscountNum > 0 && payDiscountNum >= maxDiscount(payPrice) && (
                 <p className="text-[11px] text-[var(--muted-foreground)]">A free service is recorded as $0.01 (the system can’t record $0).</p>
               )}
             </div>
+            {/* The customer had a different service than booked: its price is charged instead. */}
+            {payInfo?.discountable && (
+              <div>
+                <label className={labelClass}>Service done</label>
+                <select value={payServiceId} onChange={(e) => setPayServiceId(e.target.value)} className={inputClass}>
+                  <option value="">{payBooking.serviceName} (as booked)</option>
+                  {services
+                    .filter((x) => x.serviceId !== payBooking.serviceId)
+                    .map((x) => (
+                      <option key={x.serviceId} value={x.serviceId}>
+                        {x.name} — ${formatMoney(x.price)}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
             <div className={`grid gap-3 ${payInfo?.discountable ? 'grid-cols-2' : 'grid-cols-1'}`}>
               {payInfo?.discountable && (
                 <div>
                   <label className={labelClass}>Discount ($)</label>
-                  <input type="number" inputMode="decimal" step="0.01" min="0" max={payInfo.price} value={payDiscount} onChange={(e) => setPayDiscount(e.target.value)} placeholder="0.00" className={inputClass} />
-                  <p className="text-[11px] text-[var(--muted-foreground)] mt-1">Price ${formatMoney(payInfo.price)} before {BUSINESS.taxLabel}</p>
+                  <input type="number" inputMode="decimal" step="0.01" min="0" max={payPrice} value={payDiscount} onChange={(e) => setPayDiscount(e.target.value)} placeholder="0.00" className={inputClass} />
+                  <p className="text-[11px] text-[var(--muted-foreground)] mt-1">Price ${formatMoney(payPrice)} before {BUSINESS.taxLabel}</p>
                 </div>
               )}
               <div>

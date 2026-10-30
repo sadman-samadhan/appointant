@@ -265,6 +265,8 @@ interface Bill {
   balanceDue: number;
   /** Discount on the bill, before tax. */
   discount: number;
+  /** Price before tax and discount (an upgrade's extra charge included). */
+  subtotal: number;
   customerId?: string;
 }
 
@@ -276,6 +278,7 @@ function toBill(inv: any): Bill {
     amountPaid: toNumber(inv.amountPaid),
     balanceDue: toNumber(inv.balanceDue ?? inv.total),
     discount: toNumber(inv.discountAmount),
+    subtotal: toNumber(inv.subtotal ?? inv.total),
     customerId: inv.customerId,
   };
 }
@@ -303,25 +306,33 @@ export const maxDiscount = (price: number) => Math.max(0, money(price - 0.01));
  */
 export async function billFor(
   booking: ShopBooking,
-  opts: { discount?: number; create?: boolean } = { create: true }
+  opts: { discount?: number; create?: boolean; service?: { name: string; price: number } } = { create: true }
 ): Promise<{ bill: Bill | null; extraTax: number; totalDue: number; price: number; discountable: boolean }> {
   const details = await apiRequest<any>(`/api/v1/bookings/${booking.bookingId}`);
   let bill = await findBill(booking.bookingId);
   const fullTotal = money(toNumber(details?.totalPrice ?? booking.total));
-  // The price before HST; a discount comes off it (and so off the HST too).
-  const price = money(fullTotal / (1 + BUSINESS.taxRate));
-  // A discount goes on the bill when it is made; an existing bill can't be changed.
+  // The booked price before HST.
+  const booked = money(fullTotal / (1 + BUSINESS.taxRate));
+  // A discount or a change of service goes on the bill when it is made; an existing bill can't be changed.
   const discountable = !bill;
+  // A different service at checkout: a dearer one adds the difference as an extra charge, a
+  // cheaper one takes it off like a discount.
+  const price = discountable && opts.service ? money(opts.service.price) : booked;
+  const extra = Math.max(0, money(price - booked));
   // The backend can't record a $0 bill, so a "free" service is charged one cent.
-  const discount = bill ? bill.discount : Math.min(maxDiscount(price), Math.max(0, money(opts.discount || 0)));
-  const expected = money(fullTotal - discount * (1 + BUSINESS.taxRate));
+  const discount = Math.min(maxDiscount(price), money(Math.max(0, booked - price) + Math.max(0, opts.discount || 0)));
+  const expected = bill
+    ? money((bill.subtotal - bill.discount) * (1 + BUSINESS.taxRate))
+    : money((booked + extra - discount) * (1 + BUSINESS.taxRate));
   if (!bill && opts.create) {
+    const name = opts.service?.name || booking.serviceName;
     const created = await apiRequest<any>(`/api/v1/bookings/${booking.bookingId}/invoice-draft`, {
       method: 'POST',
       body: JSON.stringify({
         currency: BUSINESS.currency,
-        notes: `${booking.serviceName} for ${booking.customerName}`,
+        notes: `${name} for ${booking.customerName}${name !== booking.serviceName ? ` (booked: ${booking.serviceName})` : ''}`,
         ...(discount > 0 ? { discountAmount: discount } : {}),
+        ...(extra > 0 ? { otherAmount: extra } : {}),
       }),
     });
     bill = toBill(created);
@@ -344,11 +355,11 @@ export const takenByNote = (name: string) => `${TAKEN_BY_PREFIX}${name}`;
  */
 export async function finishAndPay(
   booking: ShopBooking,
-  opts: { tip?: number; takenBy?: string; discount?: number; paidWith?: PaidWith } = {}
+  opts: { tip?: number; takenBy?: string; discount?: number; paidWith?: PaidWith; service?: { name: string; price: number } } = {}
 ) {
   const card = opts.paidWith === 'BANK';
   const by = opts.takenBy?.trim() ? ` — ${takenByNote(opts.takenBy.trim())}` : '';
-  const { bill: made, extraTax, totalDue } = await billFor(booking, { discount: opts.discount, create: true });
+  const { bill: made, extraTax, totalDue } = await billFor(booking, { discount: opts.discount, create: true, service: opts.service });
   const bill = made as Bill;
   if (bill.balanceDue > 0) {
     await apiRequest('/api/v1/payments', {
