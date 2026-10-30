@@ -61,6 +61,9 @@ Not tested end-to-end: a booking made while **signed in as a customer**, and edi
 10. **Barbers can't bill**: a barber's login gets 403 on billing, payments and accounting. *Workaround:* a barber's "Take payment" goes through the app's server (`/api/barber/bookings/[id]/pay`), which checks it is the barber's own arrived booking and records it with the shop account. Every payment, tip, HST line and walk-in notes who took the money ("Taken by …"); Accounting shows it per entry and as "Money taken by" totals.
 12. **Confirm overwrites notes**: `POST /bookings/{id}/confirm` with a `note` replaces the booking's notes. *Workaround:* the app confirms without a note.
 13. **No $0 bills**: `invoice-draft` with a 100% discount fails ("A journal line must have either debit or credit amount"). *Workaround:* a free service is charged $0.01.
+14. **Refunds use the bank and keep the HST**: `POST /payments/{id}/refund` always credits the Bank account (even for a cash payment) and doesn't reverse the HST. *Workaround:* the app records refunds itself (Refunds entry, HST share off the tax owed, cash or card as chosen).
+15. **No card payment method**: `paymentMethod` is CASH, CHECK or BANK_TRANSFER. *Workaround:* card and debit are recorded as BANK_TRANSFER with reference "Card".
+16. **Proxies and 204**: fixed in the frontend (a DELETE's 204 was reported as a 502).
 11. **Staff login**: an existing staff record can't be given a login later (no `userId` in the staff update). Archive and add them again with "Create a login". Passwords need 10+ characters with upper, lower, number and symbol.
 
 ## Test data left in the dev backend
@@ -72,6 +75,7 @@ Not tested end-to-end: a booking made while **signed in as a customer**, and edi
 - Discount tests (Oct 29): SAL-2026-000044 (Nov 5) paid $17.25 after a $5 discount, SAL-2026-000045 (Nov 6) paid $23.00 after a $3 discount, both "TEST Phone Renamed". The test walk-in "TEST Claude Walkin B" was reversed.
 - Barber schedule / auto-assign / email tests (Oct 29): SAL-2026-000043, 000046, 000047, 000048, 000049 cancelled; test schedules removed (no schedules are set).
 - QA run (Oct 30): test bookings SAL-2026-000053–000063 cancelled; SAL-2026-000056 paid $0.01 (free-service test) and SAL-2026-000064 paid $25.00 by Munim2, both "TEST Phone Renamed".
+- Six-fixes test (Oct 30): SAL-2026-000005 "TEST USER" (Oct 26) paid $23.00 then refunded in full; SAL-2026-000065 paid $25.00 by card (Munim2) with $5.00 refunded by card; SAL-2026-000066 paid $43.70 and refunded in full; SAL-2026-000067 paid $43.70 by card after an upgrade to Haircut & Beard Trim Combo. Test walk-ins C–F reversed; test days off removed.
 - Ankon Ghosh's booking SAL-2026-000027 (Nov 4, 12:30) was cancelled by mistake during testing and re-booked as SAL-2026-000035 (same time, service and status).
 - Staff "Munim" (no login, the email already had an account) and "Munim2" (barber login) were added by the client while testing.
 
