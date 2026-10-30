@@ -26,6 +26,7 @@ import {
   loadBookings,
   loadServices,
   loadWalkIns,
+  maxDiscount,
   markArrived,
   markNoShow,
   money,
@@ -525,10 +526,11 @@ function AppointmentsPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     const service = serviceById(newServiceId);
-    if (newName.trim().length < 2) return setNewError('Enter the customer’s name.');
-    if (!isValidPhone(newPhone)) return setNewError(PHONE_ERROR);
+    // In the order of the form: service, time, then the customer.
     if (!service) return setNewError('Choose a service.');
     if (!newTime) return setNewError('Choose a time.');
+    if (newName.trim().length < 2) return setNewError('Enter the customer’s name.');
+    if (!isValidPhone(newPhone)) return setNewError(PHONE_ERROR);
     setIsSaving(true);
     setNewError(null);
     try {
@@ -627,7 +629,7 @@ function AppointmentsPage() {
     }
   };
 
-  const payDiscountNum = payInfo?.discountable ? Math.min(payInfo.price, money(parseFloat(payDiscount) || 0)) : 0;
+  const payDiscountNum = payInfo?.discountable ? Math.min(maxDiscount(payInfo.price), money(parseFloat(payDiscount) || 0)) : 0;
   const payDueNow = payInfo ? money(Math.max(0, payInfo.totalDue - payDiscountNum * (1 + BUSINESS.taxRate))) : null;
   const payTotal = payDueNow === null ? null : money(payDueNow + (parseFloat(payTip) || 0));
 
@@ -1110,6 +1112,9 @@ function AppointmentsPage() {
                 </span>
               </p>
               {payDiscountNum > 0 && <p className="text-xs font-bold text-emerald-700">Discount ${formatMoney(payDiscountNum)} (before {BUSINESS.taxLabel})</p>}
+              {payInfo && payDiscountNum > 0 && payDiscountNum >= maxDiscount(payInfo.price) && (
+                <p className="text-[11px] text-[var(--muted-foreground)]">A free service is recorded as $0.01 (the system can’t record $0).</p>
+              )}
             </div>
             <div className={`grid gap-3 ${payInfo?.discountable ? 'grid-cols-2' : 'grid-cols-1'}`}>
               {payInfo?.discountable && (

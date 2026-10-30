@@ -34,6 +34,9 @@ function stamp(date: string, time: string, plusMinutes = 0): string {
   return t.toISOString().replace(/[-:]/g, '').slice(0, 15);
 }
 
+// A name inside a property parameter (CN=…) is quoted; quotes can't appear inside it.
+const param = (text: string) => `"${text.replace(/["\r\n]/g, '')}"`;
+
 const esc = (text: string) => text.replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
 
 // Atlantic time (Fredericton), so calendars show the shop's time wherever the customer is.
@@ -77,8 +80,8 @@ export function bookingIcs(info: BookingMailInfo, method: 'REQUEST' | 'CANCEL'):
     `SUMMARY:${esc(title)}`,
     `LOCATION:${esc(FULL_ADDRESS)}`,
     `DESCRIPTION:${esc(`${info.service}${info.bookingNumber ? ` · Booking ${info.bookingNumber}` : ''}\nQuestions? Call ${BUSINESS.phoneDisplay}.`)}`,
-    ...(from ? [`ORGANIZER;CN=${esc(BUSINESS.name)}:mailto:${from}`] : []),
-    `ATTENDEE;CN=${esc(info.customerName)};RSVP=FALSE:mailto:${info.to}`,
+    ...(from ? [`ORGANIZER;CN=${param(BUSINESS.name)}:mailto:${from}`] : []),
+    `ATTENDEE;CN=${param(info.customerName)};RSVP=FALSE:mailto:${info.to}`,
     `STATUS:${method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`,
     'END:VEVENT',
     'END:VCALENDAR',

@@ -289,6 +289,9 @@ async function findBill(bookingId: string): Promise<Bill | null> {
   return inv ? toBill(inv) : null;
 }
 
+/** The largest discount on a price: the backend can't record a $0 bill. */
+export const maxDiscount = (price: number) => Math.max(0, money(price - 0.01));
+
 /**
  * What the customer owes for an arrived appointment (makes the bill if needed).
  *
@@ -309,7 +312,8 @@ export async function billFor(
   const price = money(fullTotal / (1 + BUSINESS.taxRate));
   // A discount goes on the bill when it is made; an existing bill can't be changed.
   const discountable = !bill;
-  const discount = bill ? bill.discount : Math.min(price, Math.max(0, money(opts.discount || 0)));
+  // The backend can't record a $0 bill, so a "free" service is charged one cent.
+  const discount = bill ? bill.discount : Math.min(maxDiscount(price), Math.max(0, money(opts.discount || 0)));
   const expected = money(fullTotal - discount * (1 + BUSINESS.taxRate));
   if (!bill && opts.create) {
     const created = await apiRequest<any>(`/api/v1/bookings/${booking.bookingId}/invoice-draft`, {
