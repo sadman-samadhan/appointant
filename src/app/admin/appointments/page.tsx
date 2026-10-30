@@ -527,10 +527,10 @@ function AppointmentsPage() {
     const target = moveTarget;
     setIsSaving(true);
     try {
-      await rescheduleBooking(target.bookingId, moveDate, moveTime);
+      const movedId = await rescheduleBooking(target.bookingId, moveDate, moveTime);
       setMoveTarget(null);
       showSuccess('Time changed', `${target.customerName} · ${prettyDate(moveDate)} at ${wallClockTime(moveTime)}`);
-      markDone(target.bookingId, 'Time changed');
+      markDone(movedId, 'Time changed');
       if (view === 'calendar') showDay(moveDate);
       reload();
     } catch (err: any) {

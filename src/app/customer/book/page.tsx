@@ -203,11 +203,18 @@ export default function BookPage() {
           )}
         </div>
         <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
-          See you at {BUSINESS.address.street}. Need to change it? Call us at{' '}
-          <a href={`tel:${BUSINESS.phone}`} className="font-bold text-[var(--primary)]">
-            {BUSINESS.phoneDisplay}
-          </a>
-          .
+          See you at {BUSINESS.address.street}.{' '}
+          {isAuthenticated ? (
+            'You can reschedule or cancel from your account up to 24 hours before.'
+          ) : (
+            <>
+              Need to change it? Call us at{' '}
+              <a href={`tel:${BUSINESS.phone}`} className="font-bold text-[var(--primary)]">
+                {BUSINESS.phoneDisplay}
+              </a>
+              .
+            </>
+          )}
         </p>
         {isAuthenticated ? (
           <Link href="/customer/profile" className="btn-primary inline-flex px-6 py-2.5 rounded-xl text-xs font-bold">

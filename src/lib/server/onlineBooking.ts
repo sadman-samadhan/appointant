@@ -78,15 +78,18 @@ async function bookingsOn(date: string) {
   return toList<any>(res, 'bookings');
 }
 
-async function findService(serviceId: string): Promise<BookableService> {
+export async function findService(serviceId: string): Promise<BookableService> {
   if (!UUID.test(serviceId)) throw new AgentError('Unknown service', 400);
   const service = (await listBookableServices()).find((s) => s.serviceId === serviceId);
   if (!service) throw new AgentError('That service is not available for online booking.', 400);
   return service;
 }
 
-/** Free start times ("HH:MM:SS") for a service on a date. A time is taken by a booking of any service. */
-export async function freeTimes(serviceId: string, date: string): Promise<string[]> {
+/**
+ * Free start times ("HH:MM:SS") for a service on a date. A time is taken by a booking of any
+ * service. `excludeBookingId` leaves out a booking that is being moved.
+ */
+export async function freeTimes(serviceId: string, date: string, excludeBookingId?: string): Promise<string[]> {
   const dateError = checkBookableDate(date);
   if (dateError) throw new AgentError(dateError, 400);
   const [service, bookings] = await Promise.all([findService(serviceId), bookingsOn(date)]);
@@ -95,6 +98,7 @@ export async function freeTimes(serviceId: string, date: string): Promise<string
     date,
     durationMinutes: service.durationMinutes,
     bookings,
+    excludeBookingId,
     // Today: only times still ahead of the clock, with a little notice.
     notBeforeMinutes: date === now.date ? now.minutes + 15 : undefined,
   });

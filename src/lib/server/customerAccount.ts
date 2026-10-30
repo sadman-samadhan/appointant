@@ -1,10 +1,10 @@
 import 'server-only';
 import type { NextRequest } from 'next/server';
-import { DEFAULT_TENANT_ID } from '@/lib/api/config';
-import { toList } from '@/lib/format';
+import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
+import { shopClock, toList, wallClockDate, wallClockTime } from '@/lib/format';
 import { formatPhone, phoneDigits } from '@/lib/phone';
-import { agentRequest } from './shopAgent';
-import { createCustomer } from './onlineBooking';
+import { AgentError, agentRequest } from './shopAgent';
+import { checkBookableDate, createCustomer, findService, freeTimes } from './onlineBooking';
 
 // Signed-in customers can't read the shop's records directly (the Core Backend only lets
 // shop members in), so their own data is read here: the Auth Service confirms who they
@@ -151,7 +151,84 @@ export async function listAccountBookings(account: AccountUser) {
       endTime: b.endTime,
       totalPrice: b.totalPrice,
       currency: b.currency || 'CAD',
+      serviceId: b.serviceDetails?.id ? String(b.serviceDetails.id) : '',
       serviceName: b.serviceDetails?.name || 'Service',
+      canChange: canChange(b),
     }))
     .sort((a, b) => String(b.startTime).localeCompare(String(a.startTime)));
+}
+
+// ---- Customers moving or cancelling their own booking ----
+
+/** Customers can move or cancel a booking up to this many hours before it starts. */
+export const CHANGE_CUTOFF_HOURS = 24;
+const CHANGEABLE = ['DRAFT', 'LOCKED', 'CONFIRMED'];
+
+/** Hours from now (shop time) until a booking's wall-clock start time. */
+function hoursUntil(startTime: string): number {
+  const start = Date.parse(String(startTime));
+  const now = shopClock();
+  const nowWall = Date.parse(`${now.date}T00:00:00Z`) + now.minutes * 60_000;
+  return (start - nowWall) / 3_600_000;
+}
+
+function canChange(b: any): boolean {
+  return CHANGEABLE.includes(String(b?.status)) && !!b?.startTime && hoursUntil(b.startTime) >= CHANGE_CUTOFF_HOURS;
+}
+
+const TOO_LATE = `Your appointment is less than ${CHANGE_CUTOFF_HOURS} hours away. Please call us to change it.`;
+
+/** One of the account's own bookings, checked that it may still be changed. */
+async function changeableBooking(account: AccountUser, bookingId: string) {
+  const booking = (await listAccountBookings(account)).find((b) => b.bookingId === bookingId);
+  if (!booking) throw new AgentError('Booking not found.', 404);
+  if (!CHANGEABLE.includes(booking.status)) throw new AgentError('This booking can no longer be changed.', 400);
+  if (!booking.canChange) throw new AgentError(TOO_LATE, 400);
+  return booking;
+}
+
+export async function cancelAccountBooking(account: AccountUser, bookingId: string) {
+  await changeableBooking(account, bookingId);
+  await agentRequest('POST', `/api/v1/bookings/${bookingId}/cancel`, { reason: 'Cancelled by the customer online' });
+}
+
+/**
+ * Moves the account's booking to a new date and time. The backend only moves confirmed
+ * bookings; one still waiting for the shop to confirm is booked again at the new time (still
+ * to confirm) and the old one cancelled. Returns the booking's id, which may be new.
+ */
+export async function rescheduleAccountBooking(account: AccountUser, bookingId: string, date: string, startTime: string) {
+  const booking = await changeableBooking(account, bookingId);
+  const dateError = checkBookableDate(date);
+  if (dateError) throw new AgentError(dateError, 400);
+  const time = `${startTime.slice(0, 5)}:00`;
+  if (!/^\d{2}:\d{2}:00$/.test(time)) throw new AgentError('Choose a time.', 400);
+  const service = await findService(booking.serviceId);
+  if (!(await freeTimes(service.serviceId, date, bookingId)).includes(time)) {
+    throw new AgentError('Sorry, that time is not available any more. Please pick another time.', 409);
+  }
+  if (date === wallClockDate(booking.startTime) && time === `${wallClockTime24(booking.startTime)}:00`) return bookingId;
+
+  if (booking.status === 'CONFIRMED' || booking.status === 'LOCKED') {
+    await agentRequest('POST', `/api/v1/bookings/${bookingId}/reschedule`, { date, startTime: time });
+    return bookingId;
+  }
+  const detail = await agentRequest('GET', `/api/v1/bookings/${bookingId}`);
+  const from = `${wallClockDate(booking.startTime)} ${wallClockTime(booking.startTime)}`;
+  const created = await agentRequest('POST', '/api/v1/bookings', {
+    tenantId: DEFAULT_TENANT_ID,
+    branchId: DEFAULT_BRANCH_ID,
+    customerId: detail?.customer?.id,
+    serviceId: service.serviceId,
+    date,
+    startTime: time,
+    notes: [detail?.notes, `Moved by the customer from ${from}`].filter(Boolean).join(' — '),
+  });
+  await agentRequest('POST', `/api/v1/bookings/${bookingId}/cancel`, { reason: `Moved by the customer to ${date} ${time.slice(0, 5)}` });
+  return String(created?.bookingId || bookingId);
+}
+
+/** "HH:MM" of a wall-clock timestamp. */
+function wallClockTime24(value: string): string {
+  return String(value).slice(11, 16);
 }

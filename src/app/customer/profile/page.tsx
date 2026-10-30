@@ -6,10 +6,11 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { Scissors, Calendar, Clock, Plus, CheckCircle2, KeyRound, Phone, Mail, Pencil, User, Eye, EyeOff } from 'lucide-react';
+import { Scissors, Calendar, CalendarClock, Clock, Plus, CheckCircle2, KeyRound, Phone, Mail, Pencil, User, Eye, EyeOff, X } from 'lucide-react';
 import { getStoredToken, refreshAuthToken } from '@/lib/api/client';
 import { BUSINESS } from '@/lib/business';
-import { formatMoney, bookingLocalDate } from '@/lib/format';
+import { formatMoney, bookingLocalDate, wallClockTime } from '@/lib/format';
+import { openingHours } from '@/lib/slots';
 import { formatPhone, formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
 
 interface MyBooking {
@@ -19,7 +20,10 @@ interface MyBooking {
   startTime: string;
   totalPrice: string | number;
   currency: string;
+  serviceId: string;
   serviceName: string;
+  /** Still more than 24 hours away, so the customer may move or cancel it online. */
+  canChange: boolean;
 }
 
 interface MyDetails {
@@ -46,6 +50,26 @@ const ACTIVE = ['DRAFT', 'LOCKED', 'CONFIRMED', 'CHECKED_IN'];
 const inputClass =
   'w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]';
 
+// Shop dates are calendar dates; build them without time-zone math.
+function isoOf(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function prettyDate(iso: string, opts: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' }) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, opts);
+}
+/** The next open days (up to two weeks) from the shop's today. */
+function openDays(today: string): string[] {
+  const [y, m, dd] = today.split('-').map(Number);
+  const d = new Date(y, m - 1, dd);
+  const out: string[] = [];
+  for (let i = 0; i < 14; i++) {
+    if (openingHours(isoOf(d))) out.push(isoOf(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
 function whenText(b: MyBooking, style: 'long' | 'short' = 'long') {
   const d = bookingLocalDate(b);
   if (!d) return '—';
@@ -56,7 +80,7 @@ function whenText(b: MyBooking, style: 'long' | 'short' = 'long') {
 
 export default function CustomerProfilePage() {
   const { user, changePassword } = useAuth();
-  const { showSuccess } = useToast();
+  const { showSuccess, showError } = useToast();
 
   const [bookings, setBookings] = useState<MyBooking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -69,6 +93,18 @@ export default function CustomerProfilePage() {
   const [editPhone, setEditPhone] = useState('');
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [isSavingDetails, setIsSavingDetails] = useState(false);
+
+  // Move / cancel an appointment
+  const [moveTarget, setMoveTarget] = useState<MyBooking | null>(null);
+  const [moveDays, setMoveDays] = useState<string[]>([]);
+  const [moveDate, setMoveDate] = useState('');
+  const [moveTimes, setMoveTimes] = useState<string[]>([]);
+  const [moveTime, setMoveTime] = useState('');
+  const [isLoadingMoveTimes, setIsLoadingMoveTimes] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [isMoving, setIsMoving] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<MyBooking | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
 
   // Change password
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -141,6 +177,81 @@ export default function CustomerProfilePage() {
       setDetailsError(err.message);
     } finally {
       setIsSavingDetails(false);
+    }
+  };
+
+  // ---- Move / cancel ----
+  const openMove = async (b: MyBooking) => {
+    setMoveTarget(b);
+    setMoveTime('');
+    setMoveTimes([]);
+    setMoveError(null);
+    let today = isoOf(new Date());
+    try {
+      // The shop's "today" (Fredericton time); the customer may be elsewhere.
+      const res = await fetch('/api/public/booking/services').then((r) => r.json());
+      if (res?.today) today = res.today;
+    } catch {
+      /* use the device's date */
+    }
+    const days = openDays(today);
+    setMoveDays(days);
+    // Start on the appointment's own day when it is in the list.
+    const current = String(b.startTime).slice(0, 10);
+    setMoveDate(days.includes(current) ? current : days[0] || today);
+  };
+
+  useEffect(() => {
+    if (!moveTarget || !moveDate) return;
+    let stale = false;
+    setIsLoadingMoveTimes(true);
+    setMoveTime('');
+    accountFetch<{ times: string[] }>(
+      `/api/public/booking/slots?serviceId=${moveTarget.serviceId}&date=${moveDate}&exclude=${moveTarget.bookingId}`
+    )
+      .then((r) => !stale && setMoveTimes(r.times))
+      .catch((err) => {
+        if (stale) return;
+        setMoveTimes([]);
+        setMoveError(err.message);
+      })
+      .finally(() => !stale && setIsLoadingMoveTimes(false));
+    return () => {
+      stale = true;
+    };
+  }, [moveTarget, moveDate]);
+
+  const handleMove = async () => {
+    if (!moveTarget || !moveTime) return;
+    setIsMoving(true);
+    setMoveError(null);
+    try {
+      await accountFetch(`/api/account/bookings/${moveTarget.bookingId}/reschedule`, {
+        method: 'POST',
+        body: JSON.stringify({ date: moveDate, startTime: moveTime }),
+      });
+      setMoveTarget(null);
+      showSuccess('Appointment moved', `${prettyDate(moveDate)} at ${wallClockTime(moveTime)}`);
+      load();
+    } catch (err: any) {
+      setMoveError(err.message);
+    } finally {
+      setIsMoving(false);
+    }
+  };
+
+  const handleCancelBooking = async () => {
+    if (!cancelTarget) return;
+    setIsCancelling(true);
+    try {
+      await accountFetch(`/api/account/bookings/${cancelTarget.bookingId}/cancel`, { method: 'POST' });
+      setCancelTarget(null);
+      showSuccess('Appointment cancelled', cancelTarget.serviceName);
+      load();
+    } catch (err: any) {
+      showError('Could not cancel', err.message);
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -221,33 +332,61 @@ export default function CustomerProfilePage() {
         ) : (
           <div className="glass-card rounded-2xl overflow-hidden border border-[var(--border)] divide-y divide-[var(--border)]">
             {upcoming.map((b) => (
-              <div key={b.bookingId} className="p-4 flex items-center justify-between gap-4">
-                <div className="flex items-start gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center shrink-0">
-                    <Scissors className="w-5 h-5" />
+              <div key={b.bookingId} className="p-4 space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center shrink-0">
+                      <Scissors className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-black text-[var(--foreground)] truncate">{b.serviceName}</h3>
+                      <p className="text-xs text-[var(--muted-foreground)] flex items-center gap-1 mt-0.5">
+                        <Clock className="w-3.5 h-3.5 text-[var(--primary)]" />
+                        {whenText(b)}
+                      </p>
+                      {b.bookingNumber && (
+                        <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">Booking {b.bookingNumber}</p>
+                      )}
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-black text-[var(--foreground)] truncate">{b.serviceName}</h3>
-                    <p className="text-xs text-[var(--muted-foreground)] flex items-center gap-1 mt-0.5">
-                      <Clock className="w-3.5 h-3.5 text-[var(--primary)]" />
-                      {whenText(b)}
+                  <div className="text-right shrink-0 space-y-1">
+                    <span className="text-sm font-black text-[var(--foreground)] block">${formatMoney(b.totalPrice)}</span>
+                    <Badge variant={b.status} />
+                  </div>
+                </div>
+                {b.canChange ? (
+                  <div className="flex gap-2 sm:pl-[52px]">
+                    <button
+                      onClick={() => openMove(b)}
+                      className="px-3 py-2 rounded-xl text-xs font-bold border-2 border-[var(--primary)] text-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary-light)] flex items-center gap-1.5"
+                    >
+                      <CalendarClock className="w-3.5 h-3.5" /> Reschedule
+                    </button>
+                    <button
+                      onClick={() => setCancelTarget(b)}
+                      className="px-3 py-2 rounded-xl text-xs font-bold border border-[var(--border-strong)] text-rose-600 bg-[var(--card)] hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center gap-1.5"
+                    >
+                      <X className="w-3.5 h-3.5" /> Cancel
+                    </button>
+                  </div>
+                ) : (
+                  ['DRAFT', 'LOCKED', 'CONFIRMED'].includes(b.status) && (
+                    <p className="text-[11px] text-[var(--muted-foreground)] sm:pl-[52px]">
+                      Less than 24 hours away. To change it, call us at{' '}
+                      <a href={`tel:${BUSINESS.phone}`} className="font-bold text-[var(--primary)]">
+                        {BUSINESS.phoneDisplay}
+                      </a>
+                      .
                     </p>
-                    {b.bookingNumber && (
-                      <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">Booking {b.bookingNumber}</p>
-                    )}
-                  </div>
-                </div>
-                <div className="text-right shrink-0 space-y-1">
-                  <span className="text-sm font-black text-[var(--foreground)] block">${formatMoney(b.totalPrice)}</span>
-                  <Badge variant={b.status} />
-                </div>
+                  )
+                )}
               </div>
             ))}
           </div>
         )}
         {upcoming.length > 0 && (
           <p className="text-[11px] text-[var(--muted-foreground)]">
-            Need to change or cancel? Call us at{' '}
+            You can reschedule or cancel up to 24 hours before your appointment. After that, please call us at{' '}
             <a href={`tel:${BUSINESS.phone}`} className="font-bold text-[var(--primary)]">
               {BUSINESS.phoneDisplay}
             </a>
@@ -376,6 +515,104 @@ export default function CustomerProfilePage() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Reschedule modal */}
+      <Modal isOpen={!!moveTarget} onClose={() => setMoveTarget(null)} title="Reschedule" maxWidth="md">
+        {moveTarget && (
+          <div className="space-y-4">
+            <div className="p-3 rounded-xl bg-[var(--muted)] text-xs">
+              <p className="font-black text-[var(--foreground)]">{moveTarget.serviceName}</p>
+              <p className="text-[var(--muted-foreground)]">Now: {whenText(moveTarget)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-[var(--foreground)] mb-2">New day</p>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {moveDays.map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => {
+                      setMoveDate(d);
+                      setMoveError(null);
+                    }}
+                    className={`shrink-0 w-14 py-2 rounded-xl border text-center transition-colors ${
+                      d === moveDate
+                        ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                        : 'bg-[var(--muted)] border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)]'
+                    }`}
+                  >
+                    <span className="block text-[10px] font-bold uppercase">{prettyDate(d, { weekday: 'short' })}</span>
+                    <span className="block text-sm font-black">{Number(d.slice(8))}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-[var(--foreground)] mb-2">New time on {moveDate && prettyDate(moveDate)}</p>
+              {isLoadingMoveTimes ? (
+                <p className="text-xs text-[var(--muted-foreground)] py-3">Checking available times…</p>
+              ) : moveTimes.length === 0 ? (
+                <p className="text-xs text-[var(--muted-foreground)] py-3">No times left on this day. Please pick another day.</p>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {moveTimes.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => {
+                        setMoveTime(t);
+                        setMoveError(null);
+                      }}
+                      className={`py-2 rounded-xl border text-xs font-bold transition-colors ${
+                        t === moveTime
+                          ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                          : 'bg-[var(--card)] border-[var(--border-strong)] text-[var(--foreground)] hover:border-[var(--primary)]'
+                      }`}
+                    >
+                      {wallClockTime(t)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {moveError && <p className="text-xs font-bold text-rose-600">{moveError}</p>}
+            <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
+              <button onClick={() => setMoveTarget(null)} className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]">
+                Keep current time
+              </button>
+              <button
+                onClick={handleMove}
+                disabled={!moveTime || isMoving}
+                className="btn-primary px-5 py-2 rounded-xl text-xs font-bold disabled:opacity-50"
+              >
+                {isMoving ? 'Saving…' : 'Move appointment'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Cancel modal */}
+      <Modal isOpen={!!cancelTarget} onClose={() => setCancelTarget(null)} title="Cancel appointment?" maxWidth="sm">
+        {cancelTarget && (
+          <div className="space-y-4">
+            <div className="p-3 rounded-xl bg-[var(--muted)] text-xs">
+              <p className="font-black text-[var(--foreground)]">{cancelTarget.serviceName}</p>
+              <p className="text-[var(--muted-foreground)]">{whenText(cancelTarget)}</p>
+            </div>
+            <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
+              <button onClick={() => setCancelTarget(null)} className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]">
+                Keep it
+              </button>
+              <button
+                onClick={handleCancelBooking}
+                disabled={isCancelling}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white disabled:opacity-50"
+              >
+                {isCancelling ? 'Cancelling…' : 'Yes, cancel it'}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Change password modal */}

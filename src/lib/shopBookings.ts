@@ -177,11 +177,30 @@ export async function cancelBooking(bookingId: string, reason: string) {
   });
 }
 
-export async function rescheduleBooking(bookingId: string, date: string, startTime: string) {
-  await apiRequest(`/api/v1/bookings/${bookingId}/reschedule`, {
-    method: 'POST',
-    body: JSON.stringify({ date, startTime }),
+/**
+ * Moves a booking to a new date and time. The backend only moves confirmed bookings, so one
+ * still waiting to be confirmed is booked again at the new time and the old one cancelled.
+ * Returns the booking's id, which is new in that case.
+ */
+export async function rescheduleBooking(bookingId: string, date: string, startTime: string): Promise<string> {
+  const time = startTime.length === 5 ? `${startTime}:00` : startTime;
+  const detail = await apiRequest<any>(`/api/v1/bookings/${bookingId}`);
+  if (['CONFIRMED', 'LOCKED'].includes(String(detail?.status))) {
+    await apiRequest(`/api/v1/bookings/${bookingId}/reschedule`, {
+      method: 'POST',
+      body: JSON.stringify({ date, startTime: time }),
+    });
+    return bookingId;
+  }
+  const newId = await createBooking({
+    customerId: String(detail?.customer?.id || ''),
+    serviceId: String(detail?.service?.id || ''),
+    date,
+    startTime: time,
+    notes: detail?.notes || undefined,
   });
+  await cancelBooking(bookingId, `Moved to ${date} ${time.slice(0, 5)}`);
+  return newId;
 }
 
 interface Bill {
