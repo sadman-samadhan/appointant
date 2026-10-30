@@ -1,7 +1,7 @@
 import 'server-only';
 import type { NextRequest } from 'next/server';
 import { DEFAULT_TENANT_ID } from '@/lib/api/config';
-import { setServerRequester } from '@/lib/api/request';
+import './shopCode';
 import { toList, toNumber } from '@/lib/format';
 import { billFor, finishAndPay, type ShopBooking } from '@/lib/shopBookings';
 import { accountFromRequest } from './customerAccount';
@@ -11,11 +11,6 @@ import { AgentError, agentRequest } from './shopAgent';
 // payment for their own customer, this server does it with the shop's account and writes
 // the barber's name on the payment (see finishAndPay) for the day's cash-up.
 
-// On the server the shared shop code (shopBookings, moneyBook) always runs as the shop.
-setServerRequester(async (path, options = {}) => {
-  const body = typeof options.body === 'string' && options.body ? JSON.parse(options.body) : undefined;
-  return agentRequest(String(options.method || 'GET'), path, body);
-});
 
 export interface Barber {
   staffId: string;

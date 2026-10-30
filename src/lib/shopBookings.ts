@@ -6,7 +6,7 @@ import { apiRequest } from '@/lib/api/request';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { BUSINESS } from '@/lib/business';
 import { sameName, servicePrice, serviceDuration, shopClock, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
-import { addAutoIncome, billTag, listEntries, TAKEN_BY_PREFIX, WALK_IN_CATEGORY, type PaidWith } from '@/lib/moneyBook';
+import { addAutoIncome, billTag, listEntries, TAKEN_BY_PREFIX, walkInTag, WALK_IN_CATEGORY, type PaidWith } from '@/lib/moneyBook';
 import { formatPhone, phoneDigits } from '@/lib/phone';
 import type { BarberHours } from '@/lib/slots';
 
@@ -399,6 +399,9 @@ export async function recordWalkIn(input: {
   date?: string;
   takenBy?: string;
   paidWith?: PaidWith;
+  /** Who cut and when ("HH:MM"), so that chair time shows as taken. */
+  staffId?: string;
+  start?: string;
 }) {
   const name = input.customerName?.trim() || 'Walk-in customer';
   const by = input.takenBy?.trim() ? ` — ${takenByNote(input.takenBy.trim())}` : '';
@@ -409,7 +412,11 @@ export async function recordWalkIn(input: {
     amount: money(price + taxOn(price)),
     tax: taxOn(price),
     date,
-    note: `${input.service.name}${WALK_IN_SEPARATOR}${name}${by}`,
+    note: `${input.service.name}${WALK_IN_SEPARATOR}${name}${by}${walkInTag({
+      staffId: input.staffId,
+      start: input.start || `${String(Math.floor(shopClock().minutes / 60)).padStart(2, '0')}:${String(shopClock().minutes % 60).padStart(2, '0')}`,
+      minutes: input.service.durationMinutes,
+    })}`,
     paidWith: input.paidWith,
   });
   if (input.tip && input.tip > 0) {
@@ -425,8 +432,12 @@ export async function loadWalkIns(from: string, to: string): Promise<ShopBooking
     .map((e) => {
       const [serviceName, ...rest] = e.note.split(WALK_IN_SEPARATOR);
       const at = e.createdAt ? new Date(e.createdAt) : null;
-      const minutes = at && !isNaN(at.getTime()) ? shopClock(at).minutes : 0;
+      const recorded = at && !isNaN(at.getTime()) ? shopClock(at).minutes : 0;
+      // The chair time written with the walk-in, else when it was written down.
+      const [h, m] = (e.walkIn?.start || '').split(':').map(Number);
+      const minutes = e.walkIn ? h * 60 + m : recorded;
       const time = `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}:00`;
+      const end = minutes + (e.walkIn?.minutes || 30);
       return {
         bookingId: e.id,
         bookingNumber: null,
@@ -435,6 +446,8 @@ export async function loadWalkIns(from: string, to: string): Promise<ShopBooking
         serviceName: serviceName || 'Walk-in',
         date: e.date,
         startTime: `${e.date}T${time}`,
+        endTime: `${e.date}T${pad(Math.floor(end / 60))}:${pad(end % 60)}:00`,
+        staffId: e.walkIn?.staffId || undefined,
         status: 'COMPLETED',
         total: e.amount,
         walkIn: true,

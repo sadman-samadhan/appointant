@@ -40,6 +40,8 @@ export interface MoneyEntry {
   createdAt?: string;
   /** Who took the money (a barber, or "Owner"); empty when not recorded. */
   takenBy: string;
+  /** A walk-in's barber and chair time, when recorded. */
+  walkIn?: { staffId: string; start: string; minutes: number };
 }
 
 export interface SubCategory {
@@ -78,6 +80,12 @@ const TAKEN_BY = /(?:^|\s—\s)Taken by (.+?)(?=\s*\[INV-|$)/;
 const SUB_SEPARATOR = ' › ';
 const MAX_SUBS = 9;
 const BILL_TAG = /\s*\[(INV-[^\]\s]+)\]/;
+// Who cut a walk-in and when, so the barber's time shows as taken: "[WALKIN staff=<id> start=14:30 min=30]".
+const WALK_IN_TAG = /\s*\[WALKIN staff=(\S*) start=(\d{2}:\d{2}) min=(\d+)\]/;
+
+export function walkInTag(info: { staffId?: string; start: string; minutes: number }): string {
+  return ` [WALKIN staff=${info.staffId || ''} start=${info.start.slice(0, 5)} min=${Math.round(info.minutes)}]`;
+}
 
 /** Marks an entry as part of a bill, so it is shown together with the bill's payment. */
 export function billTag(invoiceNumber: string): string {
@@ -449,6 +457,12 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
   let subcategory = '';
   let note = noteAfterHead;
   let takenBy = '';
+  let walkIn: MoneyEntry['walkIn'];
+  const tag = note.match(WALK_IN_TAG);
+  if (tag) {
+    walkIn = { staffId: tag[1], start: tag[2], minutes: Number(tag[3]) };
+    note = note.replace(tag[0], '').trim();
+  }
   let billPaidWith: PaidWith | '' = '';
   const by = note.match(TAKEN_BY);
   if (by) {
@@ -505,6 +519,7 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
     fromAppointment: !!invoiceMatch,
     createdAt: j.createdAt,
     takenBy,
+    ...(walkIn ? { walkIn } : {}),
   };
 }
 

@@ -439,6 +439,8 @@ function AppointmentsPage() {
   const [walkTip, setWalkTip] = useState('');
   const [walkDate, setWalkDate] = useState(todayISO());
   const [walkPaidWith, setWalkPaidWith] = useState<PaidWith>('CASH');
+  const [walkBarberId, setWalkBarberId] = useState('');
+  const [walkStart, setWalkStart] = useState('');
   const [walkError, setWalkError] = useState<string | null>(null);
 
   // Per-booking dialogs
@@ -486,6 +488,8 @@ function AppointmentsPage() {
   }, [reload]);
 
   const serviceById = (id: string) => services.find((s) => s.serviceId === id);
+  // Walk-ins hold their barber's chair too, so the booking forms treat them as busy.
+  const busy = useMemo(() => [...bookings, ...walkIns], [bookings, walkIns]);
 
   const openNew = useCallback(() => {
     setNewName('');
@@ -507,6 +511,10 @@ function AppointmentsPage() {
     setWalkTip('');
     setWalkDate(todayISO());
     setWalkPaidWith('CASH');
+    setWalkBarberId('');
+    // Started now, by the shop's clock.
+    const now = shopClock().minutes;
+    setWalkStart(`${String(Math.floor(now / 60)).padStart(2, '0')}:${String(now % 60).padStart(2, '0')}`);
     setWalkError(null);
     setShowWalkIn(true);
   }, []);
@@ -568,7 +576,7 @@ function AppointmentsPage() {
     try {
       // Re-check against the latest list in case the time was just taken online.
       const latest = await fetchBookings();
-      const free = freeAt({ bookings: latest, barbers, durationMinutes: service.durationMinutes, date: newDate }).get(newTime);
+      const free = freeAt({ bookings: [...latest, ...walkIns], barbers, durationMinutes: service.durationMinutes, date: newDate }).get(newTime);
       if (!free || (newBarberId && !free.includes(newBarberId))) {
         setBookings(latest);
         setNewTime('');
@@ -579,7 +587,7 @@ function AppointmentsPage() {
         customerId,
         serviceId: service.serviceId,
         // The chosen barber, or Auto assign: the free barber with the fewest bookings that day.
-        staffId: newBarberId || pickBarber(free, newDate, latest),
+        staffId: newBarberId || pickBarber(free, newDate, [...latest, ...walkIns]),
         date: newDate,
         startTime: newTime,
         notes: newNotes.trim(),
@@ -612,7 +620,17 @@ function AppointmentsPage() {
     setIsSaving(true);
     setWalkError(null);
     try {
-      await recordWalkIn({ service: walkService, customerName: walkName, price: walkPriceNum, tip: walkTipNum, date: walkDate, takenBy, paidWith: walkPaidWith });
+      await recordWalkIn({
+        service: walkService,
+        customerName: walkName,
+        price: walkPriceNum,
+        tip: walkTipNum,
+        date: walkDate,
+        takenBy,
+        paidWith: walkPaidWith,
+        staffId: walkBarberId || undefined,
+        start: walkStart || undefined,
+      });
       setShowWalkIn(false);
       showSuccess('Walk-in saved', `$${formatMoney(walkTotal)} added to ${walkDate === todayISO() ? 'today’s' : prettyDate(walkDate) + '’s'} income.`);
       showDay(walkDate);
@@ -678,9 +696,9 @@ function AppointmentsPage() {
     const target = moveTarget;
     setIsSaving(true);
     try {
-      const free = freeAt({ bookings, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: target.bookingId }).get(moveTime) || [];
+      const free = freeAt({ bookings: busy, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: target.bookingId }).get(moveTime) || [];
       // A barber's booking always stays theirs.
-      const staffId = isBarber ? myStaffId : moveBarberId || pickBarber(free, moveDate, bookings) || null;
+      const staffId = isBarber ? myStaffId : moveBarberId || pickBarber(free, moveDate, busy) || null;
       const barberChanged = (staffId || '') !== (target.staffId || '');
       const movedId = await rescheduleBooking(target.bookingId, moveDate, moveTime, {
         staffId,
@@ -765,21 +783,6 @@ function AppointmentsPage() {
       />
     );
     const waiting = ['DRAFT', 'LOCKED', 'SCHEDULED', 'CONFIRMED'].includes(b.status);
-    // A past booking that never happened can only be removed.
-    if (waiting && b.date < today) {
-      return (
-        <ActionButton
-          icon={X}
-          label="Remove"
-          tone="red"
-          disabled={busy}
-          onClick={() => {
-            setCancelReason('Did not come');
-            setCancelTarget(b);
-          }}
-        />
-      );
-    }
     // Bookings are accepted when they are made, so there is no Confirm step. An older booking
     // still waiting to be accepted is confirmed (HST added) as the customer arrives.
     const arrive = async () => {
@@ -790,6 +793,42 @@ function AppointmentsPage() {
       }
       await markArrived(b.bookingId);
     };
+    // A past booking: Remove if they never came; if they came but no one tapped Arrived,
+    // "Came · take payment" marks them arrived and opens the payment.
+    if (waiting && b.date < today) {
+      return (
+        <>
+          <ActionButton
+            icon={Banknote}
+            label="Came · take payment"
+            tone="green"
+            disabled={busy}
+            onClick={async () => {
+              setBusyId(b.bookingId);
+              try {
+                await arrive();
+                openPay({ ...b, status: 'CHECKED_IN' });
+              } catch (err: any) {
+                showError('Could not mark them arrived', err.message || 'Please try again.');
+                reload();
+              } finally {
+                setBusyId(null);
+              }
+            }}
+          />
+          <ActionButton
+            icon={X}
+            label="Remove"
+            tone="red"
+            disabled={busy}
+            onClick={() => {
+              setCancelReason('Did not come');
+              setCancelTarget(b);
+            }}
+          />
+        </>
+      );
+    }
     switch (b.status) {
       case 'DRAFT':
       case 'LOCKED':
@@ -972,9 +1011,13 @@ function AppointmentsPage() {
                       )}
                     </div>
                     <p className="text-xs font-bold text-[var(--primary)] mt-0.5">{b.serviceName} · ${formatMoney(shownTotal(b))}</p>
-                    {!b.walkIn && barbers.length > 0 && !isBarber && (
+                    {(!b.walkIn || b.staffId) && barbers.length > 0 && !isBarber && (
                       <p className="text-xs text-[var(--foreground)] mt-0.5">
-                        {b.staffName ? `with ${b.staffName}` : <span className="text-[var(--muted-foreground)]">Any barber</span>}
+                        {b.staffName || barbers.find((x) => x.staffId === b.staffId)?.name ? (
+                          `with ${b.staffName || barbers.find((x) => x.staffId === b.staffId)?.name}`
+                        ) : (
+                          <span className="text-[var(--muted-foreground)]">Any barber</span>
+                        )}
                       </p>
                     )}
                     {b.customerPhone && (
@@ -1014,7 +1057,7 @@ function AppointmentsPage() {
           </div>
           {newService && (
             <TimePicker
-              bookings={bookings}
+              bookings={busy}
               barbers={barbers}
               durationMinutes={newService.durationMinutes}
               date={newDate}
@@ -1029,7 +1072,7 @@ function AppointmentsPage() {
           {newService && newTime && barbers.length > 0 && (
             <BarberSelect
               barbers={barbers.filter((b) =>
-                freeAt({ bookings, barbers, durationMinutes: newService.durationMinutes, date: newDate }).get(newTime)?.includes(b.staffId)
+                freeAt({ bookings: busy, barbers, durationMinutes: newService.durationMinutes, date: newDate }).get(newTime)?.includes(b.staffId)
               )}
               time={newTime}
               value={newBarberId}
@@ -1112,6 +1155,24 @@ function AppointmentsPage() {
           )}
           {walkService && walkPriceNum > 0 && <PaidWithPicker value={walkPaidWith} onChange={setWalkPaidWith} />}
           {walkService && walkPriceNum > 0 && walkPaidWith === 'CASH' && <ChangeCalculator total={walkTotal} />}
+          {/* Who cut and when: that barber's chair time shows as taken, so it can't be booked online. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Barber</label>
+              <select value={walkBarberId} onChange={(e) => setWalkBarberId(e.target.value)} className={inputClass}>
+                <option value="">{barbers.length ? 'Not set' : 'No barbers set up'}</option>
+                {barbers.map((b) => (
+                  <option key={b.staffId} value={b.staffId}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Started at</label>
+              <input type="time" value={walkStart} onChange={(e) => setWalkStart(e.target.value)} className={inputClass} />
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Date</label>
@@ -1204,7 +1265,7 @@ function AppointmentsPage() {
               {moveTarget.staffName ? ` with ${moveTarget.staffName}` : ''})
             </p>
             <TimePicker
-              bookings={bookings}
+              bookings={busy}
               barbers={barbers}
               durationMinutes={moveService?.durationMinutes || 30}
               date={moveDate}
@@ -1215,7 +1276,7 @@ function AppointmentsPage() {
                 // Picking a day clears the time; the barber stays until a new time is picked.
                 if (!t) return;
                 // Keep the barber when they are free at the new time.
-                const free = freeAt({ bookings, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: moveTarget.bookingId }).get(t) || [];
+                const free = freeAt({ bookings: busy, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: moveTarget.bookingId }).get(t) || [];
                 if (moveBarberId && !free.includes(moveBarberId)) setMoveBarberId('');
               }}
               excludeBookingId={moveTarget.bookingId}
@@ -1224,7 +1285,7 @@ function AppointmentsPage() {
             {moveTime && barbers.length > 0 && !isBarber && (
               <BarberSelect
                 barbers={barbers.filter((b) =>
-                  freeAt({ bookings, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: moveTarget.bookingId })
+                  freeAt({ bookings: busy, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: moveTarget.bookingId })
                     .get(moveTime)
                     ?.includes(b.staffId)
                 )}

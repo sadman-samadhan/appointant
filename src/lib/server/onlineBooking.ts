@@ -6,6 +6,8 @@ import { formatPhone, isValidPhone, phoneDigits, PHONE_ERROR } from '@/lib/phone
 import { barberAvailability, isTimeFree, pickBarber, type BarberHours, type BarberBusyBooking } from '@/lib/slots';
 import { agentRequest, AgentError } from './shopAgent';
 import { sendBookingConfirmation } from './bookingEmails';
+import './shopCode';
+import { loadWalkIns } from '@/lib/shopBookings';
 import { ensureAccountCustomer, type AccountUser } from './customerAccount';
 
 export { SHOP_TIME_ZONE };
@@ -136,6 +138,15 @@ async function bookingsWithBarbers(date: string, barbers: BarberHours[]): Promis
   return all.map((b: any) => ({ ...b, staffId: barberOf.get(String(b.bookingId)) }));
 }
 
+/** Today's walk-ins hold their barber's chair too (they live in Accounting, not as bookings). */
+async function todaysWalkIns(date: string): Promise<BarberBusyBooking[]> {
+  try {
+    return (await loadWalkIns(date, date)).map((w) => ({ bookingId: w.bookingId, status: 'COMPLETED', startTime: w.startTime, endTime: w.endTime, staffId: w.staffId }));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Free start times ("HH:MM:SS") for a service on a date, each with the barbers free then
  * (working by their schedule, and not booked). `excludeBookingId` leaves out a booking being moved.
@@ -144,7 +155,7 @@ export async function availability(serviceId: string, date: string, excludeBooki
   const dateError = checkBookableDate(date);
   if (dateError) throw new AgentError(dateError, 400);
   const [service, barbers] = await Promise.all([findService(serviceId), barbersWithHours()]);
-  const bookings = await bookingsWithBarbers(date, barbers);
+  const bookings = [...(await bookingsWithBarbers(date, barbers)), ...(date === shopNow().date ? await todaysWalkIns(date) : [])];
   const now = shopNow();
   const free = barberAvailability({
     date,
