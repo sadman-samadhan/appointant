@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { placeOnlineBooking, validateGuestBooking, STRICT_BOOKING_CHECKS } from '@/lib/server/onlineBooking';
-import { accountFromRequest } from '@/lib/server/customerAccount';
+import { accountFromRequest, getAccountDetails, updateAccountDetails } from '@/lib/server/customerAccount';
+import { formatPhone, isValidPhone, PHONE_ERROR } from '@/lib/phone';
 import { AgentError, agentConfigured } from '@/lib/server/shopAgent';
 import { clientIp, rateLimited } from '@/lib/server/rateLimit';
 
@@ -33,11 +34,25 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { value, error } = validateGuestBooking(body);
-  if (!value) return NextResponse.json({ message: error }, { status: 400 });
-
   try {
-    const result = await placeOnlineBooking(value, await accountFromRequest(req));
+    // A signed-in customer books with the name, phone and email on their account. If the
+    // account has no phone yet, the one typed here is saved to it.
+    const account = await accountFromRequest(req);
+    if (account) {
+      const details = await getAccountDetails(account);
+      let phone = details.phone;
+      if (!phone) {
+        if (!isValidPhone(body?.phone)) return NextResponse.json({ message: PHONE_ERROR }, { status: 400 });
+        phone = formatPhone(body.phone);
+        await updateAccountDetails(account, { name: details.name, phone });
+      }
+      body = { ...body, name: details.name, phone, email: details.email };
+    }
+
+    const { value, error } = validateGuestBooking(body);
+    if (!value) return NextResponse.json({ message: error }, { status: 400 });
+
+    const result = await placeOnlineBooking(value, account);
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     if (err instanceof AgentError && [400, 409].includes(err.status)) {

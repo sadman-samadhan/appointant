@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, Calendar, CheckCircle2, Clock, Phone, Scissors } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Calendar, CheckCircle2, Clock, Mail, Pencil, Phone, Scissors, User } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { BUSINESS } from '@/lib/business';
 import { formatMoney, wallClockTime } from '@/lib/format';
@@ -86,18 +86,17 @@ export default function BookPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
 
-  // Prefill from a signed-in account (name and phone as the shop has them on file)
+  // A signed-in customer books with the name, phone and email on their account; they change
+  // them under My account. Only a missing phone is asked for here (it is then saved to the account).
+  const signedIn = !!user && isAuthenticated;
+  const [account, setAccount] = useState<{ name: string; phone: string; email: string } | null>(null);
   useEffect(() => {
-    if (!user || !isAuthenticated) return;
-    if (user.name) setName((v) => v || user.name);
-    if (user.email) setEmail((v) => v || user.email || '');
-    getJson<{ name?: string; phone?: string }>('/api/account/details')
-      .then((d) => {
-        if (d.name) setName(d.name);
-        if (d.phone) setPhone((v) => v || formatPhone(d.phone));
-      })
-      .catch(() => {});
-  }, [user, isAuthenticated]);
+    if (!signedIn) return;
+    getJson<{ name: string; phone: string; email: string }>('/api/account/details')
+      .then(setAccount)
+      .catch(() => setAccount({ name: user?.name || '', phone: '', email: user?.email || '' }));
+  }, [signedIn, user]);
+  const needsPhone = !signedIn || (account !== null && !account.phone);
 
   useEffect(() => {
     getJson<{ services: Service[]; today?: string }>('/api/public/booking/services')
@@ -162,7 +161,7 @@ export default function BookPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!service || !time) return;
-    if (!isValidPhone(phone)) {
+    if (needsPhone && !isValidPhone(phone)) {
       setSubmitError(PHONE_ERROR);
       return;
     }
@@ -406,45 +405,105 @@ export default function BookPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Your name</label>
-              <input
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoComplete="name"
-                className="w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Phone</label>
-              <input
-                required
-                type="tel"
-                value={phone}
-                onChange={(e) => {
-                  setPhone(formatPhoneInput(e.target.value));
-                  setSubmitError(null);
-                }}
-                onBlur={() => isValidPhone(phone) && setPhone(formatPhone(phone))}
-                autoComplete="tel-national"
-                placeholder={PHONE_PLACEHOLDER}
-                aria-invalid={phone.length > 0 && !isValidPhone(phone)}
-                className="w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)]"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Email (optional)</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              className="w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)]"
-            />
-          </div>
+          {signedIn ? (
+            !account ? (
+              <p className="text-xs text-[var(--muted-foreground)]">Loading your details…</p>
+            ) : (
+              <div className="p-4 rounded-xl border border-[var(--border)] space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1.5 text-sm text-[var(--foreground)] min-w-0">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--muted-foreground)]">Booking as</p>
+                    <p className="flex items-center gap-2 font-bold">
+                      <User className="w-4 h-4 text-[var(--primary)] shrink-0" />
+                      {account.name}
+                    </p>
+                    {account.phone && (
+                      <p className="flex items-center gap-2">
+                        <Phone className="w-4 h-4 text-[var(--primary)] shrink-0" />
+                        {account.phone}
+                      </p>
+                    )}
+                    <p className="flex items-center gap-2 truncate">
+                      <Mail className="w-4 h-4 text-[var(--primary)] shrink-0" />
+                      {account.email}
+                    </p>
+                  </div>
+                  <Link
+                    href="/customer/profile?edit=details"
+                    className="shrink-0 text-xs font-bold text-[var(--primary)] hover:underline flex items-center gap-1"
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> Change
+                  </Link>
+                </div>
+                {!account.phone && (
+                  <div>
+                    <label className="block text-xs font-bold text-[var(--foreground)] mb-1">
+                      Your phone number <span className="font-normal text-[var(--muted-foreground)]">(saved to your account)</span>
+                    </label>
+                    <input
+                      required
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => {
+                        setPhone(formatPhoneInput(e.target.value));
+                        setSubmitError(null);
+                      }}
+                      onBlur={() => isValidPhone(phone) && setPhone(formatPhone(phone))}
+                      autoComplete="tel-national"
+                      placeholder={PHONE_PLACEHOLDER}
+                      aria-invalid={phone.length > 0 && !isValidPhone(phone)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)]"
+                    />
+                  </div>
+                )}
+              </div>
+            )
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Your name</label>
+                  <input
+                    required
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      setSubmitError(null);
+                    }}
+                    autoComplete="name"
+                    className="w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Phone</label>
+                  <input
+                    required
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => {
+                      setPhone(formatPhoneInput(e.target.value));
+                      setSubmitError(null);
+                    }}
+                    onBlur={() => isValidPhone(phone) && setPhone(formatPhone(phone))}
+                    autoComplete="tel-national"
+                    placeholder={PHONE_PLACEHOLDER}
+                    aria-invalid={phone.length > 0 && !isValidPhone(phone)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Email (optional)</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  className="w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)]"
+                />
+              </div>
+            </>
+          )}
           <div>
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Anything we should know? (optional)</label>
             <input
@@ -479,15 +538,12 @@ export default function BookPage() {
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || (signedIn && !account)}
               className="btn-primary px-6 py-2.5 rounded-xl text-xs font-black disabled:opacity-50"
             >
               {isSubmitting ? 'Booking…' : 'Confirm booking'}
             </button>
           </div>
-          <p className="text-[11px] text-[var(--muted-foreground)] flex items-center gap-1.5">
-            <Phone className="w-3 h-3" /> We&apos;ll only use your number about this appointment.
-          </p>
         </form>
       )}
     </div>

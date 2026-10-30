@@ -97,6 +97,12 @@ export default function CustomerProfilePage() {
     load();
   }, [load]);
 
+  // "Change" on the booking form links here with ?edit=details to open the details form.
+  const [openDetailsOnLoad, setOpenDetailsOnLoad] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('edit') === 'details') setOpenDetailsOnLoad(true);
+  }, []);
+
   const name = details?.name || user?.name || '';
   const phone = details?.phone || '';
   const email = details?.email || user?.email || '';
@@ -108,6 +114,13 @@ export default function CustomerProfilePage() {
     setDetailsError(null);
     setShowDetailsModal(true);
   };
+
+  useEffect(() => {
+    if (!openDetailsOnLoad || isLoading) return;
+    setOpenDetailsOnLoad(false);
+    openDetails();
+    window.history.replaceState(null, '', '/customer/profile');
+  });
 
   const handleSaveDetails = async (e: React.FormEvent) => {
     e.preventDefault();
