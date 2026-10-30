@@ -56,12 +56,19 @@ Not tested end-to-end: a booking made while **signed in as a customer**, and edi
 5. **Arrived is final**: `CHECKED_IN` can't be cancelled or marked no-show. Arrived only offers "Finish & take payment".
 6. **Default tax**: the tenant setting `taxRate` is 10%. The app applies 15% on confirm. Setting it to 15 in tenant settings would make new online bookings show 15% from the start.
 7. No endpoint to change a user's sign-in email. Customers can edit their name and phone; email is read-only.
+8. **Search hides contacts**: the tenant customer search returns only the contact that matched (e.g. the email), not the phone. *Workaround:* the full contact list is read separately.
+9. **Only confirmed bookings can be moved**: `reschedule` refuses bookings still to confirm, and can't change the barber. *Workaround:* the booking is made again at the new time / barber and the old one cancelled.
+10. **Barbers can't bill**: a barber's login gets 403 on billing, payments and accounting. A barber's arrived booking says "Owner takes the payment".
+11. **Staff login**: an existing staff record can't be given a login later (no `userId` in the staff update). Archive and add them again with "Create a login". Passwords need 10+ characters with upper, lower, number and symbol.
 
 ## Test data left in the dev backend
 - Booking SAL-2026-000016 "TEST Claude QA 3": paid $28.75 but stuck as Arrived because of bug 4 (a voided test bill). SAL-000015 and SAL-000017 are cancelled.
 - Disabled test account 5399 "TEST Claude sub 2" and category "TEST Laundry 2" (removed; its test entry reversed).
 - Booking "TEST Claude Highlight" (Oct 31, Beard Trim): paid $27.30 incl. $2 tip on Oct 29 while testing; an arrived booking can't be cancelled. "TEST Mo Claude" / "TEST Mo Online" bookings are cancelled.
 - Customers "TEST Claude QA", "TEST Claude QA 3", "TEST Claude Walk-in". The test walk-in income was reversed.
+- 2026-10-29 customer-side work: customer "TEST Phone Renamed" with cancelled test bookings, and SAL-2026-000041 (Nov 3, 3:00 PM, with Munim2) stuck as Arrived from the barber test (no bill, so it can't be completed or cancelled). Archived staff "TEST Barber Claude".
+- Ankon Ghosh's booking SAL-2026-000027 (Nov 4, 12:30) was cancelled by mistake during testing and re-booked as SAL-2026-000035 (same time, service and status).
+- Staff "Munim" (no login, the email already had an account) and "Munim2" (barber login) were added by the client while testing.
 
 ## PDF check (2026-10-28)
 Every item is fixed in the frontend except:

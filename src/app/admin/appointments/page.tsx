@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Modal } from '@/components/ui/Modal';
 import { Badge, STATUS_LABELS } from '@/components/ui/Badge';
 import { useToast } from '@/context/ToastContext';
+import { useAuth } from '@/context/AuthContext';
 import { BUSINESS } from '@/lib/business';
 import { formatMoney, shopClock, todayISO, wallClockTime } from '@/lib/format';
 import { formatPhone, formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
@@ -330,6 +331,9 @@ function AppointmentsPage() {
   const [walkIns, setWalkIns] = useState<ShopBooking[]>([]);
   const [services, setServices] = useState<ShopService[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
+  // A barber sees and works on only their own appointments.
+  const { isBarber, user } = useAuth();
+  const myStaffId = isBarber ? user?.staffId || '' : '';
   // '' all barbers, 'none' bookings with no barber, else a staffId.
   const [barberFilter, setBarberFilter] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -391,10 +395,11 @@ function AppointmentsPage() {
       setIsLoading(false);
     }
     // Walk-ins live in Accounting (owner only); staff simply don't see them here.
+    if (isBarber) return;
     loadWalkIns(addDays(todayISO(), -60), todayISO())
       .then(setWalkIns)
       .catch(() => setWalkIns([]));
-  }, [fetchBookings]);
+  }, [fetchBookings, isBarber]);
 
   useEffect(() => {
     reload();
@@ -430,11 +435,11 @@ function AppointmentsPage() {
   // The param is cleared right away so pressing the button again works too.
   useEffect(() => {
     const action = searchParams.get('new');
-    if (!action) return;
+    if (!action || isBarber) return;
     if (action === 'walkin') openWalkIn();
     else openNew();
     router.replace('/admin/appointments');
-  }, [searchParams, openNew, openWalkIn, router]);
+  }, [searchParams, openNew, openWalkIn, router, isBarber]);
 
   const showDay = (date: string) => {
     setView('calendar');
@@ -598,7 +603,7 @@ function AppointmentsPage() {
 
   // ---------- List ----------
   const today = todayISO();
-  const everything = [...bookings, ...walkIns];
+  const everything = isBarber ? bookings.filter((b) => b.staffId === myStaffId) : [...bookings, ...walkIns];
   const dayCounts = useMemo(() => {
     const map = new Map<string, { total: number; toConfirm: number }>();
     for (const b of everything) {
@@ -610,7 +615,7 @@ function AppointmentsPage() {
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookings, walkIns]);
+  }, [bookings, walkIns, isBarber, myStaffId]);
   const visible = everything
     .filter((b) =>
       view === 'calendar' ? b.date === selectedDate : view === 'today' ? b.date === today : view === 'upcoming' ? b.date >= today : true
@@ -650,7 +655,7 @@ function AppointmentsPage() {
     const changeTime = (
       <ActionButton
         icon={CalendarClock}
-        label="Change time / barber"
+        label={isBarber ? 'Change time' : 'Change time / barber'}
         disabled={busy}
         onClick={() => {
           setMoveDate(b.date >= today ? b.date : today);
@@ -700,6 +705,8 @@ function AppointmentsPage() {
         );
       case 'CHECKED_IN':
         // The backend only allows completing an arrived booking (no cancel / no-show).
+        // Billing is the owner's: the backend doesn't let a barber's login make bills.
+        if (isBarber) return <span className="text-xs font-bold text-[var(--muted-foreground)]">Owner takes the payment</span>;
         return <ActionButton icon={Banknote} label="Finish & take payment" tone="green" disabled={busy} onClick={() => openPay(b)} />;
       default:
         return null;
@@ -719,8 +726,8 @@ function AppointmentsPage() {
     <div className="space-y-5 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight">Appointments</h1>
-        <div className="flex gap-2">
+        <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight">{isBarber ? 'My appointments' : 'Appointments'}</h1>
+        <div className={`flex gap-2 ${isBarber ? 'hidden' : ''}`}>
           <button onClick={openWalkIn} className="flex-1 sm:flex-none px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-sm">
             <Footprints className="w-4 h-4" /> Walk-in
           </button>
@@ -761,7 +768,7 @@ function AppointmentsPage() {
             <option value="CANCELLED">{STATUS_LABELS.CANCELLED}</option>
             <option value="NO_SHOW">{STATUS_LABELS.NO_SHOW}</option>
           </select>
-          {barbers.length > 0 && (
+          {barbers.length > 0 && !isBarber && (
             <select value={barberFilter} onChange={(e) => setBarberFilter(e.target.value)} className="px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]">
               <option value="">All barbers</option>
               {barbers.map((b) => (
@@ -813,10 +820,12 @@ function AppointmentsPage() {
           </div>
         ) : visible.length === 0 ? (
           <div className="p-12 text-center space-y-1">
-            <p className="text-sm font-bold text-[var(--foreground)]">No appointments here</p>
+            <p className="text-sm font-bold text-[var(--foreground)]">{isBarber ? 'No appointments with you here' : 'No appointments here'}</p>
             <p className="text-xs text-[var(--muted-foreground)]">
               {view === 'calendar'
-                ? 'Nothing booked on this day. Pick another day, or press New booking.'
+                ? isBarber
+                  ? 'Nothing booked with you on this day.'
+                  : 'Nothing booked on this day. Pick another day, or press New booking.'
                 : `${view === 'today' ? 'Nothing on today’s list. ' : ''}Try another tab or “All statuses”.`}
             </p>
           </div>
@@ -854,7 +863,7 @@ function AppointmentsPage() {
                       )}
                     </div>
                     <p className="text-xs font-bold text-[var(--primary)] mt-0.5">{b.serviceName} · ${formatMoney(shownTotal(b))}</p>
-                    {!b.walkIn && barbers.length > 0 && (
+                    {!b.walkIn && barbers.length > 0 && !isBarber && (
                       <p className="text-xs text-[var(--foreground)] mt-0.5">
                         {b.staffName ? `with ${b.staffName}` : <span className="text-[var(--muted-foreground)]">Any barber</span>}
                       </p>
@@ -1043,7 +1052,7 @@ function AppointmentsPage() {
               <strong>{moveTarget.customerName}</strong> · {moveTarget.serviceName} (now {prettyDate(moveTarget.date)} at {wallClockTime(moveTarget.startTime)}
               {moveTarget.staffName ? ` with ${moveTarget.staffName}` : ''})
             </p>
-            {barbers.length > 0 && (
+            {barbers.length > 0 && !isBarber && (
               <BarberSelect
                 barbers={barbers}
                 value={moveBarberId}

@@ -2,8 +2,8 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Sidebar, MobileNav, ADMIN_ONLY_ROUTES } from '@/components/layout/Sidebar';
+import { usePathname, useRouter } from 'next/navigation';
+import { Sidebar, MobileNav, ADMIN_ONLY_ROUTES, BARBER_HOME } from '@/components/layout/Sidebar';
 import { Navbar } from '@/components/layout/Navbar';
 import { useAuth } from '@/context/AuthContext';
 import { ShieldAlert, LogIn, RefreshCw } from 'lucide-react';
@@ -27,7 +27,14 @@ function GateMessage({ title, message, children }: { title: string; message: str
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { isAuthenticated, isLoading, isAdmin, isStaff, logout } = useAuth();
+  const router = useRouter();
+  const { isAuthenticated, isLoading, isAdmin, isStaff, isBarber, logout } = useAuth();
+
+  // A barber only has their own appointments; any other admin page goes there.
+  const barberElsewhere = isAuthenticated && isBarber && pathname !== BARBER_HOME;
+  React.useEffect(() => {
+    if (barberElsewhere) router.replace(BARBER_HOME);
+  }, [barberElsewhere, router]);
 
   if (isLoading) {
     return (
@@ -73,6 +80,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           Sign out
         </button>
       </GateMessage>
+    );
+  }
+
+  if (barberElsewhere) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
+        <RefreshCw className="w-6 h-6 animate-spin text-[var(--primary)]" />
+      </div>
     );
   }
 

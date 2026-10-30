@@ -32,6 +32,10 @@ export interface UserProfile {
   roleName?: string;
   roleCode?: string;
   role?: 'ADMIN' | 'CUSTOMER' | 'STAFF';
+  /** The signed-in staff member's own staff record. */
+  staffId?: string;
+  /** A barber (job title says "Barber") sees only their own appointments. */
+  isBarber?: boolean;
 }
 
 export interface RefreshTokenRequest {

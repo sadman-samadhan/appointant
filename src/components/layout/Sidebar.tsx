@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Calendar, Scissors, Wallet, UserCheck, Settings, ExternalLink } from 'lucide-react';
+import { LayoutDashboard, Calendar, Scissors, Wallet, UserCheck, Users, Settings, ExternalLink } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 
@@ -15,12 +15,18 @@ export const navItems = [
   { label: 'Accounting', href: '/admin/accounting', icon: Wallet, adminOnly: true },
   { label: 'Customers', href: '/admin/customers', icon: UserCheck },
   { label: 'Services', href: '/admin/services', icon: Scissors },
+  { label: 'Staff', href: '/admin/staff', icon: Users, adminOnly: true },
   { label: 'Settings', href: '/admin/settings', icon: Settings, adminOnly: true },
 ];
 
+// A barber only sees their own appointments (enforced in the admin layout too).
+export const BARBER_HOME = '/admin/appointments';
+const barberItems = [{ label: 'My appointments', href: BARBER_HOME, icon: Calendar }];
+
 // Pages only the owner/administrator may open (enforced in the admin layout too).
 export const ADMIN_ONLY_ROUTES = [
-  ...navItems.filter((item) => item.adminOnly).map((item) => item.href),
+  // Staff stays open to store administrators by its URL, as before; only the menu link is the owner's.
+  ...navItems.filter((item) => item.adminOnly && item.href !== '/admin/staff').map((item) => item.href),
   '/admin/expenses',
   '/admin/payroll',
 ];
@@ -28,7 +34,9 @@ export const ADMIN_ONLY_ROUTES = [
 /** Bottom tab bar for phones (the sidebar only shows on large screens). */
 export function MobileNav() {
   const pathname = usePathname();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isBarber } = useAuth();
+  // A single tab is no use to a barber on a phone.
+  if (isBarber) return null;
   const items = navItems.filter((item) => (!item.adminOnly || isAdmin) && item.href !== '/admin/settings');
   return (
     <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--card)] border-t border-[var(--border)] grid pb-[env(safe-area-inset-bottom)]" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
@@ -53,9 +61,9 @@ export function MobileNav() {
 export function Sidebar() {
   const pathname = usePathname();
   const { settings } = useTheme();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isBarber } = useAuth();
 
-  const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin);
+  const visibleNavItems = isBarber ? barberItems : navItems.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <aside className="w-64 bg-[var(--card)] border-r border-[var(--border)] min-h-screen flex flex-col justify-between p-4 shrink-0 hidden lg:flex transition-colors">

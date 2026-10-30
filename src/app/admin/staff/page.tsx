@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiRequest } from '@/lib/api/client';
+import { isStrongPassword, PASSWORD_RULES } from '@/lib/password';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/context/ToastContext';
 import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
@@ -74,7 +75,7 @@ export default function AdminStaffPage() {
   const [roleTitle, setRoleTitle] = useState('Barber Specialist');
   const [employmentType, setEmploymentType] = useState<'FULL_TIME' | 'PART_TIME' | 'CONTRACT'>('FULL_TIME');
   const [createLoginUser, setCreateLoginUser] = useState(false);
-  const [staffPassword, setStaffPassword] = useState('123456789');
+  const [staffPassword, setStaffPassword] = useState('');
   const [showStaffPassword, setShowStaffPassword] = useState(false);
   const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
 
@@ -141,6 +142,12 @@ export default function AdminStaffPage() {
   // Handle Save Staff
   const handleSaveStaff = async (e: React.FormEvent) => {
     e.preventDefault();
+    // The backend makes the login together with a new staff member and links the two.
+    const wantsLogin = createLoginUser && !editingStaff;
+    if (wantsLogin) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return showError('Email needed', 'The login uses the email address. Enter a valid email.');
+      if (!isStrongPassword(staffPassword)) return showError('Password too weak', PASSWORD_RULES);
+    }
     setIsSubmittingStaff(true);
     try {
       if (editingStaff) {
@@ -163,26 +170,6 @@ export default function AdminStaffPage() {
           `${fullName} profile updated.`
         );
       } else {
-        let registeredUserId: string | undefined = undefined;
-        if (createLoginUser && staffPassword.trim()) {
-          try {
-            const authReg = await apiRequest<any>('/auth/register', {
-              method: 'POST',
-              isAuthService: true,
-              body: JSON.stringify({
-                name: fullName.trim(),
-                userid: email.trim(),
-                password: staffPassword.trim(),
-              }),
-            });
-            const rawId = authReg?.userId || authReg?.id || authReg?.user?.id;
-            if (rawId !== undefined && rawId !== null) {
-              registeredUserId = String(rawId);
-            }
-          } catch {
-            /* fallback to backend createUser payload */
-          }
-        }
 
         const createRes = await apiRequest<any>('/api/v1/staff', {
           method: 'POST',
@@ -194,7 +181,7 @@ export default function AdminStaffPage() {
             roleTitle: roleTitle.trim(),
             employmentType,
             hireDate: todayISO(),
-            userId: registeredUserId || undefined,
+            ...(wantsLogin ? { createUser: true, password: staffPassword } : {}),
           }),
         });
 
@@ -225,7 +212,14 @@ export default function AdminStaffPage() {
       setEmail('');
       loadStaff();
     } catch (err: any) {
-      showError('Action Failed', err?.message || 'Could not register staff');
+      if (!editingStaff && err?.status === 409) {
+        showError(
+          'Email already used',
+          'This email already has an account or belongs to another staff member. Use a different email for the login, or untick "Create a login".'
+        );
+      } else {
+        showError('Could not save', err?.message || 'Please try again.');
+      }
     } finally {
       setIsSubmittingStaff(false);
     }
@@ -462,7 +456,8 @@ export default function AdminStaffPage() {
     setEmail('');
     setPhone('');
     setRoleTitle(role === 'ADMIN' ? 'Store Administrator' : 'Barber Specialist');
-    setCreateLoginUser(role === 'ADMIN');
+    setCreateLoginUser(true);
+    setStaffPassword('');
     setShowAddModal(true);
   };
 
@@ -537,10 +532,7 @@ export default function AdminStaffPage() {
           {statusFilter === 'ACTIVE' && (
             <button
               onClick={() => {
-                setEditingStaff(null);
-                setFullName('');
-                setEmail('');
-                setShowAddModal(true);
+                openAddStaffModal('STAFF');
               }}
               className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
             >
@@ -630,6 +622,8 @@ export default function AdminStaffPage() {
                             setEmail(stf.email || '');
                             setPhone(stf.phone || '');
                             setRoleTitle(stf.roleTitle || stf.role || 'Barber Specialist');
+                            setCreateLoginUser(false);
+                            setStaffPassword('');
                             setShowAddModal(true);
                           }}
                           className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50"
@@ -831,6 +825,13 @@ export default function AdminStaffPage() {
             </div>
           </div>
 
+          {editingStaff && !editingStaff.userId && (
+            <p className="p-3 rounded-xl bg-[var(--muted)] border border-[var(--border)] text-[11px] text-[var(--muted-foreground)]">
+              <strong className="text-[var(--foreground)]">No login yet.</strong> To let them sign in, archive them and add them again
+              with &ldquo;Create a login&rdquo; ticked.
+            </p>
+          )}
+
           {!editingStaff && (
             <div className="p-3 rounded-xl bg-[var(--muted)] space-y-2 border border-[var(--border)]">
               <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-[var(--foreground)]">
@@ -840,19 +841,20 @@ export default function AdminStaffPage() {
                   onChange={(e) => setCreateLoginUser(e.target.checked)}
                   className="rounded text-[var(--primary)]"
                 />
-                <span>Create login user account for this staff specialist</span>
+                <span>Create a login so they can sign in (with their email)</span>
               </label>
               {createLoginUser && (
                 <div>
                   <label className="block text-[11px] font-bold text-[var(--muted-foreground)] mb-1">
-                    Initial Password
+                    Password
                   </label>
                   <div className="relative">
                     <input
                       type={showStaffPassword ? 'text' : 'password'}
                       value={staffPassword}
                       onChange={(e) => setStaffPassword(e.target.value)}
-                      placeholder="•••••••••"
+                      placeholder="e.g. Barber#2026x"
+                      autoComplete="new-password"
                       className="w-full pl-3 pr-10 py-1.5 rounded-lg bg-[var(--card)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)]"
                     />
                     <button
@@ -864,6 +866,9 @@ export default function AdminStaffPage() {
                       {showStaffPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                     </button>
                   </div>
+                  <p className={`text-[11px] mt-1 ${staffPassword && !isStrongPassword(staffPassword) ? 'text-rose-600 font-bold' : 'text-[var(--muted-foreground)]'}`}>
+                    {PASSWORD_RULES}
+                  </p>
                 </div>
               )}
             </div>

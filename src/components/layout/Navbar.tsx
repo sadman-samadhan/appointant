@@ -7,7 +7,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { LogOut, Sun, Moon, Plus, Footprints, Shield } from 'lucide-react';
 
 export function Navbar() {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, isBarber } = useAuth();
   const { settings, toggleDarkMode } = useTheme();
 
   return (
@@ -15,7 +15,7 @@ export function Navbar() {
       <div className="flex items-center justify-between gap-4">
         {/* Left branding mobile indicator */}
         <div className="flex items-center gap-3">
-          <Link href="/admin/dashboard" className="flex items-center gap-2.5 font-black text-sm text-[var(--foreground)]">
+          <Link href={isBarber ? '/admin/appointments' : '/admin/dashboard'} className="flex items-center gap-2.5 font-black text-sm text-[var(--foreground)]">
             {settings.logoUrl ? (
               <img
                 src={settings.logoUrl}
@@ -38,23 +38,27 @@ export function Navbar() {
 
         {/* Right Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
-          <Link
-            href="/admin/appointments?new=walkin"
-            className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-sm"
-            title="A customer without a booking"
-          >
-            <Footprints className="w-4 h-4" />
-            <span className="hidden sm:inline">Walk-in</span>
-          </Link>
+          {!isBarber && (
+            <>
+              <Link
+                href="/admin/appointments?new=walkin"
+                className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-sm"
+                title="A customer without a booking"
+              >
+                <Footprints className="w-4 h-4" />
+                <span className="hidden sm:inline">Walk-in</span>
+              </Link>
 
-          <Link
-            href="/admin/appointments?new=booking"
-            className="btn-primary px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm"
-            title="Book an appointment"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">New booking</span>
-          </Link>
+              <Link
+                href="/admin/appointments?new=booking"
+                className="btn-primary px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                title="Book an appointment"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">New booking</span>
+              </Link>
+            </>
+          )}
 
           {/* Theme Toggle */}
           <button
@@ -73,7 +77,7 @@ export function Navbar() {
             <div className="hidden md:block text-left">
               <p className="text-xs font-bold text-[var(--foreground)] leading-tight">{user?.name || (isAdmin ? 'Admin User' : 'Specialist')}</p>
               <p className="text-[10px] text-[var(--muted-foreground)] font-medium">
-                {isAdmin ? 'Owner' : 'Staff'}
+                {isAdmin ? 'Owner' : isBarber ? 'Barber' : 'Staff'}
               </p>
             </div>
             <button

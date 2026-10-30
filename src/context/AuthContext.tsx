@@ -30,6 +30,8 @@ interface AuthContextType {
   isLoading: boolean;
   isAdmin: boolean;
   isStaff: boolean;
+  /** A barber: staff who only see and work on their own appointments. */
+  isBarber: boolean;
   tenantId: string;
   branchId: string;
   login: (userid: string, password: string) => Promise<UserProfile>;
@@ -58,19 +60,20 @@ function collectRoleCodes(me: any): string[] {
   return codes.filter(Boolean).map((c) => String(c).toUpperCase());
 }
 
-// A non-admin account counts as staff only if it is linked to an ACTIVE staff record.
-async function isLinkedToActiveStaff(me: any): Promise<boolean> {
+// The ACTIVE staff record linked to this account (by user id, or by email), if any.
+// A non-admin account counts as staff only if it has one.
+async function activeStaffRecord(me: any): Promise<any | null> {
   try {
     const res = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
     const email = String(me.email || me.userid || '').toLowerCase();
-    return toList(res, 'staff').some(
-      (s: any) =>
-        s.status === 'ACTIVE' &&
-        ((s.userId != null && String(s.userId) === String(me.id)) ||
-          (!!email && String(s.email || '').toLowerCase() === email))
+    const mine = toList(res, 'staff').filter((s: any) => s.status === 'ACTIVE');
+    return (
+      mine.find((s: any) => s.userId != null && String(s.userId) === String(me.id)) ||
+      mine.find((s: any) => !!email && String(s.email || '').toLowerCase() === email) ||
+      null
     );
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -101,12 +104,14 @@ async function resolveShopRole(me: any, fallback: AppRole): Promise<AppRole> {
 
 async function resolveProfile(me: any): Promise<UserProfile> {
   const codes = collectRoleCodes(me);
+  const staff = await activeStaffRecord(me);
   let role: AppRole = 'CUSTOMER';
   if (codes.some((c) => ADMIN_ROLE_CODES.includes(c))) role = 'ADMIN';
   else if (codes.some((c) => STAFF_ROLE_CODES.includes(c))) role = 'STAFF';
-  else if (await isLinkedToActiveStaff(me)) role = 'STAFF';
+  else if (staff) role = 'STAFF';
 
   if (role !== 'CUSTOMER') role = await resolveShopRole(me, role);
+  const isBarber = role === 'STAFF' && !!staff && /barber/i.test(String(staff.roleTitle || ''));
 
   return {
     id: me.id ?? me.userId,
@@ -117,7 +122,9 @@ async function resolveProfile(me: any): Promise<UserProfile> {
     status: me.status,
     role,
     roleCode: codes[0],
-    roleName: role === 'ADMIN' ? 'Salon Owner / Administrator' : role === 'STAFF' ? 'Staff Specialist' : 'Customer',
+    roleName: role === 'ADMIN' ? 'Salon Owner / Administrator' : isBarber ? 'Barber' : role === 'STAFF' ? 'Staff Specialist' : 'Customer',
+    staffId: staff?.staffId ? String(staff.staffId) : undefined,
+    isBarber,
   };
 }
 
@@ -134,6 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAdmin = !!token && user?.role === 'ADMIN';
   const isStaff = !!token && user?.role === 'STAFF';
+  const isBarber = isStaff && !!user?.isBarber;
 
   const clearSession = useCallback(() => {
     removeStoredToken();
@@ -323,6 +331,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         isAdmin,
         isStaff,
+        isBarber,
         tenantId,
         branchId,
         login,
