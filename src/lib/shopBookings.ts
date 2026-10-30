@@ -6,7 +6,7 @@ import { apiRequest } from '@/lib/api/request';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { BUSINESS } from '@/lib/business';
 import { sameName, servicePrice, serviceDuration, shopClock, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
-import { addAutoIncome, billTag, listEntries, TAKEN_BY_PREFIX, walkInTag, WALK_IN_CATEGORY, type PaidWith } from '@/lib/moneyBook';
+import { addAutoIncome, addRefund, billTag, listEntries, TAKEN_BY_PREFIX, walkInTag, WALK_IN_CATEGORY, type PaidWith } from '@/lib/moneyBook';
 import { formatPhone, phoneDigits } from '@/lib/phone';
 import type { BarberHours, TimeBlock } from '@/lib/slots';
 
@@ -434,6 +434,31 @@ export async function finishAndPay(
     await addAutoIncome('tip', { amount: opts.tip, date: today, note: billNote(`${booking.customerName}${by}`, bill), paidWith: opts.paidWith });
   }
   return totalDue;
+}
+
+/** The most that can be given back for a paid appointment: what its bill charged, HST included. */
+export async function refundableFor(booking: ShopBooking): Promise<number> {
+  const bill = await findBill(booking.bookingId);
+  if (!bill || !(bill.amountPaid > 0)) throw new Error('No payment was found for this appointment.');
+  return money((bill.subtotal - bill.discount) * (1 + BUSINESS.taxRate));
+}
+
+/**
+ * Gives money back for a paid appointment (all or part). Recorded in Accounting as a refund
+ * (HST share included), from the drawer or the bank, with who gave it back.
+ */
+export async function refundBooking(
+  booking: ShopBooking,
+  opts: { amount: number; reason?: string; paidWith: PaidWith; takenBy?: string }
+) {
+  const bill = await findBill(booking.bookingId);
+  const max = await refundableFor(booking);
+  const amount = money(opts.amount);
+  if (!(amount > 0)) throw new Error('Enter the amount given back.');
+  if (amount > max) throw new Error(`The most you can give back is $${max.toFixed(2)}.`);
+  const by = opts.takenBy?.trim() ? ` — ${takenByNote(opts.takenBy.trim())}` : '';
+  const text = `${booking.serviceName} — ${booking.customerName}${opts.reason?.trim() ? ` — ${opts.reason.trim()}` : ''}${by}`;
+  await addRefund({ amount, date: todayISO(), note: bill ? billNote(text, bill) : text, paidWith: opts.paidWith });
 }
 
 const WALK_IN_SEPARATOR = ' · ';

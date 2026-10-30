@@ -367,6 +367,33 @@ export async function addAutoIncome(
   await postEntry({ type: 'IN', ...input, paidWith: input.paidWith || 'CASH', account, label });
 }
 
+/**
+ * Money given back to a customer (all or part of a payment): takes the HST share back off the
+ * tax owed and the rest off service income, paid out of the cash drawer or the bank.
+ */
+export async function addRefund(input: { amount: number; date: string; note: string; paidWith: PaidWith }) {
+  const amount = Math.round(toNumber(input.amount) * 100) / 100;
+  if (!(amount > 0)) throw new Error('Enter the amount given back.');
+  const tax = hstIncluded(amount);
+  const revenue = await ensureAccount(SERVICE_CODE, 'Service Revenue', 'REVENUE');
+  const taxAcc = await ensureAccount(TAX_CODE, 'Tax Payable', 'LIABILITY');
+  const bank = input.paidWith === 'BANK';
+  const money = await ensureAccount(bank ? BANK_CODE : CASH_CODE, bank ? 'Bank Account' : 'Cash', 'ASSET');
+  await apiRequest('/api/v1/accounting/journals', {
+    method: 'POST',
+    body: JSON.stringify({
+      branchId: DEFAULT_BRANCH_ID,
+      description: `${REFUNDS_CATEGORY}${NOTE_SEPARATOR}${input.note}`,
+      entryDate: input.date,
+      lines: [
+        { accountId: revenue.accountId, debitAmount: Math.round((amount - tax) * 100) / 100, creditAmount: 0 },
+        ...(tax > 0 ? [{ accountId: taxAcc.accountId, debitAmount: tax, creditAmount: 0 }] : []),
+        { accountId: money.accountId, debitAmount: 0, creditAmount: amount },
+      ],
+    }),
+  });
+}
+
 interface InvoiceInfo {
   status: string;
   subtotal: number;
@@ -427,9 +454,10 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
     amount = expenseAmt - incomeAmt + tax;
     categoryAcc = withAcc.find((l) => l.acc?.accountType === 'EXPENSE')?.acc;
   } else if (incomeAmt < 0 && moneyLine && moneyLine.credit > 0) {
-    // Money given back to a customer.
+    // Money given back to a customer (with its HST share, when the app recorded the refund).
     type = 'IN';
-    amount = incomeAmt;
+    amount = incomeAmt + Math.min(0, taxNet);
+    tax = Math.min(0, taxNet);
   } else if (moneyLine && moneyLine.credit > 0) {
     // Cash spent on something kept (equipment) still counts as an expense to the owner.
     const target = withAcc.find((l) => l.debit > 0 && l.acc?.accountType === 'ASSET' && l !== moneyLine);
@@ -489,7 +517,8 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
     category = head;
   } else if (amount < 0) {
     category = REFUNDS_CATEGORY;
-    note = description;
+    // A refund the app recorded already has its note (and who gave it back) read above.
+    if (head !== REFUNDS_CATEGORY) note = description;
   } else if (categoryAcc) {
     // The account says the category, so a renamed category shows its new name on old entries too.
     const parent = categoryAcc.parentAccountId ? accountsById.get(categoryAcc.parentAccountId) : undefined;

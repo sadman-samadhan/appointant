@@ -34,10 +34,12 @@ import {
   markNoShow,
   money,
   recordWalkIn,
+  refundableFor,
+  refundBooking,
   rescheduleBooking,
   taxOn,
 } from '@/lib/shopBookings';
-import { Banknote, CalendarClock, Check, ChevronLeft, ChevronRight, Plus, RefreshCw, Search, UserCheck, UserX, X, Footprints } from 'lucide-react';
+import { Banknote, CalendarClock, Check, ChevronLeft, ChevronRight, Plus, RefreshCw, RotateCcw, Search, UserCheck, UserX, X, Footprints } from 'lucide-react';
 
 const inputClass =
   'w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]';
@@ -460,6 +462,12 @@ function AppointmentsPage() {
   // The service actually done, when it differs from the one booked ('' = as booked).
   const [payServiceId, setPayServiceId] = useState('');
   const [cancelTarget, setCancelTarget] = useState<ShopBooking | null>(null);
+  // Refund: money given back for a paid appointment.
+  const [refundTarget, setRefundTarget] = useState<ShopBooking | null>(null);
+  const [refundMax, setRefundMax] = useState<number | null>(null);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundReason, setRefundReason] = useState('');
+  const [refundWith, setRefundWith] = useState<PaidWith>('CASH');
   const [cancelReason, setCancelReason] = useState('');
   const [moveTarget, setMoveTarget] = useState<ShopBooking | null>(null);
   const [moveDate, setMoveDate] = useState(todayISO());
@@ -708,6 +716,37 @@ function AppointmentsPage() {
     : null;
   const payTotal = payDueNow === null ? null : money(payDueNow + (parseFloat(payTip) || 0));
 
+  const openRefund = async (b: ShopBooking) => {
+    setRefundTarget(b);
+    setRefundMax(null);
+    setRefundAmount('');
+    setRefundReason('');
+    setRefundWith('CASH');
+    try {
+      setRefundMax(await refundableFor(b));
+    } catch (err: any) {
+      setRefundTarget(null);
+      showError('Can’t refund', err.message || 'Please try again.');
+    }
+  };
+
+  const handleRefund = async () => {
+    if (!refundTarget) return;
+    const amount = money(parseFloat(refundAmount) || 0);
+    setIsSaving(true);
+    try {
+      await refundBooking(refundTarget, { amount, reason: refundReason, paidWith: refundWith, takenBy });
+      showSuccess('Refund saved', `$${formatMoney(amount)} given back to ${refundTarget.customerName}.`);
+      markDone(refundTarget.bookingId, `Refunded $${formatMoney(amount)}`);
+      setRefundTarget(null);
+      reload();
+    } catch (err: any) {
+      showError('Refund not saved', err.message || 'Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleCancel = async () => {
     if (!cancelTarget) return;
     const target = cancelTarget;
@@ -881,6 +920,9 @@ function AppointmentsPage() {
       case 'CHECKED_IN':
         // The backend only allows completing an arrived booking (no cancel / no-show).
         return <ActionButton icon={Banknote} label="Finish & take payment" tone="green" disabled={busy} onClick={() => openPay(b)} />;
+      case 'COMPLETED':
+        // Money given back (all or part), e.g. a mistake at the till or an unhappy customer.
+        return !isBarber && !b.walkIn ? <ActionButton icon={RotateCcw} label="Refund" disabled={busy} onClick={() => openRefund(b)} /> : null;
       default:
         return null;
     }
@@ -1280,6 +1322,41 @@ function AppointmentsPage() {
               <button type="button" onClick={() => setPayBooking(null)} className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]">Close</button>
               <button onClick={handlePay} disabled={isSaving || payTotal === null} className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">
                 {isSaving ? 'Saving…' : payWith === 'CASH' ? 'Cash received' : 'Card paid'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Refund */}
+      <Modal isOpen={!!refundTarget} onClose={() => setRefundTarget(null)} title="Give money back" maxWidth="sm">
+        {refundTarget && (
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--foreground)]">
+              <strong>{refundTarget.customerName}</strong> · {refundTarget.serviceName}
+              {refundMax !== null && <span className="text-[var(--muted-foreground)]"> · paid ${formatMoney(refundMax)} incl. {BUSINESS.taxLabel}</span>}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelClass}>Amount given back ($)</label>
+                <input type="number" inputMode="decimal" step="0.01" min="0" max={refundMax ?? undefined} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} placeholder="0.00" className={inputClass} />
+                {refundMax !== null && (
+                  <button type="button" onClick={() => setRefundAmount(formatMoney(refundMax))} className="text-[11px] font-bold text-[var(--primary)] hover:underline mt-1">
+                    All of it (${formatMoney(refundMax)})
+                  </button>
+                )}
+              </div>
+              <div>
+                <label className={labelClass}>Reason (optional)</label>
+                <input value={refundReason} onChange={(e) => setRefundReason(e.target.value)} placeholder="e.g. Charged too much" className={inputClass} />
+              </div>
+            </div>
+            <PaidWithPicker value={refundWith} onChange={setRefundWith} />
+            <p className="text-[11px] text-[var(--muted-foreground)]">The {BUSINESS.taxLabel} share comes off the tax owed. A tip is not refunded here.</p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
+              <button type="button" onClick={() => setRefundTarget(null)} className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]">Close</button>
+              <button onClick={handleRefund} disabled={isSaving || refundMax === null || !(parseFloat(refundAmount) > 0)} className="px-5 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50">
+                {isSaving ? 'Saving…' : 'Money given back'}
               </button>
             </div>
           </div>
