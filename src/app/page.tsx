@@ -270,6 +270,24 @@ export default async function HomePage() {
               <p className="mt-6 max-w-xs text-sm leading-relaxed text-[var(--muted-foreground)]">
                 Recent reviews from Google and verified bookings, shown as written.
               </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <a
+                  href={BUSINESS.mapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="cta-button px-5 py-2.5 text-sm"
+                >
+                  More on Google
+                </a>
+                <a
+                  href={BUSINESS.facebookUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--border-strong)] px-5 py-2.5 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--theme-primary)]/60"
+                >
+                  Facebook
+                </a>
+              </div>
             </div>
             <div className="min-w-0">
               <ReviewsCarousel reviews={reviewsData.reviews} />

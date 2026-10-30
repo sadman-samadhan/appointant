@@ -39,11 +39,67 @@ async function getSetmoreCompany(): Promise<any | null> {
     if (!res.ok) return null;
     const html = await res.text();
     const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-    if (!match) return null;
-    return JSON.parse(match[1])?.props?.pageProps?.company ?? null;
+    if (match) return JSON.parse(match[1])?.props?.pageProps?.company ?? null;
+    return companyFromStream(html);
   } catch {
     return null;
   }
+}
+
+/**
+ * Newer Setmore pages stream their data in `self.__next_f.push([1, "…"])` chunks instead of
+ * __NEXT_DATA__. The fields used here are picked out of that text by name.
+ */
+function companyFromStream(html: string): any | null {
+  const text = Array.from(html.matchAll(/self\.__next_f\.push\((\[[\s\S]*?\])\)<\/script>/g))
+    .map((m) => {
+      try {
+        const chunk = JSON.parse(m[1]);
+        return typeof chunk?.[1] === 'string' ? chunk[1] : '';
+      } catch {
+        return '';
+      }
+    })
+    .join('');
+  const company: any = {};
+  for (const key of ['reviewsMeta', 'reviews', 'services']) {
+    const value = jsonValueAfter(text, `"${key}":`);
+    if (value !== undefined) company[key] = value;
+  }
+  return Object.keys(company).length ? company : null;
+}
+
+/** The JSON object or array right after `marker` in `text` (the first one found), or undefined. */
+function jsonValueAfter(text: string, marker: string): any {
+  let from = 0;
+  while ((from = text.indexOf(marker, from)) >= 0) {
+    const start = from + marker.length;
+    const open = text[start];
+    if (open === '{' || open === '[') {
+      let depth = 0;
+      let inString = false;
+      for (let i = start; i < text.length; i++) {
+        const c = text[i];
+        if (inString) {
+          if (c === '\\') i++;
+          else if (c === '"') inString = false;
+        } else if (c === '"') inString = true;
+        else if (c === '{' || c === '[') depth++;
+        else if (c === '}' || c === ']') {
+          depth--;
+          if (depth === 0) {
+            try {
+              return JSON.parse(text.slice(start, i + 1));
+            } catch {
+              break;
+            }
+          }
+        }
+      }
+    }
+    from = start;
+  }
+  return undefined;
 }
 
 // Setmore titles carry decorative emoji (e.g. "✂️🔥 Haircut & Hot Shave Combo").
