@@ -7,7 +7,7 @@ import { Badge, STATUS_LABELS } from '@/components/ui/Badge';
 import { useToast } from '@/context/ToastContext';
 import { BUSINESS } from '@/lib/business';
 import { formatMoney, shopClock, todayISO, wallClockTime } from '@/lib/format';
-import { formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
+import { formatPhone, formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
 import { freeStartTimes, minutesToTime, openingHours } from '@/lib/slots';
 import {
   ACTIVE_STATUSES,
@@ -808,7 +808,7 @@ function AppointmentsPage() {
             </div>
             <div>
               <label className={labelClass}>Phone</label>
-              <input type="tel" inputMode="numeric" value={newPhone} onChange={(e) => setNewPhone(formatPhoneInput(e.target.value))} placeholder={PHONE_PLACEHOLDER} className={inputClass} />
+              <input type="tel" value={newPhone} onChange={(e) => setNewPhone(formatPhoneInput(e.target.value))} onBlur={() => isValidPhone(newPhone) && setNewPhone(formatPhone(newPhone))} placeholder={PHONE_PLACEHOLDER} className={inputClass} />
             </div>
           </div>
           <div>

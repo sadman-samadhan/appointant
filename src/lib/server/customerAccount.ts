@@ -80,17 +80,31 @@ export async function ensureAccountCustomer(account: AccountUser, details: { nam
   });
 }
 
+/** A customer's full contact list. Search results only carry the contacts that matched the search. */
+async function fullContacts(customerId: string): Promise<any[]> {
+  const res = await agentRequest('GET', `/api/v1/customers/${customerId}/contacts`);
+  return toList<any>(res, 'contacts');
+}
+
+function primaryPhone(contacts: any[]): string {
+  return contactValue({ contacts }, 'PHONE');
+}
+
 export async function getAccountDetails(account: AccountUser) {
   const [primary] = await accountCustomers(account);
+  const phone = primary ? primaryPhone(await fullContacts(String(primary.customerId))) : '';
   return {
     email: account.email,
     name: primary?.fullName || account.name,
-    phone: primary ? formatPhone(contactValue(primary, 'PHONE')) : '',
+    phone: phone ? formatPhone(phone) : '',
   };
 }
 
-/** Updates the name and phone on every customer record of the account. */
-export async function updateAccountDetails(account: AccountUser, details: { name: string; phone: string }) {
+/**
+ * Updates the name, and the phone when one is given, on every customer record of the account.
+ * The new number becomes the only phone on the record.
+ */
+export async function updateAccountDetails(account: AccountUser, details: { name: string; phone?: string }) {
   const customers = await accountCustomers(account);
   if (customers.length === 0) {
     await ensureAccountCustomer(account, details);
@@ -101,12 +115,18 @@ export async function updateAccountDetails(account: AccountUser, details: { name
     if (c.fullName !== details.name) {
       await agentRequest('PATCH', `/api/v1/customers/${id}`, { fullName: details.name });
     }
-    const phones = contactsOf(c).filter((ct) => ct.type === 'PHONE');
-    if (phones.some((ct) => phoneDigits(ct.value) === phoneDigits(details.phone))) continue;
-    await agentRequest('POST', `/api/v1/customers/${id}/contacts`, { type: 'PHONE', value: details.phone, isPrimary: true });
+    if (!details.phone) continue;
+    const phones = (await fullContacts(id)).filter((ct) => ct.type === 'PHONE');
+    const wanted = phoneDigits(details.phone);
+    let keep = phones.find((ct) => phoneDigits(ct.value) === wanted);
+    if (!keep) {
+      keep = await agentRequest('POST', `/api/v1/customers/${id}/contacts`, { type: 'PHONE', value: details.phone, isPrimary: true });
+    } else if (!keep.isPrimary) {
+      await agentRequest('PATCH', `/api/v1/customers/${id}/contacts/${keep.contactId}/set-primary`);
+    }
     for (const old of phones) {
-      const contactId = old.contactId || old.id;
-      if (contactId) await agentRequest('DELETE', `/api/v1/customers/${id}/contacts/${contactId}`).catch(() => {});
+      if (old.contactId === keep?.contactId) continue;
+      await agentRequest('DELETE', `/api/v1/customers/${id}/contacts/${old.contactId}`).catch(() => {});
     }
   }
 }

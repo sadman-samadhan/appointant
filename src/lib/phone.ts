@@ -1,4 +1,5 @@
-// North American phone numbers, shown as (123)-456-7890 everywhere in the app.
+// North American phone numbers. People may type them any way they like (5068971234,
+// 506 897 1234, 506.897.1234, +1 (506) 897-1234); the app stores and shows (123)-456-7890.
 
 export function phoneDigits(value: unknown): string {
   let d = String(value ?? '').replace(/\D/g, '');
@@ -7,19 +8,14 @@ export function phoneDigits(value: unknown): string {
   return d;
 }
 
+/** Any 10-digit number (an optional leading +1 is fine), whatever the spacing or punctuation. */
 export function isValidPhone(value: unknown): boolean {
-  const d = phoneDigits(value);
-  // Area code and exchange can't start with 0 or 1.
-  return /^[2-9]\d{2}[2-9]\d{6}$/.test(d);
+  return /^\d{10}$/.test(phoneDigits(value));
 }
 
-/** Formats as the user types: "506" → "(506)", "5065551" → "(506)-555-1". */
+/** Keeps what the person types (digits, spaces, + ( ) - .) and drops anything else. */
 export function formatPhoneInput(value: string): string {
-  const d = phoneDigits(value).slice(0, 10);
-  if (d.length === 0) return '';
-  if (d.length <= 3) return `(${d}`;
-  if (d.length <= 6) return `(${d.slice(0, 3)})-${d.slice(3)}`;
-  return `(${d.slice(0, 3)})-${d.slice(3, 6)}-${d.slice(6)}`;
+  return value.replace(/[^\d\s+().-]/g, '').slice(0, 20);
 }
 
 export function formatPhone(value: unknown): string {
@@ -27,5 +23,5 @@ export function formatPhone(value: unknown): string {
   return d.length === 10 ? `(${d.slice(0, 3)})-${d.slice(3, 6)}-${d.slice(6)}` : String(value ?? '');
 }
 
-export const PHONE_PLACEHOLDER = '(506)-555-1234';
-export const PHONE_ERROR = 'Enter a 10-digit phone number, like (506)-555-1234.';
+export const PHONE_PLACEHOLDER = '506 555 1234';
+export const PHONE_ERROR = 'Enter a 10-digit phone number, like 506 555 1234.';

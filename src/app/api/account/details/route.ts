@@ -26,10 +26,11 @@ export async function PUT(req: NextRequest) {
   const name = String(body?.name || '').trim().replace(/\s+/g, ' ');
   const phone = String(body?.phone || '').trim();
   if (name.length < 2 || name.length > 80) return NextResponse.json({ message: 'Enter your name.' }, { status: 400 });
-  if (!isValidPhone(phone)) return NextResponse.json({ message: PHONE_ERROR }, { status: 400 });
+  // The phone is optional here: leaving it empty keeps the number on file.
+  if (phone && !isValidPhone(phone)) return NextResponse.json({ message: PHONE_ERROR }, { status: 400 });
 
   try {
-    await updateAccountDetails(account, { name, phone: formatPhone(phone) });
+    await updateAccountDetails(account, { name, phone: phone ? formatPhone(phone) : undefined });
     return NextResponse.json(await getAccountDetails(account));
   } catch (err) {
     console.error('[account-details] failed', err instanceof Error ? err.message : err);

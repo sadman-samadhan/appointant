@@ -422,19 +422,17 @@ export default function BookPage() {
               <input
                 required
                 type="tel"
-                inputMode="numeric"
                 value={phone}
-                onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                onChange={(e) => {
+                  setPhone(formatPhoneInput(e.target.value));
+                  setSubmitError(null);
+                }}
+                onBlur={() => isValidPhone(phone) && setPhone(formatPhone(phone))}
                 autoComplete="tel-national"
                 placeholder={PHONE_PLACEHOLDER}
                 aria-invalid={phone.length > 0 && !isValidPhone(phone)}
-                className={`w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border text-sm text-[var(--foreground)] ${
-                  phone.length >= 14 && !isValidPhone(phone) ? 'border-rose-500' : 'border-[var(--border-strong)]'
-                }`}
+                className="w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)]"
               />
-              {phone.length >= 14 && !isValidPhone(phone) && (
-                <p className="text-[11px] text-rose-600 mt-1">{PHONE_ERROR}</p>
-              )}
             </div>
           </div>
           <div>

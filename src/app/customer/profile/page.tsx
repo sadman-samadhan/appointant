@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { Scissors, Calendar, Clock, Plus, CheckCircle2, KeyRound, Phone, Mail, Pencil, User } from 'lucide-react';
+import { Scissors, Calendar, Clock, Plus, CheckCircle2, KeyRound, Phone, Mail, Pencil, User, Eye, EyeOff } from 'lucide-react';
 import { getStoredToken, refreshAuthToken } from '@/lib/api/client';
 import { BUSINESS } from '@/lib/business';
 import { formatMoney, bookingLocalDate } from '@/lib/format';
@@ -73,6 +73,7 @@ export default function CustomerProfilePage() {
   // Change password
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [oldPassword, setOldPassword] = useState('');
+  const [showOldPassword, setShowOldPassword] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -111,13 +112,14 @@ export default function CustomerProfilePage() {
   const handleSaveDetails = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editName.trim().length < 2) return setDetailsError('Enter your name.');
-    if (!isValidPhone(editPhone)) return setDetailsError(PHONE_ERROR);
+    // Phone is optional here: empty keeps the number on file.
+    if (editPhone.trim() && !isValidPhone(editPhone)) return setDetailsError(PHONE_ERROR);
     setIsSavingDetails(true);
     setDetailsError(null);
     try {
       const saved = await accountFetch<MyDetails>('/api/account/details', {
         method: 'PUT',
-        body: JSON.stringify({ name: editName.trim(), phone: editPhone }),
+        body: JSON.stringify({ name: editName.trim(), phone: editPhone.trim() }),
       });
       setDetails(saved);
       setShowDetailsModal(false);
@@ -133,6 +135,7 @@ export default function CustomerProfilePage() {
   const closePasswordModal = () => {
     setShowPasswordModal(false);
     setOldPassword('');
+    setShowOldPassword(false);
     setNewPassword('');
     setConfirmNewPassword('');
     setPasswordError(null);
@@ -313,16 +316,27 @@ export default function CustomerProfilePage() {
         <form onSubmit={handleSaveDetails} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Name</label>
-            <input required value={editName} onChange={(e) => setEditName(e.target.value)} autoComplete="name" className={inputClass} />
+            <input
+              required
+              value={editName}
+              onChange={(e) => {
+                setEditName(e.target.value);
+                setDetailsError(null);
+              }}
+              autoComplete="name"
+              className={inputClass}
+            />
           </div>
           <div>
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Phone</label>
             <input
-              required
               type="tel"
-              inputMode="numeric"
               value={editPhone}
-              onChange={(e) => setEditPhone(formatPhoneInput(e.target.value))}
+              onChange={(e) => {
+                setEditPhone(formatPhoneInput(e.target.value));
+                setDetailsError(null);
+              }}
+              onBlur={() => isValidPhone(editPhone) && setEditPhone(formatPhone(editPhone))}
               placeholder={PHONE_PLACEHOLDER}
               autoComplete="tel-national"
               className={inputClass}
@@ -356,14 +370,24 @@ export default function CustomerProfilePage() {
         <form onSubmit={handleChangePasswordSubmit} className="space-y-4" autoComplete="off">
           <div>
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Current password</label>
-            <input
-              type="password"
-              required
-              value={oldPassword}
-              onChange={(e) => setOldPassword(e.target.value)}
-              autoComplete="current-password"
-              className={inputClass}
-            />
+            <div className="relative">
+              <input
+                type={showOldPassword ? 'text' : 'password'}
+                required
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                autoComplete="current-password"
+                className={`${inputClass} pr-11`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowOldPassword((v) => !v)}
+                aria-label={showOldPassword ? 'Hide password' : 'Show password'}
+                className="absolute inset-y-0 right-0 w-10 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              >
+                {showOldPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">New password</label>
