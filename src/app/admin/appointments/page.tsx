@@ -10,7 +10,7 @@ import { getStoredToken, refreshAuthToken } from '@/lib/api/client';
 import { BUSINESS } from '@/lib/business';
 import { formatMoney, shopClock, todayISO, wallClockTime } from '@/lib/format';
 import { formatPhone, formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
-import { freeStartTimes, minutesToTime, openingHours } from '@/lib/slots';
+import { barberAvailability, minutesToTime, openingHours, pickBarber } from '@/lib/slots';
 import {
   ACTIVE_STATUSES,
   Barber,
@@ -105,29 +105,25 @@ function ChangeCalculator({ total }: { total: number }) {
   );
 }
 
-/** Free start times on a date; with a barber, also free in that barber's own bookings. */
-function freeTimesFor(input: { bookings: ShopBooking[]; durationMinutes: number; date: string; excludeBookingId?: string; staffId?: string }) {
-  const base = {
+/** Free start times on a date, each with the barbers free then (by schedule and bookings). */
+function freeAt(input: { bookings: ShopBooking[]; barbers: Barber[]; durationMinutes: number; date: string; excludeBookingId?: string }) {
+  return barberAvailability({
     date: input.date,
     durationMinutes: input.durationMinutes,
+    bookings: input.bookings,
+    barbers: input.barbers,
     excludeBookingId: input.excludeBookingId,
     notBeforeMinutes: input.date === todayISO() ? nowMinutes() - 1 : undefined,
-  };
-  const times = freeStartTimes({ ...base, bookings: input.bookings });
-  if (!input.staffId) return times;
-  const barberFree = new Set(
-    freeStartTimes({ ...base, bookings: input.bookings.filter((b) => b.staffId === input.staffId), capacity: 1 })
-  );
-  return times.filter((t) => barberFree.has(t));
+  });
 }
 
-/** "Any barber" plus each barber, as a dropdown. */
-function BarberSelect({ barbers, value, onChange }: { barbers: Barber[]; value: string; onChange: (id: string) => void }) {
+/** After a time is picked: "Auto assign" or one of the barbers free at that time. */
+function BarberSelect({ barbers, time, value, onChange }: { barbers: Barber[]; time: string; value: string; onChange: (id: string) => void }) {
   return (
     <div>
-      <label className={labelClass}>Barber</label>
+      <label className={labelClass}>Barber at {wallClockTime(time)}</label>
       <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass}>
-        <option value="">Any barber</option>
+        <option value="">Auto assign (first free barber)</option>
         {barbers.map((b) => (
           <option key={b.staffId} value={b.staffId}>
             {b.name}
@@ -148,22 +144,26 @@ function TimePicker({
   onTime,
   excludeBookingId,
   staffId,
+  barbers,
 }: {
   bookings: ShopBooking[];
+  barbers: Barber[];
   durationMinutes: number;
   date: string;
   time: string;
   onDate: (d: string) => void;
   onTime: (t: string) => void;
   excludeBookingId?: string;
-  /** A chosen barber: the time must also be free in that barber's own bookings. */
+  /** Only the times this barber is free (a barber moving their own booking). */
   staffId?: string;
 }) {
   const days = useMemo(() => Array.from({ length: 14 }, (_, i) => addDays(todayISO(), i)).filter((d) => openingHours(d)), []);
   useEffect(() => {
     if (days.length > 0 && !days.includes(date)) onDate(days[0]);
   }, [days, date, onDate]);
-  const times = freeTimesFor({ bookings, durationMinutes, date, excludeBookingId, staffId });
+  const times = Array.from(freeAt({ bookings, barbers, durationMinutes, date, excludeBookingId }).entries())
+    .filter(([, ids]) => !staffId || ids.length === 0 || ids.includes(staffId))
+    .map(([t]) => t);
   return (
     <div className="space-y-3">
       <div>
@@ -534,8 +534,8 @@ function AppointmentsPage() {
     try {
       // Re-check against the latest list in case the time was just taken online.
       const latest = await fetchBookings();
-      const stillFree = freeTimesFor({ bookings: latest, durationMinutes: service.durationMinutes, date: newDate, staffId: newBarberId || undefined }).includes(newTime);
-      if (!stillFree) {
+      const free = freeAt({ bookings: latest, barbers, durationMinutes: service.durationMinutes, date: newDate }).get(newTime);
+      if (!free || (newBarberId && !free.includes(newBarberId))) {
         setBookings(latest);
         setNewTime('');
         throw new Error('That time was just taken. Please pick another time.');
@@ -544,7 +544,8 @@ function AppointmentsPage() {
       const bookingId = await createBooking({
         customerId,
         serviceId: service.serviceId,
-        staffId: newBarberId || undefined,
+        // The chosen barber, or Auto assign: the free barber with the fewest bookings that day.
+        staffId: newBarberId || pickBarber(free, newDate, latest),
         date: newDate,
         startTime: newTime,
         notes: newNotes.trim(),
@@ -642,13 +643,15 @@ function AppointmentsPage() {
     const target = moveTarget;
     setIsSaving(true);
     try {
-      const barberChanged = moveBarberId !== (target.staffId || '');
+      const free = freeAt({ bookings, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: target.bookingId }).get(moveTime) || [];
+      const staffId = moveBarberId || pickBarber(free, moveDate, bookings) || null;
+      const barberChanged = (staffId || '') !== (target.staffId || '');
       const movedId = await rescheduleBooking(target.bookingId, moveDate, moveTime, {
-        staffId: moveBarberId || null,
+        staffId,
         servicePrice: serviceById(target.serviceId || '')?.price,
       });
       setMoveTarget(null);
-      const barberName = barbers.find((b) => b.staffId === moveBarberId)?.name || 'any barber';
+      const barberName = barbers.find((b) => b.staffId === staffId)?.name || 'any barber';
       showSuccess('Changed', `${target.customerName} · ${prettyDate(moveDate)} at ${wallClockTime(moveTime)} · ${barberName}`);
       markDone(movedId, barberChanged ? `Now with ${barberName}` : 'Time changed');
       if (view === 'calendar') showDay(moveDate);
@@ -955,16 +958,6 @@ function AppointmentsPage() {
       {/* New booking */}
       <Modal isOpen={showNew} onClose={() => setShowNew(false)} title="New booking" maxWidth="md">
         <form onSubmit={handleCreate} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className={labelClass}>Customer name</label>
-              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. David Miller" className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>Phone</label>
-              <input type="tel" value={newPhone} onChange={(e) => setNewPhone(formatPhoneInput(e.target.value))} onBlur={() => isValidPhone(newPhone) && setNewPhone(formatPhone(newPhone))} placeholder={PHONE_PLACEHOLDER} className={inputClass} />
-            </div>
-          </div>
           <div>
             <label className={labelClass}>Service</label>
             <select
@@ -983,27 +976,40 @@ function AppointmentsPage() {
               ))}
             </select>
           </div>
-          {barbers.length > 0 && (
-            <BarberSelect
-              barbers={barbers}
-              value={newBarberId}
-              onChange={(id) => {
-                setNewBarberId(id);
-                setNewTime('');
-              }}
-            />
-          )}
           {newService && (
             <TimePicker
               bookings={bookings}
+              barbers={barbers}
               durationMinutes={newService.durationMinutes}
               date={newDate}
               time={newTime}
               onDate={setNewDate}
-              onTime={setNewTime}
-              staffId={newBarberId || undefined}
+              onTime={(t) => {
+                setNewTime(t);
+                setNewBarberId('');
+              }}
             />
           )}
+          {newService && newTime && barbers.length > 0 && (
+            <BarberSelect
+              barbers={barbers.filter((b) =>
+                freeAt({ bookings, barbers, durationMinutes: newService.durationMinutes, date: newDate }).get(newTime)?.includes(b.staffId)
+              )}
+              time={newTime}
+              value={newBarberId}
+              onChange={setNewBarberId}
+            />
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Customer name</label>
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. David Miller" className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Phone</label>
+              <input type="tel" value={newPhone} onChange={(e) => setNewPhone(formatPhoneInput(e.target.value))} onBlur={() => isValidPhone(newPhone) && setNewPhone(formatPhone(newPhone))} placeholder={PHONE_PLACEHOLDER} className={inputClass} />
+            </div>
+          </div>
           <div>
             <label className={labelClass}>Note (optional)</label>
             <input value={newNotes} onChange={(e) => setNewNotes(e.target.value)} placeholder="e.g. Low fade" className={inputClass} />
@@ -1156,34 +1162,34 @@ function AppointmentsPage() {
               <strong>{moveTarget.customerName}</strong> · {moveTarget.serviceName} (now {prettyDate(moveTarget.date)} at {wallClockTime(moveTarget.startTime)}
               {moveTarget.staffName ? ` with ${moveTarget.staffName}` : ''})
             </p>
-            {barbers.length > 0 && !isBarber && (
-              <BarberSelect
-                barbers={barbers}
-                value={moveBarberId}
-                onChange={(id) => {
-                  setMoveBarberId(id);
-                  // Keep the time when the new barber is free then.
-                  const free = freeTimesFor({
-                    bookings,
-                    durationMinutes: moveService?.durationMinutes || 30,
-                    date: moveDate,
-                    excludeBookingId: moveTarget.bookingId,
-                    staffId: id || undefined,
-                  });
-                  if (!free.includes(moveTime)) setMoveTime('');
-                }}
-              />
-            )}
             <TimePicker
               bookings={bookings}
+              barbers={barbers}
               durationMinutes={moveService?.durationMinutes || 30}
               date={moveDate}
               time={moveTime}
               onDate={setMoveDate}
-              onTime={setMoveTime}
+              onTime={(t) => {
+                setMoveTime(t);
+                // Keep the barber when they are free at the new time.
+                const free = freeAt({ bookings, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: moveTarget.bookingId }).get(t) || [];
+                if (moveBarberId && !free.includes(moveBarberId)) setMoveBarberId('');
+              }}
               excludeBookingId={moveTarget.bookingId}
-              staffId={moveBarberId || undefined}
+              staffId={isBarber ? myStaffId : undefined}
             />
+            {moveTime && barbers.length > 0 && !isBarber && (
+              <BarberSelect
+                barbers={barbers.filter((b) =>
+                  freeAt({ bookings, barbers, durationMinutes: moveService?.durationMinutes || 30, date: moveDate, excludeBookingId: moveTarget.bookingId })
+                    .get(moveTime)
+                    ?.includes(b.staffId)
+                )}
+                time={moveTime}
+                value={moveBarberId}
+                onChange={setMoveBarberId}
+              />
+            )}
             <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
               <button type="button" onClick={() => setMoveTarget(null)} className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]">Close</button>
               <button onClick={handleMove} disabled={!moveTime || isSaving} className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold disabled:opacity-50">

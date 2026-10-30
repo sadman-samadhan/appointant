@@ -8,6 +8,7 @@ import { BUSINESS } from '@/lib/business';
 import { sameName, servicePrice, serviceDuration, shopClock, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
 import { addAutoIncome, billTag, listEntries, TAKEN_BY_PREFIX, WALK_IN_CATEGORY } from '@/lib/moneyBook';
 import { formatPhone, phoneDigits } from '@/lib/phone';
+import type { BarberHours } from '@/lib/slots';
 
 export interface ShopBooking {
   bookingId: string;
@@ -58,17 +59,22 @@ function normalizeBooking(b: any): ShopBooking {
   };
 }
 
-export interface Barber {
-  staffId: string;
-  name: string;
-}
+export type Barber = BarberHours;
 
-/** The shop's barbers: active staff whose job title says "Barber" (set in Staff). */
+/** The shop's barbers (active staff whose job title says "Barber") with their weekly schedules. */
 export async function loadBarbers(): Promise<Barber[]> {
-  const res = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}&limit=100`);
+  const [res, schedules] = await Promise.all([
+    apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}&limit=100`),
+    apiRequest<any>('/api/v1/availability/weekly-schedules?entityType=STAFF').catch(() => null),
+  ]);
+  const rows = toList<any>(schedules, 'schedules');
   return toList<any>(res, 'staff')
     .filter((s) => s?.staffId && s.status === 'ACTIVE' && /barber/i.test(String(s.roleTitle || '')))
-    .map((s) => ({ staffId: String(s.staffId), name: String(s.fullName || '').trim() }))
+    .map((s) => ({
+      staffId: String(s.staffId),
+      name: String(s.fullName || '').trim(),
+      schedule: rows.filter((r) => String(r.entityId) === String(s.staffId)),
+    }))
     .filter((b) => b.name)
     .sort((a, b) => a.name.localeCompare(b.name));
 }

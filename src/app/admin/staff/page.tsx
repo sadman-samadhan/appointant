@@ -57,10 +57,30 @@ const DAYS_OF_WEEK = [
   { dayIndex: 0, name: 'Sunday' },
 ];
 
+/** "Mon–Fri 9:00–18:00 · Sat 10:00–16:00" from a weekly schedule; days switched off are left out. */
+function scheduleSummary(rows: WeeklyScheduleDto[]): string {
+  if (rows.length === 0) return 'No schedule set: works all shop hours';
+  const hm = (t?: string) => String(t || '').slice(0, 5);
+  const days = DAYS_OF_WEEK.map((d) => {
+    const row = rows.find((r) => r.dayOfWeek === d.dayIndex);
+    // A day with no row counts as shop hours (see slots.barberHours).
+    return { short: d.name.slice(0, 3), hours: !row ? 'shop hours' : row.isActive === false ? '' : `${hm(row.startTime)}–${hm(row.endTime)}` };
+  });
+  const parts: string[] = [];
+  for (let i = 0; i < days.length; ) {
+    let j = i;
+    while (j + 1 < days.length && days[j + 1].hours === days[i].hours) j++;
+    if (days[i].hours) parts.push(`${days[i].short}${j > i ? `–${days[j].short}` : ''} ${days[i].hours}`);
+    i = j + 1;
+  }
+  return parts.length ? parts.join(' · ') : 'Not working any day';
+}
+
 export default function AdminStaffPage() {
   const { showSuccess, showError } = useToast();
 
   const [staffList, setStaffList] = useState<StaffResponseDto[]>([]);
+  const [allSchedules, setAllSchedules] = useState<WeeklyScheduleDto[]>([]);
   const [services, setServices] = useState<ServiceDto[]>([]);
   const [statusFilter, setStatusFilter] = useState<'ACTIVE' | 'ARCHIVED'>('ACTIVE');
   const [isLoading, setIsLoading] = useState(true);
@@ -112,6 +132,9 @@ export default function AdminStaffPage() {
         status: s.status || 'ACTIVE',
       }));
       setStaffList(normalized);
+      apiRequest<any>('/api/v1/availability/weekly-schedules?entityType=STAFF')
+        .then((r) => setAllSchedules(toList<WeeklyScheduleDto>(r, 'schedules')))
+        .catch(() => setAllSchedules([]));
     } catch {
       setStaffList([]);
     } finally {
@@ -325,6 +348,7 @@ export default function AdminStaffPage() {
       }
       showSuccess('Schedule Saved', `Weekly shifts updated for ${selectedStaffForSchedule.fullName}`);
       setShowScheduleModal(false);
+      loadStaff();
     } catch (err: any) {
       showError('Schedule Failed', err?.message || 'Could not update schedule');
     } finally {
@@ -583,6 +607,9 @@ export default function AdminStaffPage() {
                             }`}
                           >
                             {stf.roleTitle || stf.role || 'Barber Specialist'}
+                          </span>
+                          <span className="text-[11px] text-[var(--muted-foreground)] block">
+                            {scheduleSummary(allSchedules.filter((w) => w.entityId === stf.staffId))}
                           </span>
                           <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                             <span
