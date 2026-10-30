@@ -6,7 +6,7 @@ import { apiRequest } from '@/lib/api/request';
 import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { BUSINESS } from '@/lib/business';
 import { sameName, servicePrice, serviceDuration, shopClock, toList, toNumber, todayISO, wallClockDate } from '@/lib/format';
-import { addAutoIncome, addRefund, billTag, listEntries, TAKEN_BY_PREFIX, walkInTag, WALK_IN_CATEGORY, type PaidWith } from '@/lib/moneyBook';
+import { addAutoIncome, addRefund, billTag, listEntries, REFUNDS_CATEGORY, TAKEN_BY_PREFIX, walkInTag, WALK_IN_CATEGORY, type PaidWith } from '@/lib/moneyBook';
 import { formatPhone, phoneDigits } from '@/lib/phone';
 import type { BarberHours, TimeBlock } from '@/lib/slots';
 
@@ -440,7 +440,19 @@ export async function finishAndPay(
 export async function refundableFor(booking: ShopBooking): Promise<number> {
   const bill = await findBill(booking.bookingId);
   if (!bill || !(bill.amountPaid > 0)) throw new Error('No payment was found for this appointment.');
-  return money((bill.subtotal - bill.discount) * (1 + BUSINESS.taxRate));
+  // Less what was already given back on this bill (refunds are negative amounts).
+  const since = addDaysISO(todayISO(), -366);
+  const refunded = (await listEntries(since, todayISO()))
+    .filter((e) => e.category === REFUNDS_CATEGORY && e.reference === bill.invoiceNumber)
+    .reduce((sum, e) => sum - e.amount, 0);
+  const left = money((bill.subtotal - bill.discount) * (1 + BUSINESS.taxRate) - refunded);
+  if (!(left > 0)) throw new Error('This appointment was already refunded in full.');
+  return left;
+}
+
+function addDaysISO(iso: string, days: number) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
 /**

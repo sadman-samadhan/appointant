@@ -63,6 +63,9 @@ function periodBounds(mode: PeriodMode, anchor: string) {
   };
 }
 
+/** "$5.00" or "-$5.00" (after refunds). */
+const signed = (n: number) => `${n < 0 ? '-' : ''}$${formatMoney(Math.abs(n))}`;
+
 /** Cash, or card (money to the bank) for customer payments; Bank for other entries. */
 function paidLabel(e: MoneyEntry) {
   if (e.paidWith !== 'BANK') return 'Cash';
@@ -164,7 +167,8 @@ export default function MoneyBookPage() {
       if (e.type !== 'IN' || !e.takenBy) continue;
       const cur = map.get(e.takenBy) || { total: 0, count: 0, cash: 0, card: 0 };
       cur.total += e.amount;
-      cur.count += 1;
+      // Refunds lower the total but aren't payments.
+      if (e.amount > 0) cur.count += 1;
       if (e.paidWith === 'BANK') cur.card += e.amount;
       else cur.cash += e.amount;
       map.set(e.takenBy, cur);
@@ -436,11 +440,11 @@ export default function MoneyBookPage() {
               >
                 <span className="block text-xs font-black text-[var(--foreground)]">{name}</span>
                 <span className="block text-[11px] text-[var(--muted-foreground)]">
-                  ${formatMoney(t.total)} · {t.count} payment{t.count === 1 ? '' : 's'}
+                  {signed(t.total)} · {t.count} payment{t.count === 1 ? '' : 's'}
                 </span>
                 {/* What should be in the drawer vs what went to the bank. */}
                 <span className="block text-[11px] font-bold text-[var(--foreground)]">
-                  Cash ${formatMoney(t.cash)} · Card ${formatMoney(t.card)}
+                  Cash {signed(t.cash)} · Card {signed(t.card)}
                 </span>
               </button>
             ))}

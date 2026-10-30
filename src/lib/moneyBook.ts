@@ -614,7 +614,9 @@ export function mergeBillParts(entries: MoneyEntry[]): MoneyEntry[] {
       target.tip = round(target.tip + e.tip);
       if (!target.takenBy) target.takenBy = e.takenBy;
     } else {
-      out.push({ ...e, note: e.note.replace(BILL_TAG, '') });
+      // A refund keeps its bill number, so the bill's refunds can be added up.
+      const tag = e.note.match(BILL_TAG)?.[1];
+      out.push({ ...e, note: e.note.replace(BILL_TAG, ''), reference: e.reference || (e.category === REFUNDS_CATEGORY && tag) || '' });
     }
   }
   return [...out, ...merged.values()];

@@ -53,6 +53,8 @@ async function handleProxy(
 
   try {
     const res = await safeFetch(url, { method, headers, body });
+    // "No content" answers (e.g. a DELETE's 204) can't carry a body, not even an empty one.
+    if ([204, 205, 304].includes(res.status)) return new NextResponse(null, { status: res.status });
     const data = await res.text();
     return new NextResponse(data, {
       status: res.status,
