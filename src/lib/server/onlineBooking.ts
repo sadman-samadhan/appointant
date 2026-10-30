@@ -5,6 +5,7 @@ import { sameName, servicePrice, serviceDuration, shopClock, SHOP_TIME_ZONE, toL
 import { formatPhone, isValidPhone, phoneDigits, PHONE_ERROR } from '@/lib/phone';
 import { barberAvailability, isTimeFree, pickBarber, type BarberHours, type BarberBusyBooking } from '@/lib/slots';
 import { agentRequest, AgentError } from './shopAgent';
+import { sendBookingConfirmation } from './bookingEmails';
 import { ensureAccountCustomer, type AccountUser } from './customerAccount';
 
 export { SHOP_TIME_ZONE };
@@ -313,6 +314,22 @@ export async function placeOnlineBooking(input: GuestBookingInput, account?: Acc
   await confirmOnline(String(booking?.bookingId || ''), service.price).catch((err) =>
     console.error('[online-booking] auto-confirm failed', err instanceof Error ? err.message : err)
   );
+
+  // Confirmation email with a calendar invite (when we have the customer's email).
+  if (input.email) {
+    await sendBookingConfirmation({
+      key: String(booking?.bookingNumber || booking?.bookingId || ''),
+      to: input.email,
+      customerName: input.name,
+      service: service.name,
+      barber: barber?.name,
+      date: input.date,
+      startTime: input.startTime,
+      durationMinutes: service.durationMinutes,
+      price: service.price,
+      bookingNumber: booking?.bookingNumber || null,
+    });
+  }
 
   return {
     bookingNumber: booking?.bookingNumber || null,

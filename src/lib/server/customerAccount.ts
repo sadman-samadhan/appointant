@@ -4,6 +4,7 @@ import { DEFAULT_BRANCH_ID, DEFAULT_TENANT_ID } from '@/lib/api/config';
 import { shopClock, toList, wallClockDate, wallClockTime } from '@/lib/format';
 import { formatPhone, phoneDigits } from '@/lib/phone';
 import { AgentError, agentRequest } from './shopAgent';
+import { sendBookingCancelled, sendBookingMoved, type BookingMailInfo } from './bookingEmails';
 import { checkBookableDate, confirmOnline, createCustomer, findService, freeTimes } from './onlineBooking';
 
 // Signed-in customers can't read the shop's records directly (the Core Backend only lets
@@ -188,8 +189,32 @@ async function changeableBooking(account: AccountUser, bookingId: string) {
 }
 
 export async function cancelAccountBooking(account: AccountUser, bookingId: string) {
-  await changeableBooking(account, bookingId);
+  const booking = await changeableBooking(account, bookingId);
   await agentRequest('POST', `/api/v1/bookings/${bookingId}/cancel`, { reason: 'Cancelled by the customer online' });
+  // Removes the appointment from the customer's calendar.
+  await sendBookingCancelled(await mailInfo(account, booking));
+}
+
+/** What the booking emails need about one of the account's bookings. */
+async function mailInfo(
+  account: AccountUser,
+  b: { bookingId: string; bookingNumber: string | null; serviceName: string; startTime: string; endTime?: string },
+  barber?: string | null
+): Promise<BookingMailInfo> {
+  const details = await getAccountDetails(account).catch(() => null);
+  const start = Date.parse(String(b.startTime));
+  const end = Date.parse(String(b.endTime || ''));
+  return {
+    key: String(b.bookingNumber || b.bookingId),
+    to: account.email,
+    customerName: details?.name || account.name,
+    service: b.serviceName,
+    barber,
+    date: wallClockDate(b.startTime),
+    startTime: `${wallClockTime24(b.startTime)}:00`,
+    durationMinutes: Number.isFinite(end - start) && end > start ? (end - start) / 60_000 : 30,
+    bookingNumber: b.bookingNumber,
+  };
 }
 
 /**
@@ -216,8 +241,15 @@ export async function rescheduleAccountBooking(account: AccountUser, bookingId: 
   }
   if (date === wallClockDate(booking.startTime) && time === `${wallClockTime24(booking.startTime)}:00`) return bookingId;
 
+  const barberName: string | null = detail?.staff?.name || null;
+  const before = await mailInfo(account, booking, barberName);
+  // Updates the appointment in the customer's calendar.
+  const mailMoved = (key: string, number: string | null) =>
+    sendBookingMoved(before, { ...before, key, bookingNumber: number, date, startTime: time, durationMinutes: service.durationMinutes, price: service.price });
+
   if (booking.status === 'CONFIRMED' || booking.status === 'LOCKED') {
     await agentRequest('POST', `/api/v1/bookings/${bookingId}/reschedule`, { date, startTime: time });
+    await mailMoved(before.key, booking.bookingNumber);
     return bookingId;
   }
   const from = `${wallClockDate(booking.startTime)} ${wallClockTime(booking.startTime)}`;
@@ -233,6 +265,7 @@ export async function rescheduleAccountBooking(account: AccountUser, bookingId: 
   });
   await confirmOnline(String(created?.bookingId || ''), service.price).catch(() => {});
   await agentRequest('POST', `/api/v1/bookings/${bookingId}/cancel`, { reason: `Moved by the customer to ${date} ${time.slice(0, 5)}` });
+  await mailMoved(String(created?.bookingNumber || created?.bookingId || before.key), created?.bookingNumber || null);
   return String(created?.bookingId || bookingId);
 }
 
