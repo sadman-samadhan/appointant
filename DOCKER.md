@@ -12,14 +12,18 @@ On the server, from a copy of this repository:
 docker build -t bdiamond-web .
 ```
 
-Or build elsewhere and hand over a file. Most servers are Intel/AMD, so build for that
-(needed on an Apple-silicon Mac):
+Or load the ready-made image file `bdiamond-web-image.tar.gz`. It holds both Intel/AMD and
+ARM versions; Docker picks the one that fits the server.
 
 ```bash
-docker build --platform linux/amd64 -t bdiamond-web .
-docker save bdiamond-web | gzip > bdiamond-web.tar.gz
-# on the server:
-gunzip -c bdiamond-web.tar.gz | docker load
+gunzip -c bdiamond-web-image.tar.gz | docker load
+```
+
+To make that file (needs Docker's containerd image store, the default in recent Docker Desktop):
+
+```bash
+docker build --platform linux/amd64,linux/arm64 -t bdiamond-web:latest .
+docker save --platform linux/amd64 --platform linux/arm64 bdiamond-web:latest | gzip > bdiamond-web-image.tar.gz
 ```
 
 ## 2. Settings
