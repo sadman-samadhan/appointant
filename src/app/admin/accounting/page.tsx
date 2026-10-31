@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { useConfirm } from '@/context/ConfirmContext';
 
-type PeriodMode = 'day' | 'month' | 'year';
+type PeriodMode = 'day' | 'month' | 'year' | 'range';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const isoOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -43,8 +43,25 @@ const dateOf = (iso: string) => {
   return new Date(y, m - 1, d);
 };
 
-/** The dates covered by a day, month or year around `anchor`, and how to name it. */
-function periodBounds(mode: PeriodMode, anchor: string) {
+const shortDate = (iso: string, withYear: boolean) =>
+  dateOf(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}) });
+
+/** Days from `from` to `to`, both included. */
+const daysIn = (from: string, to: string) => Math.round((dateOf(to).getTime() - dateOf(from).getTime()) / 86400000) + 1;
+
+/**
+ * The dates covered by a day, month or year around `anchor` (or the picked range), and how
+ * to name it.
+ */
+function periodBounds(mode: PeriodMode, anchor: string, range: { from: string; to: string }) {
+  if (mode === 'range') {
+    const sameYear = range.from.slice(0, 4) === range.to.slice(0, 4);
+    const label =
+      range.from === range.to
+        ? shortDate(range.from, true)
+        : `${shortDate(range.from, !sameYear)} – ${shortDate(range.to, true)}`;
+    return { from: range.from, to: range.to, label, word: 'These dates' };
+  }
   const d = dateOf(anchor);
   const y = d.getFullYear();
   const m = d.getMonth();
@@ -79,6 +96,8 @@ export default function MoneyBookPage() {
 
   const [mode, setMode] = useState<PeriodMode>('month');
   const [anchor, setAnchor] = useState(todayISO());
+  // Range: from the 1st of this month to today, until picked.
+  const [range, setRange] = useState(() => ({ from: `${todayISO().slice(0, 8)}01`, to: todayISO() }));
   const [entries, setEntries] = useState<MoneyEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -104,7 +123,7 @@ export default function MoneyBookPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  const period = periodBounds(mode, anchor);
+  const period = periodBounds(mode, anchor, range);
   const isCurrent = period.from <= todayISO() && todayISO() <= period.to;
 
   const loadEntries = useCallback(async () => {
@@ -179,6 +198,17 @@ export default function MoneyBookPage() {
   }, [entries]);
 
   const shiftPeriod = (delta: number) => {
+    if (mode === 'range') {
+      // The same number of days before or after.
+      const n = daysIn(range.from, range.to) * delta;
+      const move = (iso: string) => {
+        const d = dateOf(iso);
+        d.setDate(d.getDate() + n);
+        return isoOf(d);
+      };
+      setRange({ from: move(range.from), to: move(range.to) });
+      return;
+    }
     const d = dateOf(anchor);
     if (mode === 'day') d.setDate(d.getDate() + delta);
     else if (mode === 'month') d.setMonth(d.getMonth() + delta, 1);
@@ -323,7 +353,7 @@ export default function MoneyBookPage() {
         </div>
       </div>
 
-      {/* Period: a day, a month or a year */}
+      {/* Period: a day, a month, a year or any range of days */}
       <div className="glass-card p-3 rounded-2xl border border-[var(--border)] space-y-3">
       <div className="flex flex-wrap items-center justify-center gap-2">
         <div className="flex rounded-xl bg-[var(--muted)] p-1">
@@ -332,12 +362,13 @@ export default function MoneyBookPage() {
               ['day', 'Day'],
               ['month', 'Month'],
               ['year', 'Year'],
+              ['range', 'Range'],
             ] as [PeriodMode, string][]
           ).map(([m, label]) => (
             <button
               key={m}
               onClick={() => setMode(m)}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold ${
+              className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold ${
                 mode === m ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'
               }`}
             >
@@ -345,16 +376,41 @@ export default function MoneyBookPage() {
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-1.5 text-xs font-bold text-[var(--muted-foreground)]">
-          Pick a date
-          <input
-            type="date"
-            value={anchor}
-            onChange={(e) => e.target.value && setAnchor(e.target.value)}
-            className="px-2 py-1.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-          />
-        </label>
-        {!isCurrent && (
+        {mode === 'range' ? (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs font-bold text-[var(--muted-foreground)]">
+              From
+              <input
+                type="date"
+                value={range.from}
+                // A start after the end moves the end along with it.
+                onChange={(e) => e.target.value && setRange((r) => ({ from: e.target.value, to: r.to < e.target.value ? e.target.value : r.to }))}
+                className="px-2 py-1.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
+              />
+            </label>
+            <label className="flex items-center gap-1.5 text-xs font-bold text-[var(--muted-foreground)]">
+              To
+              <input
+                type="date"
+                value={range.to}
+                min={range.from}
+                onChange={(e) => e.target.value && setRange((r) => ({ from: r.from > e.target.value ? e.target.value : r.from, to: e.target.value }))}
+                className="px-2 py-1.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
+              />
+            </label>
+          </div>
+        ) : (
+          <label className="flex items-center gap-1.5 text-xs font-bold text-[var(--muted-foreground)]">
+            Pick a date
+            <input
+              type="date"
+              value={anchor}
+              onChange={(e) => e.target.value && setAnchor(e.target.value)}
+              className="px-2 py-1.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
+            />
+          </label>
+        )}
+        {!isCurrent && mode !== 'range' && (
           <button
             onClick={() => setAnchor(todayISO())}
             className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--muted)] border border-[var(--border)] text-[var(--foreground)]"
@@ -367,7 +423,7 @@ export default function MoneyBookPage() {
         <button
           onClick={() => shiftPeriod(-1)}
           className="p-2 rounded-xl hover:bg-[var(--muted)] text-[var(--foreground)]"
-          title={`Previous ${mode}`}
+          title={mode === 'range' ? 'Same number of days before' : `Previous ${mode}`}
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
@@ -384,7 +440,7 @@ export default function MoneyBookPage() {
         <button
           onClick={() => shiftPeriod(1)}
           className="p-2 rounded-xl hover:bg-[var(--muted)] text-[var(--foreground)]"
-          title={`Next ${mode}`}
+          title={mode === 'range' ? 'Same number of days after' : `Next ${mode}`}
         >
           <ChevronRight className="w-4 h-4" />
         </button>
