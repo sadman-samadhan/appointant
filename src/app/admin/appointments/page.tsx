@@ -446,10 +446,8 @@ function AppointmentsPage() {
   const [walkName, setWalkName] = useState('');
   const [walkPrice, setWalkPrice] = useState('');
   const [walkTip, setWalkTip] = useState('');
-  const [walkDate, setWalkDate] = useState(todayISO());
   const [walkPaidWith, setWalkPaidWith] = useState<PaidWith>('CASH');
   const [walkBarberId, setWalkBarberId] = useState('');
-  const [walkStart, setWalkStart] = useState('');
   const [walkError, setWalkError] = useState<string | null>(null);
 
   // Per-booking dialogs
@@ -527,12 +525,8 @@ function AppointmentsPage() {
     setWalkName('');
     setWalkPrice('');
     setWalkTip('');
-    setWalkDate(todayISO());
     setWalkPaidWith('CASH');
     setWalkBarberId('');
-    // Started now, by the shop's clock.
-    const now = shopClock().minutes;
-    setWalkStart(`${String(Math.floor(now / 60)).padStart(2, '0')}:${String(now % 60).padStart(2, '0')}`);
     setWalkError(null);
     setShowWalkIn(true);
   }, []);
@@ -634,9 +628,11 @@ function AppointmentsPage() {
     e.preventDefault();
     if (!walkService) return setWalkError('Choose the service.');
     if (!(walkPriceNum > 0)) return setWalkError('Enter the price.');
-    if (walkDate > todayISO()) return setWalkError('A walk-in can’t be in the future.');
     setIsSaving(true);
     setWalkError(null);
+    // Today, started now by the shop's clock.
+    const { date: walkDate, minutes: now } = shopClock();
+    const walkStart = `${String(Math.floor(now / 60)).padStart(2, '0')}:${String(now % 60).padStart(2, '0')}`;
     try {
       await recordWalkIn({
         service: walkService,
@@ -647,10 +643,10 @@ function AppointmentsPage() {
         takenBy,
         paidWith: walkPaidWith,
         staffId: walkBarberId || undefined,
-        start: walkStart || undefined,
+        start: walkStart,
       });
       setShowWalkIn(false);
-      showSuccess('Walk-in saved', `$${formatMoney(walkTotal)} added to ${walkDate === todayISO() ? 'today’s' : prettyDate(walkDate) + '’s'} income.`);
+      showSuccess('Walk-in saved', `$${formatMoney(walkTotal)} added to today’s income.`);
       showDay(walkDate);
       setStatusFilter('ALL');
       reload();
@@ -1185,7 +1181,7 @@ function AppointmentsPage() {
       {/* Walk-in */}
       <Modal isOpen={showWalkIn} onClose={() => setShowWalkIn(false)} title="Walk-in customer" maxWidth="sm">
         <form onSubmit={handleWalkIn} className="space-y-4">
-          <p className="text-xs text-[var(--muted-foreground)]">For a customer served without a booking. Saves the visit and adds the money to that day’s income.</p>
+          <p className="text-xs text-[var(--muted-foreground)]">For a customer served without a booking. Saves the visit and adds the money to today’s income.</p>
           <div>
             <label className={labelClass}>Service</label>
             <select
@@ -1228,7 +1224,7 @@ function AppointmentsPage() {
           )}
           {walkService && walkPriceNum > 0 && <PaidWithPicker value={walkPaidWith} onChange={setWalkPaidWith} />}
           {walkService && walkPriceNum > 0 && walkPaidWith === 'CASH' && <ChangeCalculator total={walkTotal} />}
-          {/* Who cut and when: that barber's chair time shows as taken, so it can't be booked online. */}
+          {/* Who cut: that barber's chair shows as taken from now for the service's length, so it can't be booked online. */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Barber</label>
@@ -1240,16 +1236,6 @@ function AppointmentsPage() {
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className={labelClass}>Started at</label>
-              <input type="time" value={walkStart} onChange={(e) => setWalkStart(e.target.value)} className={inputClass} />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelClass}>Date</label>
-              <input type="date" value={walkDate} max={todayISO()} min={addDays(todayISO(), -60)} onChange={(e) => setWalkDate(e.target.value || todayISO())} className={inputClass} />
             </div>
             <div>
               <label className={labelClass}>Customer name (optional)</label>
