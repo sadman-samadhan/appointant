@@ -414,7 +414,7 @@ function AppointmentsPage() {
   const myStaffId = isBarber ? user?.staffId || '' : '';
   // Written on every payment and walk-in, so the owner can match each person's cash at day end.
   const takenBy = isAdmin ? 'Owner' : user?.name || 'Staff';
-  // '' all barbers, 'none' bookings with no barber, else a staffId.
+  // '' all barbers, else a staffId.
   const [barberFilter, setBarberFilter] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -805,7 +805,7 @@ function AppointmentsPage() {
             ? ['DRAFT', 'LOCKED', 'SCHEDULED'].includes(b.status)
             : b.status === statusFilter
     )
-    .filter((b) => (barberFilter === '' ? true : barberFilter === 'none' ? !b.staffId && !b.walkIn : b.staffId === barberFilter))
+    .filter((b) => barberFilter === '' || b.staffId === barberFilter)
     .filter((b) => {
       const q = search.trim().toLowerCase();
       if (!q) return true;
@@ -986,7 +986,6 @@ function AppointmentsPage() {
                   {b.name}
                 </option>
               ))}
-              <option value="none">No barber chosen</option>
             </select>
           )}
           <button onClick={reload} title="Refresh" className="ml-auto p-2 rounded-xl bg-[var(--muted)] border border-[var(--border)] text-[var(--foreground)]">
