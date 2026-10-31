@@ -110,6 +110,8 @@ export default function CustomerProfilePage() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [oldPassword, setOldPassword] = useState('');
   const [showOldPassword, setShowOldPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -260,6 +262,8 @@ export default function CustomerProfilePage() {
     setShowPasswordModal(false);
     setOldPassword('');
     setShowOldPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
     setNewPassword('');
     setConfirmNewPassword('');
     setPasswordError(null);
@@ -641,25 +645,45 @@ export default function CustomerProfilePage() {
           </div>
           <div>
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">New password</label>
-            <input
-              type="password"
-              required
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              autoComplete="new-password"
-              className={inputClass}
-            />
+            <div className="relative">
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                required
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+                className={`${inputClass} pr-11`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword((v) => !v)}
+                aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                className="absolute inset-y-0 right-0 w-10 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              >
+                {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Confirm new password</label>
-            <input
-              type="password"
-              required
-              value={confirmNewPassword}
-              onChange={(e) => setConfirmNewPassword(e.target.value)}
-              autoComplete="new-password"
-              className={inputClass}
-            />
+            <div className="relative">
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                required
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                autoComplete="new-password"
+                className={`${inputClass} pr-11`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((v) => !v)}
+                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                className="absolute inset-y-0 right-0 w-10 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              >
+                {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
           {passwordError && (
             <p role="alert" className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 text-xs font-bold text-rose-700">
