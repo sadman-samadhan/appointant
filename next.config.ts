@@ -3,6 +3,8 @@ import path from 'path';
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname),
+  // Small self-contained server for the Docker image (see Dockerfile).
+  output: 'standalone',
   images: {
     remotePatterns: [
       {

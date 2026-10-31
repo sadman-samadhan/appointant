@@ -24,7 +24,8 @@ function getTransporter(): Transporter {
 }
 
 export function mailFrom(): string {
-  const from = (process.env.MAIL_FROM || '').trim();
+  // `docker run --env-file` keeps quotes around a value, so drop them.
+  const from = (process.env.MAIL_FROM || '').trim().replace(/^(["'])(.*)\1$/, '$2').trim();
   const user = process.env.SMTP_USER || '';
   if (from.includes('@')) return from;
   // A name without an address ("B Diamond Barbershop"): send from the login's address under that name.

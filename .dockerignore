@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.claude
+.vercel
+.env
+.env*.local
+.env.production
+*.pdf
+*.docx
+*.tsbuildinfo
+npm-debug.log*
+.DS_Store
+Dockerfile
+.dockerignore
