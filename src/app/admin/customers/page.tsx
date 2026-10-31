@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { CustomerDto, BookingListItemDto, CustomerNoteDto } from '@/lib/types';
 import { formatMoney, toNumber, toList, bookingLocalDate } from '@/lib/format';
+import { formatPhone, formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
 
 // Tenant-scoped endpoints (notes, tags, archive) are keyed by tenantCustomerId, not customerId.
 type DirectoryCustomer = CustomerDto & { tenantCustomerId?: string };
@@ -49,7 +50,7 @@ export default function AdminCustomersPage() {
   // Add Customer Modal States
   const [showAddModal, setShowAddModal] = useState(false);
   const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('+1 (506) 555-0199');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [isSubmittingCustomer, setIsSubmittingCustomer] = useState(false);
 
@@ -111,6 +112,10 @@ export default function AdminCustomersPage() {
       showError('Name Required', 'Please enter customer full name.');
       return;
     }
+    if (!isValidPhone(phone)) {
+      showError('Phone needed', PHONE_ERROR);
+      return;
+    }
     setIsSubmittingCustomer(true);
     try {
       const custRes = await apiRequest<any>('/api/v1/customers', {
@@ -118,7 +123,7 @@ export default function AdminCustomersPage() {
         body: JSON.stringify({
           fullName: fullName.trim(),
           contacts: [
-            { type: 'PHONE', value: phone.trim(), isPrimary: true },
+            { type: 'PHONE', value: formatPhone(phone), isPrimary: true },
             ...(email.trim() ? [{ type: 'EMAIL', value: email.trim(), isPrimary: false }] : []),
           ],
         }),
@@ -138,6 +143,7 @@ export default function AdminCustomersPage() {
       showSuccess('Customer Added', `${fullName} registered in salon directory.`);
       setShowAddModal(false);
       setFullName('');
+      setPhone('');
       setEmail('');
       loadCustomers();
     } catch (err: any) {
@@ -325,10 +331,12 @@ export default function AdminCustomersPage() {
             <div>
               <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Phone Number</label>
               <input
-                type="text"
+                type="tel"
                 required
+                placeholder={PHONE_PLACEHOLDER}
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                onBlur={() => isValidPhone(phone) && setPhone(formatPhone(phone))}
                 className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
               />
             </div>

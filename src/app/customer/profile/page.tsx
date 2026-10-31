@@ -163,8 +163,7 @@ export default function CustomerProfilePage() {
   const handleSaveDetails = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editName.trim().length < 2) return setDetailsError('Enter your name.');
-    // Phone is optional here: empty keeps the number on file.
-    if (editPhone.trim() && !isValidPhone(editPhone)) return setDetailsError(PHONE_ERROR);
+    if (!isValidPhone(editPhone)) return setDetailsError(PHONE_ERROR);
     setIsSavingDetails(true);
     setDetailsError(null);
     try {
@@ -487,6 +486,7 @@ export default function CustomerProfilePage() {
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Phone</label>
             <input
               type="tel"
+              required
               value={editPhone}
               onChange={(e) => {
                 setEditPhone(formatPhoneInput(e.target.value));

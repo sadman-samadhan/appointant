@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiRequest } from '@/lib/api/client';
 import { isStrongPassword, PASSWORD_RULES } from '@/lib/password';
+import { formatPhone, formatPhoneInput, isValidPhone, PHONE_ERROR, PHONE_PLACEHOLDER } from '@/lib/phone';
 import { Modal } from '@/components/ui/Modal';
 import { DaysOffCard } from '@/components/admin/DaysOffCard';
 import { useToast } from '@/context/ToastContext';
@@ -168,6 +169,7 @@ export default function AdminStaffPage() {
     e.preventDefault();
     // The backend makes the login together with a new staff member and links the two.
     const wantsLogin = createLoginUser && !editingStaff;
+    if (!isValidPhone(phone)) return showError('Phone needed', PHONE_ERROR);
     if (wantsLogin) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return showError('Email needed', 'The login uses the email address. Enter a valid email.');
       if (!isStrongPassword(staffPassword)) return showError('Password too weak', PASSWORD_RULES);
@@ -180,7 +182,7 @@ export default function AdminStaffPage() {
           body: JSON.stringify({
             fullName: fullName.trim(),
             email: email.trim(),
-            phone: phone.trim(),
+            phone: formatPhone(phone),
             roleTitle: roleTitle.trim(),
             employmentType,
           }),
@@ -201,7 +203,7 @@ export default function AdminStaffPage() {
             tenantId: DEFAULT_TENANT_ID,
             fullName: fullName.trim(),
             email: email.trim(),
-            phone: phone.trim(),
+            phone: formatPhone(phone),
             roleTitle: roleTitle.trim(),
             employmentType,
             hireDate: todayISO(),
@@ -818,10 +820,12 @@ export default function AdminStaffPage() {
             <div>
               <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Phone</label>
               <input
-                type="text"
+                type="tel"
                 required
+                placeholder={PHONE_PLACEHOLDER}
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                onBlur={() => isValidPhone(phone) && setPhone(formatPhone(phone))}
                 className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none"
               />
             </div>
