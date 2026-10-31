@@ -43,15 +43,13 @@ BOOKING_AGENT_USERID=
 BOOKING_AGENT_PASSWORD=
 BOOKING_STRICT_CHECKS=true
 
-# Customer emails: booking confirmations with calendar invites, and sign-up codes.
+# Customer emails: booking confirmations with calendar invites, moves, cancellations.
+# (Sign-up and password-reset codes are sent by the Auth Service, not the website.)
 SMTP_HOST=premium180.web-hosting.com
 SMTP_PORT=465
 SMTP_USER=
 SMTP_PASS=
 MAIL_FROM="B Diamond Barbershop <bookings@example.com>"
-
-# Any long random text, e.g. from: openssl rand -hex 32
-SIGNUP_CODE_SECRET=
 ```
 
 `.env.example` explains every setting. Optional, at build time only:

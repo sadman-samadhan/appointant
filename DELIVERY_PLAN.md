@@ -93,13 +93,11 @@ Every item is fixed in the frontend except:
 - S1.4 note: with 2 barbers, the same time can now be booked **twice** (once per chair), a third time is refused. Tell the tester.
 
 ## Sign-up and password codes (2026-10-31)
-- **Sign-up:** the site emails a 6-digit code (its own mail settings) and only makes the account once it is entered (`/api/public/signup/code`, `/api/public/signup`). Codes last 10 minutes and are rate-limited. The site's proxy refuses `/auth/register`; the Auth Service itself still accepts direct sign-ups until it adds its own code step.
-- **Forgot password:** the code must come from the Auth Service (it makes and checks the code), so this waits on backend bug 1. The site's screens (email → code → new password) are ready.
+- **Sign-up:** the Auth Service emails a 4-digit code (`/auth/register/send-code`) and `/auth/register` needs it (`code`). The site goes through `/api/public/signup/code` and `/api/public/signup`, which add rate limits; its proxy refuses `/auth/register` directly.
+- **Forgot password:** the Auth Service sends and checks the code (working since 2026-10-31). It still answers 404 for unknown emails, which reveals who has an account.
 
 ## Needs from the client / backend team
-- Vercel env var `SIGNUP_CODE_SECRET` (any long random text).
 - HST registration number for the report header (`hstNumber` in `src/lib/business.ts`).
 - Vercel env vars: `BOOKING_AGENT_USERID`, `BOOKING_AGENT_PASSWORD` (the owner account) and `BOOKING_STRICT_CHECKS=true`.
 - Vercel env vars for customer emails: `SMTP_HOST=premium180.web-hosting.com`, `SMTP_PORT=465`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` (see `.env.example`). Until they are set, no email is sent.
-- Backend (Auth Service): password reset and sign-up codes are sent by the Auth Service, not the website. Its `/auth/forgot-password` returns 500 (probably no mail server set up there). Give it the same mail server settings, and add an email code step to `/auth/register` if sign-up codes are wanted.
-- Backend: fix `/auth/forgot-password` (500, no email sent). Add an endpoint to change a user's sign-in email if that's required.
+- Backend: answer `/auth/forgot-password` the same way for unknown emails. Add an endpoint to change a user's sign-in email if that's required.

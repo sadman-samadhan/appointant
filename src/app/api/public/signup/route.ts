@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { checkSignupCode } from '@/lib/server/signupCode';
 import { rateLimited } from '@/lib/server/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
 const AUTH_BACKEND = process.env.AUTH_BACKEND_URL || 'http://3.6.123.11:3302';
 
-// Step 2 of sign-up: checks the emailed code, then makes the account in the Auth Service.
+// Step 2 of sign-up: the Auth Service checks the emailed code and makes the account.
 export async function POST(req: NextRequest) {
   let body: any;
   try {
@@ -22,14 +21,13 @@ export async function POST(req: NextRequest) {
   if (rateLimited(`signup-try:${email.toLowerCase()}`, 8, 10 * 60_000)) {
     return NextResponse.json({ message: 'Too many tries. Ask for a new code in a few minutes.' }, { status: 429 });
   }
-  const problem = checkSignupCode(email, code, String(body?.ticket || ''));
-  if (problem) return NextResponse.json({ message: problem }, { status: 400 });
+  if (!/^\d{4}$/.test(code)) return NextResponse.json({ message: 'Type the 4-digit code from the email.' }, { status: 400 });
 
   try {
     const res = await fetch(`${AUTH_BACKEND}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, userid: email, password }),
+      body: JSON.stringify({ name, userid: email, password, code }),
       cache: 'no-store',
     });
     if (res.ok) return NextResponse.json({ ok: true });
