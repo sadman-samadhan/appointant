@@ -67,6 +67,7 @@ Re-checked against the live backend on 2026-10-30 (evening). ✅ fixed · ⚠️
 14. ⚠️ **Refunds**: a cash payment is now refunded from Cash, but the whole amount still comes off service income and the HST is not reversed. The app still records refunds itself.
 15. ❌ **No card payment method**: payments still take only CASH, CHECK or BANK_TRANSFER.
 16. ✅ **Proxies and 204**: fixed in the frontend.
+18. ❌ **New: user list shows passwords**: `GET /users` on the Auth Service (Spring Data REST) lists every user with a `password` field to an admin token, and `/users/{id}` is open to edits the same way. Hide `password` and lock these endpoints down.
 17. ❌ **New: bill tax ignores discounts and upgrades**: the bill copies the booking's HST as booked ($3.30 on a $22 trim) even when the bill has a discount or an extra charge. $22 − $5 discount gave a $20.30 total instead of $19.55. *Workaround (app):* the extra HST is added to the bill's discount so the customer pays the right total, and a "Sales tax" correction moves it from HST back to income. Upgrades already add the missing HST. A "free" service now costs the booked HST plus $0.01 (e.g. $3.31), since the bill can't go lower; this needs 13 and 17 fixed.
 
 ## Test data left in the dev backend
@@ -91,7 +92,12 @@ Every item is fixed in the frontend except:
 - S3.4 Cancel / No-show for an *Arrived* customer: the backend refuses it, so Arrived offers only "Finish & take payment".
 - S1.4 note: with 2 barbers, the same time can now be booked **twice** (once per chair), a third time is refused. Tell the tester.
 
+## Sign-up and password codes (2026-10-31)
+- **Sign-up:** the site emails a 6-digit code (its own mail settings) and only makes the account once it is entered (`/api/public/signup/code`, `/api/public/signup`). Codes last 10 minutes and are rate-limited. The site's proxy refuses `/auth/register`; the Auth Service itself still accepts direct sign-ups until it adds its own code step.
+- **Forgot password:** the code must come from the Auth Service (it makes and checks the code), so this waits on backend bug 1. The site's screens (email → code → new password) are ready.
+
 ## Needs from the client / backend team
+- Vercel env var `SIGNUP_CODE_SECRET` (any long random text).
 - HST registration number for the report header (`hstNumber` in `src/lib/business.ts`).
 - Vercel env vars: `BOOKING_AGENT_USERID`, `BOOKING_AGENT_PASSWORD` (the owner account) and `BOOKING_STRICT_CHECKS=true`.
 - Vercel env vars for customer emails: `SMTP_HOST=premium180.web-hosting.com`, `SMTP_PORT=465`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` (see `.env.example`). Until they are set, no email is sent.

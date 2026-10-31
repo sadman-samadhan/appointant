@@ -26,7 +26,7 @@ import {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, register, forgotPassword, verifyOtp, resetPassword } = useAuth();
+  const { login, forgotPassword, verifyOtp, resetPassword } = useAuth();
   const { settings } = useTheme();
   const { showError, showSuccess } = useToast();
 
@@ -45,6 +45,8 @@ export default function LoginPage() {
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
+  const [regTicket, setRegTicket] = useState('');
+  const [regCode, setRegCode] = useState('');
 
   // Forgot Password Modal States
   const [showForgotModal, setShowForgotModal] = useState(false);
@@ -111,16 +113,50 @@ export default function LoginPage() {
       showError('Password Mismatch', 'Passwords do not match.');
       return;
     }
+    await sendSignupCode();
+  };
+
+  // Sign-up step 1: a 6-digit code is emailed; the account is made once it is entered.
+  const sendSignupCode = async () => {
     setIsLoading(true);
     try {
-      await register({
-        name: regName.trim(),
-        userid: regUserid.trim(),
-        password: regPassword,
+      const res = await fetch('/api/public/signup/code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: regName.trim(), email: regUserid.trim() }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || 'Could not send the code.');
+      setRegTicket(data.ticket);
+      setRegCode('');
+      showSuccess('Code sent', `We emailed a 6-digit code to ${regUserid.trim()}.`);
+    } catch (err: any) {
+      showError('Could not send the code', err.message || 'Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSignupCodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^\d{6}$/.test(regCode.trim())) {
+      showError('Enter the code', 'Type the 6-digit code from the email.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/public/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: regName.trim(), email: regUserid.trim(), password: regPassword, code: regCode.trim(), ticket: regTicket }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || 'Could not make the account.');
       showSuccess('Account Created!', 'Please sign in with your new credentials.');
       setLoginUserid(regUserid.trim());
       setLoginPassword('');
+      setRegTicket('');
+      setRegCode('');
       setActiveTab('login');
     } catch (err: any) {
       showError('Registration Failed', err.message || 'Could not register user account.');
@@ -341,7 +377,46 @@ export default function LoginPage() {
             )}
 
             {/* Sign Up Tab */}
-            {activeTab === 'register' && (
+            {activeTab === 'register' && regTicket && (
+              <form onSubmit={handleSignupCodeSubmit} className="space-y-3.5">
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  We emailed a 6-digit code to <strong className="text-[var(--foreground)]">{regUserid.trim()}</strong>. Enter it to finish. Check
+                  your spam folder if you don&apos;t see it.
+                </p>
+                <div>
+                  <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Code</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    required
+                    placeholder="123456"
+                    value={regCode}
+                    onChange={(e) => setRegCode(e.target.value.replace(/\D/g, ''))}
+                    className="w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-lg tracking-[0.4em] font-bold text-center text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full btn-primary py-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 shadow-md disabled:opacity-50"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>{isLoading ? 'Creating Account...' : 'Create account'}</span>
+                </button>
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <button type="button" onClick={() => setRegTicket('')} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] flex items-center gap-1">
+                    <ArrowLeft className="w-3.5 h-3.5" /> Change details
+                  </button>
+                  <button type="button" disabled={isLoading} onClick={sendSignupCode} className="text-[var(--primary)] hover:underline disabled:opacity-50">
+                    Send a new code
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {activeTab === 'register' && !regTicket && (
               <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
                 <div>
                   <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Full Name</label>
@@ -465,7 +540,7 @@ export default function LoginPage() {
                   className="w-full btn-primary py-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 shadow-md disabled:opacity-50 mt-1"
                 >
                   <UserPlus className="w-4 h-4" />
-                  <span>{isLoading ? 'Creating Account...' : 'Register Account'}</span>
+                  <span>{isLoading ? 'Sending code...' : 'Email me a code'}</span>
                 </button>
               </form>
             )}

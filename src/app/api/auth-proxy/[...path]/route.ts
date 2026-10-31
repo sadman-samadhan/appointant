@@ -22,6 +22,10 @@ async function handleProxy(
 ) {
   const { path } = await params;
   const targetPath = '/' + path.join('/');
+  // Sign-up goes through /api/public/signup, which checks the emailed code first.
+  if (targetPath === '/auth/register') {
+    return NextResponse.json({ message: 'Please sign up with the form on the sign-in page.' }, { status: 403 });
+  }
   const url = `${AUTH_BACKEND}${targetPath}${request.nextUrl.search}`;
 
   const headers: Record<string, string> = {
