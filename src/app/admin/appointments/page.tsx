@@ -628,6 +628,7 @@ function AppointmentsPage() {
     e.preventDefault();
     if (!walkService) return setWalkError('Choose the service.');
     if (!(walkPriceNum > 0)) return setWalkError('Enter the price.');
+    if (barbers.length > 0 && !walkBarberId) return setWalkError('Choose the barber.');
     setIsSaving(true);
     setWalkError(null);
     // Today, started now by the shop's clock.
@@ -1200,6 +1201,20 @@ function AppointmentsPage() {
               ))}
             </select>
           </div>
+          {/* Who cut: that barber's chair shows as taken from now for the service's length, so it can't be booked online. */}
+          {barbers.length > 0 && (
+            <div>
+              <label className={labelClass}>Barber</label>
+              <select value={walkBarberId} onChange={(e) => setWalkBarberId(e.target.value)} className={inputClass}>
+                <option value="">Choose the barber…</option>
+                {barbers.map((b) => (
+                  <option key={b.staffId} value={b.staffId}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Price before {BUSINESS.taxLabel} ($)</label>
@@ -1223,23 +1238,9 @@ function AppointmentsPage() {
           )}
           {walkService && walkPriceNum > 0 && <PaidWithPicker value={walkPaidWith} onChange={setWalkPaidWith} />}
           {walkService && walkPriceNum > 0 && walkPaidWith === 'CASH' && <ChangeCalculator total={walkTotal} />}
-          {/* Who cut: that barber's chair shows as taken from now for the service's length, so it can't be booked online. */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelClass}>Barber</label>
-              <select value={walkBarberId} onChange={(e) => setWalkBarberId(e.target.value)} className={inputClass}>
-                <option value="">{barbers.length ? 'Not set' : 'No barbers set up'}</option>
-                {barbers.map((b) => (
-                  <option key={b.staffId} value={b.staffId}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Customer name (optional)</label>
-              <input value={walkName} onChange={(e) => setWalkName(e.target.value)} placeholder="Walk-in customer" className={inputClass} />
-            </div>
+          <div>
+            <label className={labelClass}>Customer name (optional)</label>
+            <input value={walkName} onChange={(e) => setWalkName(e.target.value)} placeholder="Walk-in customer" className={inputClass} />
           </div>
           {walkError && <p className="text-xs font-bold text-rose-600">{walkError}</p>}
           <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
