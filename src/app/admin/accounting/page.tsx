@@ -32,6 +32,7 @@ import {
   Trash2,
   Wallet,
 } from 'lucide-react';
+import { useConfirm } from '@/context/ConfirmContext';
 
 type PeriodMode = 'day' | 'month' | 'year';
 
@@ -74,6 +75,7 @@ function paidLabel(e: MoneyEntry) {
 
 export default function MoneyBookPage() {
   const { showSuccess, showError } = useToast();
+  const confirm = useConfirm();
 
   const [mode, setMode] = useState<PeriodMode>('month');
   const [anchor, setAnchor] = useState(todayISO());
@@ -250,7 +252,13 @@ export default function MoneyBookPage() {
   };
 
   const handleRemove = async (entry: MoneyEntry) => {
-    if (!confirm(`Remove this ${entry.type === 'IN' ? 'income' : 'expense'} entry of $${formatMoney(entry.amount)}?`)) return;
+    const ok = await confirm({
+      title: `Remove ${entry.type === 'IN' ? 'income' : 'expense'}`,
+      message: `Remove this ${entry.type === 'IN' ? 'income' : 'expense'} entry of $${formatMoney(entry.amount)}?`,
+      confirmLabel: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
     setRemovingId(entry.id);
     try {
       await removeEntry(entry.id);

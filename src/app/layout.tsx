@@ -3,6 +3,7 @@ import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { ToastProvider } from '@/context/ToastContext';
+import { ConfirmProvider } from '@/context/ConfirmContext';
 
 export const metadata: Metadata = {
   title: 'B Diamond Barbershop | Fredericton',
@@ -21,7 +22,9 @@ export default function RootLayout({
       <body className="antialiased">
         <ToastProvider>
           <ThemeProvider>
-            <AuthProvider>{children}</AuthProvider>
+            <ConfirmProvider>
+              <AuthProvider>{children}</AuthProvider>
+            </ConfirmProvider>
           </ThemeProvider>
         </ToastProvider>
       </body>

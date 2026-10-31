@@ -40,6 +40,7 @@ import {
   taxOn,
 } from '@/lib/shopBookings';
 import { Banknote, CalendarClock, Check, ChevronLeft, ChevronRight, Plus, RefreshCw, RotateCcw, Search, UserCheck, UserX, X, Footprints } from 'lucide-react';
+import { useConfirm } from '@/context/ConfirmContext';
 
 const inputClass =
   'w-full px-3 py-2.5 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]';
@@ -401,6 +402,7 @@ function ActionButton({
 
 function AppointmentsPage() {
   const { showSuccess, showError } = useToast();
+  const confirm = useConfirm();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -906,8 +908,19 @@ function AppointmentsPage() {
                 icon={UserX}
                 label="No-show"
                 disabled={busy}
-                onClick={() => {
-                  if (window.confirm(`Mark ${b.customerName} as a no-show?`)) run(b, () => markNoShow(b.bookingId), 'Marked as no-show.', 'Marked no-show');
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: 'Mark as no-show',
+                    message: (
+                      <>
+                        Mark <strong>{b.customerName}</strong> as a no-show for {b.serviceName} at {wallClockTime(b.startTime)}?
+                      </>
+                    ),
+                    confirmLabel: 'Mark no-show',
+                    cancelLabel: 'Keep it',
+                    danger: true,
+                  });
+                  if (ok) run(b, () => markNoShow(b.bookingId), 'Marked as no-show.', 'Marked no-show');
                 }}
               />
             )}

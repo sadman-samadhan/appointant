@@ -21,9 +21,11 @@ import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { PayrollDto, StaffResponseDto, AccountDto } from '@/lib/types';
 import { formatMoney, toNumber, toList } from '@/lib/format';
+import { useConfirm } from '@/context/ConfirmContext';
 
 export default function AdminPayrollPage() {
   const { showSuccess, showError } = useToast();
+  const confirm = useConfirm();
   const { isAdmin, isLoading: isAuthLoading } = useAuth();
 
   const [payrollList, setPayrollList] = useState<PayrollDto[]>([]);
@@ -194,7 +196,7 @@ export default function AdminPayrollPage() {
 
   // Reverse Payroll
   const handleReversePayroll = async (payrollId: string) => {
-    if (!confirm('Reverse this payroll payment?')) return;
+    if (!(await confirm({ title: 'Reverse payment', message: 'Reverse this payroll payment?', confirmLabel: 'Reverse', danger: true }))) return;
     try {
       await apiRequest(`/api/v1/payroll/${payrollId}/reverse`, {
         method: 'POST',
@@ -208,7 +210,7 @@ export default function AdminPayrollPage() {
 
   // Delete Draft Payroll
   const handleDeletePayroll = async (payrollId: string) => {
-    if (!confirm('Delete this draft payroll?')) return;
+    if (!(await confirm({ title: 'Delete draft', message: 'Delete this draft payroll?', confirmLabel: 'Delete', danger: true }))) return;
     try {
       await apiRequest(`/api/v1/payroll/${payrollId}`, { method: 'DELETE' });
       showSuccess('Payroll Deleted', 'Draft removed.');

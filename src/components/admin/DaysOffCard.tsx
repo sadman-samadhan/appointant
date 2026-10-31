@@ -5,6 +5,7 @@ import { CalendarOff, Trash2 } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
 import { todayISO, wallClockTime } from '@/lib/format';
 import { addDayOff, loadBarbers, loadDaysOff, removeDayOff, type Barber, type DayOff } from '@/lib/shopBookings';
+import { useConfirm } from '@/context/ConfirmContext';
 
 const inputClass =
   'w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]';
@@ -23,6 +24,7 @@ const isWholeDay = (d: DayOff) => d.start.startsWith('00:00') && d.end.startsWit
  */
 export function DaysOffCard() {
   const { showSuccess, showError } = useToast();
+  const confirm = useConfirm();
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [daysOff, setDaysOff] = useState<DayOff[]>([]);
   const [who, setWho] = useState('');
@@ -64,7 +66,7 @@ export function DaysOffCard() {
   };
 
   const handleRemove = async (d: DayOff) => {
-    if (!window.confirm(`Remove ${nameOf(d)}'s time off on ${prettyDate(d.date)}?`)) return;
+    if (!(await confirm({ title: 'Remove time off', message: `Remove ${nameOf(d)}'s time off on ${prettyDate(d.date)}?`, confirmLabel: 'Remove', danger: true }))) return;
     try {
       await removeDayOff(d.id);
       load();

@@ -9,9 +9,11 @@ import { Scissors, Plus, Clock, Tag, Edit, Trash2, CheckCircle2, FolderPlus, Lay
 import { ServiceDto, ServiceCategoryDto, ServiceAddonDto } from '@/lib/types';
 import { formatMoney, servicePrice, serviceDuration, toNumber, toList } from '@/lib/format';
 import { ensureCapacityRule } from '@/lib/availability';
+import { useConfirm } from '@/context/ConfirmContext';
 
 export default function AdminServicesPage() {
   const { showSuccess, showError } = useToast();
+  const confirm = useConfirm();
 
   const [services, setServices] = useState<ServiceDto[]>([]);
   const [categories, setCategories] = useState<ServiceCategoryDto[]>([]);
@@ -154,7 +156,7 @@ export default function AdminServicesPage() {
   };
 
   const handleDeleteService = async (serviceId: string, serviceTitle: string) => {
-    if (!confirm(`Are you sure you want to remove "${serviceTitle}"?`)) return;
+    if (!(await confirm({ title: 'Remove service', message: `Remove "${serviceTitle}" from the menu?`, confirmLabel: 'Remove', danger: true }))) return;
     try {
       await apiRequest(`/api/v1/services/${serviceId}`, { method: 'DELETE' });
       showSuccess('Service Removed', `${serviceTitle} deleted from catalog.`);
@@ -192,7 +194,7 @@ export default function AdminServicesPage() {
 
   // Category delete workflow
   const handleDeleteCategory = async (categoryId: string) => {
-    if (!confirm('Are you sure you want to delete this category?')) return;
+    if (!(await confirm({ title: 'Delete category', message: 'Delete this service category?', confirmLabel: 'Delete', danger: true }))) return;
     try {
       await apiRequest(`/api/v1/service-categories/${categoryId}`, { method: 'DELETE' });
       showSuccess('Category Deleted', 'Service category removed.');
