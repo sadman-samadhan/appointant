@@ -524,7 +524,7 @@ export default function AdminStaffPage() {
           onClick={() => setStatusFilter('ACTIVE')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             statusFilter === 'ACTIVE'
-              ? 'bg-[var(--primary)] text-white shadow-sm font-black'
+              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm font-black'
               : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
           }`}
         >
@@ -535,7 +535,7 @@ export default function AdminStaffPage() {
           onClick={() => setStatusFilter('ARCHIVED')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             statusFilter === 'ARCHIVED'
-              ? 'bg-[var(--primary)] text-white shadow-sm font-black'
+              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm font-black'
               : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
           }`}
         >

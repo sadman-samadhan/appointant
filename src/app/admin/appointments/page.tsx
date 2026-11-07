@@ -221,7 +221,7 @@ function TimePicker({
                 }}
                 className={`shrink-0 w-12 py-1.5 rounded-xl border text-center ${
                   d === date
-                    ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                    ? 'bg-[var(--primary)] border-[var(--primary)] text-[var(--primary-foreground)]'
                     : 'bg-[var(--muted)] border-[var(--border)] text-[var(--foreground)]'
                 }`}
               >
@@ -245,7 +245,7 @@ function TimePicker({
                 onClick={() => onTime(t)}
                 className={`py-2 rounded-xl border text-xs font-bold ${
                   t === time
-                    ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                    ? 'bg-[var(--primary)] border-[var(--primary)] text-[var(--primary-foreground)]'
                     : 'bg-[var(--card)] border-[var(--border-strong)] text-[var(--foreground)]'
                 }`}
               >
@@ -335,7 +335,7 @@ function MonthCalendar({
               title={closed ? 'Closed' : count ? `${count.total} appointment${count.total === 1 ? '' : 's'}` : 'No appointments'}
               className={`relative h-12 sm:h-14 rounded-xl border flex flex-col items-center justify-center gap-0.5 transition-colors ${
                 isSelected
-                  ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                  ? 'bg-[var(--primary)] border-[var(--primary)] text-[var(--primary-foreground)]'
                   : date === today
                     ? 'border-[var(--primary)] text-[var(--foreground)] bg-[var(--card)]'
                     : closed
@@ -347,7 +347,7 @@ function MonthCalendar({
               {count && count.total > 0 ? (
                 <span
                   className={`text-[10px] font-black leading-none px-1.5 py-0.5 rounded-full ${
-                    isSelected ? 'bg-white/25 text-white' : 'bg-[var(--primary-light)] text-[var(--primary)]'
+                    isSelected ? 'bg-black/15 text-[var(--primary-foreground)]' : 'bg-[var(--primary-light)] text-[var(--primary)]'
                   }`}
                 >
                   {count.total}

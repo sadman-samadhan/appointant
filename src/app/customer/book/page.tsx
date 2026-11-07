@@ -272,7 +272,7 @@ export default function BookPage() {
           <li key={label} className="flex items-center gap-2">
             <span
               className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                step > i ? 'bg-[var(--primary)] text-white' : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
+                step > i ? 'bg-[var(--primary)] text-[var(--primary-foreground)]' : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
               }`}
             >
               {i + 1}
@@ -331,7 +331,7 @@ export default function BookPage() {
                         </div>
                         <div className="flex flex-col items-end gap-2 shrink-0">
                           <span className="text-base font-black text-[var(--primary)]">${formatMoney(s.price)}</span>
-                          <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-[var(--primary)] text-white shadow-sm transition-transform duration-200 group-hover:translate-x-0.5">
+                          <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm transition-transform duration-200 group-hover:translate-x-0.5">
                             Book this <ArrowRight className="w-3.5 h-3.5" />
                           </span>
                         </div>
@@ -368,7 +368,7 @@ export default function BookPage() {
                   onClick={() => setDate(d)}
                   className={`shrink-0 w-14 py-2 rounded-xl border text-center transition-colors ${
                     d === date
-                      ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                      ? 'bg-[var(--primary)] border-[var(--primary)] text-[var(--primary-foreground)]'
                       : 'bg-[var(--muted)] border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)]'
                   }`}
                 >
@@ -402,7 +402,7 @@ export default function BookPage() {
                     }}
                     className={`py-2 rounded-xl border text-xs font-bold transition-colors ${
                       t === time
-                        ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                        ? 'bg-[var(--primary)] border-[var(--primary)] text-[var(--primary-foreground)]'
                         : 'bg-[var(--card)] border-[var(--border-strong)] text-[var(--foreground)] hover:border-[var(--primary)]'
                     }`}
                   >
@@ -426,7 +426,7 @@ export default function BookPage() {
                     onClick={() => setBarberId(b.staffId)}
                     className={`px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${
                       b.staffId === barberId
-                        ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                        ? 'bg-[var(--primary)] border-[var(--primary)] text-[var(--primary-foreground)]'
                         : 'bg-[var(--muted)] border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)]'
                     }`}
                   >

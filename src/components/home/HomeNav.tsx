@@ -22,7 +22,7 @@ export function HomeNav({ bookHref, bookExternal }: { bookHref: string; bookExte
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3 sm:px-8">
         <Link href="/" className="flex items-center gap-3" aria-label={`${BUSINESS.name} home`}>
           <Image
-            src="/bdiamond-logo.png"
+            src="/logo-mark.jpg"
             alt=""
             width={40}
             height={40}
@@ -30,7 +30,7 @@ export function HomeNav({ bookHref, bookExternal }: { bookHref: string; bookExte
             className="h-10 w-10 rounded-full ring-1 ring-[var(--theme-primary)]/40"
           />
           <span className="leading-none">
-            <span className="block font-display text-lg tracking-[0.18em] text-[var(--foreground)]">B DIAMOND</span>
+            <span className="metal-silver block font-display text-lg tracking-[0.18em]">B DIAMOND</span>
             <span className="mt-1 block text-[10px] uppercase tracking-[0.35em] text-[var(--theme-primary)]">Barbershop</span>
           </span>
         </Link>

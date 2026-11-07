@@ -14,17 +14,36 @@ export interface ThemeSettings {
   darkMode: boolean;
 }
 
+// Empty colours mean "use the logo palette in globals.css" (gold on black in dark mode,
+// deep gold on ivory in light mode). The owner can still pick custom colours in Settings.
 const DEFAULT_THEME: ThemeSettings = {
-  primaryColor: '#8B3A3A',
-  secondaryColor: '#BE123C',
-  accentColor: '#059669',
-  logoUrl: '/bdiamond-logo.png',
+  primaryColor: '',
+  secondaryColor: '',
+  accentColor: '',
+  logoUrl: '/logo-mark.jpg',
   featuredImageUrl: '',
   siteName: 'B DIAMOND BARBERSHOP',
   tagline: 'Barbershop · Fredericton',
   currency: 'CAD $',
-  darkMode: false,
+  darkMode: true,
 };
+
+// Values saved by earlier versions of the site that just meant "the default".
+const OLD_DEFAULTS: Partial<Record<keyof ThemeSettings, string[]>> = {
+  primaryColor: ['#8B3A3A'],
+  secondaryColor: ['#BE123C', '#6F2C2C'],
+  accentColor: ['#059669', '#F3E4DE'],
+  logoUrl: ['/bdiamond-logo.png'],
+};
+
+function withoutOldDefaults(saved: Partial<ThemeSettings>): Partial<ThemeSettings> {
+  const next: Partial<ThemeSettings> = { ...saved };
+  for (const [key, olds] of Object.entries(OLD_DEFAULTS) as [keyof ThemeSettings, string[]][]) {
+    const value = next[key];
+    if (typeof value === 'string' && olds.some((o) => o.toLowerCase() === value.toLowerCase())) delete next[key];
+  }
+  return next;
+}
 
 interface ThemeContextType {
   settings: ThemeSettings;
@@ -44,7 +63,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        setSettings({ ...DEFAULT_THEME, ...parsed });
+        setSettings({ ...DEFAULT_THEME, ...withoutOldDefaults(parsed) });
       } catch {
         /* fallback to defaults */
       }
@@ -55,9 +74,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
 
-    root.style.setProperty('--theme-primary', settings.primaryColor);
-    root.style.setProperty('--theme-secondary', settings.secondaryColor);
-    root.style.setProperty('--theme-accent', settings.accentColor);
+    const apply = (name: string, value: string) =>
+      value ? root.style.setProperty(name, value) : root.style.removeProperty(name);
+    apply('--theme-primary', settings.primaryColor);
+    apply('--theme-secondary', settings.secondaryColor);
+    apply('--theme-accent', settings.accentColor);
 
     if (settings.darkMode) {
       root.classList.add('dark');

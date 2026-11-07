@@ -74,10 +74,10 @@ export function Sidebar() {
             <img
               src={settings.logoUrl}
               alt={settings.siteName}
-              className="w-9 h-9 rounded-xl object-cover border border-[var(--border)]"
+              className="w-9 h-9 rounded-full object-cover ring-1 ring-[var(--primary)]/40"
             />
           ) : (
-            <div className="w-9 h-9 rounded-xl bg-[var(--primary)] text-white flex items-center justify-center font-black text-sm">
+            <div className="w-9 h-9 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center font-black text-sm">
               BD
             </div>
           )}
@@ -102,11 +102,11 @@ export function Sidebar() {
                 href={item.href}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
                   isActive
-                    ? 'bg-[var(--primary)] text-white shadow-sm'
+                    ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
                     : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-[var(--muted-foreground)]'}`} />
+                <Icon className={`w-4 h-4 ${isActive ? 'text-[var(--primary-foreground)]' : 'text-[var(--muted-foreground)]'}`} />
                 <span>{item.label}</span>
               </Link>
             );

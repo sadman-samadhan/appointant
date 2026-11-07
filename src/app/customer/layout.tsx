@@ -20,10 +20,10 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
               <img
                 src={settings.logoUrl}
                 alt={settings.siteName}
-                className="w-8 h-8 rounded-lg object-cover border border-[var(--border)]"
+                className="w-8 h-8 rounded-full object-cover ring-1 ring-[var(--primary)]/40"
               />
             ) : (
-              <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center font-black text-xs">
+              <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center font-black text-xs">
                 BD
               </div>
             )}

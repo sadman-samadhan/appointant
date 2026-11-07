@@ -538,7 +538,7 @@ export default function MoneyBookPage() {
                   }}
                   className={`px-2.5 py-1 rounded-lg transition-colors ${
                     filter === f
-                      ? 'bg-[var(--primary)] text-white'
+                      ? 'bg-[var(--primary)] text-[var(--primary-foreground)]'
                       : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
                   }`}
                 >
@@ -726,7 +726,7 @@ export default function MoneyBookPage() {
                   onClick={() => chooseCategory(c)}
                   className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors ${
                     categoryId === c.id
-                      ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                      ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]'
                       : 'bg-[var(--muted)] text-[var(--foreground)] border-[var(--border)]'
                   }`}
                 >

@@ -8,12 +8,15 @@ import { useToast } from '@/context/ToastContext';
 import { Palette, Image as ImageIcon, RotateCcw, Check, Sun, Moon } from 'lucide-react';
 import { ShopBillingSettings } from '@/components/admin/ShopBillingSettings';
 
+// Empty colours = the logo palette (gold that suits both light and dark mode). `show` is only
+// for drawing the swatch.
 const PRESET_SWATCHES = [
-  { name: 'Earthy Red (Default)', primary: '#8B3A3A', secondary: '#6F2C2C', accent: '#F3E4DE' },
-  { name: 'Warm Rose', primary: '#BE123C', secondary: '#9F1239', accent: '#FFE4E6' },
-  { name: 'Royal Gold', primary: '#D97706', secondary: '#B45309', accent: '#FEF3C7' },
-  { name: 'Emerald Luxe', primary: '#059669', secondary: '#047857', accent: '#D1FAE5' },
+  { name: 'Diamond Gold (Default)', primary: '', secondary: '', accent: '', show: ['#C9A55C', '#C9C7C1'] },
+  { name: 'Champagne', primary: '#D8BF8A', secondary: '#B39457', accent: '#F4EBD6', show: ['#D8BF8A', '#B39457'] },
+  { name: 'Platinum Silver', primary: '#B8B6B0', secondary: '#8E8C86', accent: '#ECEAE5', show: ['#B8B6B0', '#8E8C86'] },
+  { name: 'Classic Red', primary: '#8B3A3A', secondary: '#6F2C2C', accent: '#F3E4DE', show: ['#8B3A3A', '#6F2C2C'] },
 ];
+const PICKER_FALLBACK = '#C9A55C';
 
 export default function AdminSettingsPage() {
   const { settings, updateSettings, resetDefaults, toggleDarkMode } = useTheme();
@@ -132,8 +135,8 @@ export default function AdminSettingsPage() {
                   className="p-3 rounded-xl border border-[var(--border)] bg-[var(--muted)] hover:border-[var(--primary)] transition-all text-left space-y-1.5"
                 >
                   <div className="flex items-center gap-1.5">
-                    <div className="w-4 h-4 rounded-full border" style={{ backgroundColor: swatch.primary }} />
-                    <div className="w-4 h-4 rounded-full border" style={{ backgroundColor: swatch.secondary }} />
+                    <div className="w-4 h-4 rounded-full border" style={{ backgroundColor: swatch.show[0] }} />
+                    <div className="w-4 h-4 rounded-full border" style={{ backgroundColor: swatch.show[1] }} />
                   </div>
                   <span className="text-[11px] font-bold text-[var(--foreground)] block">{swatch.name}</span>
                 </button>
@@ -148,12 +151,13 @@ export default function AdminSettingsPage() {
               <div className="flex items-center gap-2">
                 <input
                   type="color"
-                  value={primaryColor}
+                  value={primaryColor || PICKER_FALLBACK}
                   onChange={(e) => setPrimaryColor(e.target.value)}
                   className="w-10 h-10 rounded-xl border border-[var(--border)] cursor-pointer"
                 />
                 <input
                   type="text"
+                  placeholder="Logo palette"
                   value={primaryColor}
                   onChange={(e) => setPrimaryColor(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-mono font-bold text-[var(--foreground)]"
@@ -166,12 +170,13 @@ export default function AdminSettingsPage() {
               <div className="flex items-center gap-2">
                 <input
                   type="color"
-                  value={secondaryColor}
+                  value={secondaryColor || PICKER_FALLBACK}
                   onChange={(e) => setSecondaryColor(e.target.value)}
                   className="w-10 h-10 rounded-xl border border-[var(--border)] cursor-pointer"
                 />
                 <input
                   type="text"
+                  placeholder="Logo palette"
                   value={secondaryColor}
                   onChange={(e) => setSecondaryColor(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-mono font-bold text-[var(--foreground)]"
@@ -184,12 +189,13 @@ export default function AdminSettingsPage() {
               <div className="flex items-center gap-2">
                 <input
                   type="color"
-                  value={accentColor}
+                  value={accentColor || PICKER_FALLBACK}
                   onChange={(e) => setAccentColor(e.target.value)}
                   className="w-10 h-10 rounded-xl border border-[var(--border)] cursor-pointer"
                 />
                 <input
                   type="text"
+                  placeholder="Logo palette"
                   value={accentColor}
                   onChange={(e) => setAccentColor(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-mono font-bold text-[var(--foreground)]"

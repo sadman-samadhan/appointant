@@ -160,7 +160,7 @@ export default function AccountantReportPage() {
               onClick={() => setPeriodKey(p.key)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
                 periodKey === p.key
-                  ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                  ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]'
                   : 'bg-[var(--muted)] text-[var(--foreground)] border-[var(--border)]'
               }`}
             >

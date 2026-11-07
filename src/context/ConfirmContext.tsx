@@ -57,8 +57,8 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                 type="button"
                 autoFocus
                 onClick={() => answer(true)}
-                className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white ${
-                  options.danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-[var(--primary)] hover:opacity-90'
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold ${
+                  options.danger ? 'bg-rose-600 hover:bg-rose-700 text-white' : 'btn-primary'
                 }`}
               >
                 {options.confirmLabel || 'Yes'}

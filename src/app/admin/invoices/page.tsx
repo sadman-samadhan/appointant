@@ -253,7 +253,7 @@ export default function PaymentsPage() {
               onClick={() => setTab(key)}
               className={`px-3 py-1.5 rounded-lg transition-colors ${
                 tab === key
-                  ? 'bg-[var(--primary)] text-white'
+                  ? 'bg-[var(--primary)] text-[var(--primary-foreground)]'
                   : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
               }`}
             >

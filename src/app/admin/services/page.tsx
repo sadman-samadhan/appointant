@@ -309,7 +309,7 @@ export default function AdminServicesPage() {
           onClick={() => setSelectedCategoryId('ALL')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
             selectedCategoryId === 'ALL'
-              ? 'bg-[var(--primary)] text-white shadow-sm font-black'
+              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm font-black'
               : 'bg-[var(--card)] text-[var(--muted-foreground)] border border-[var(--border)] hover:text-[var(--foreground)]'
           }`}
         >
@@ -321,7 +321,7 @@ export default function AdminServicesPage() {
             onClick={() => setSelectedCategoryId(cat.categoryId)}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
               selectedCategoryId === cat.categoryId
-                ? 'bg-[var(--primary)] text-white shadow-sm font-black'
+                ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm font-black'
                 : 'bg-[var(--card)] text-[var(--muted-foreground)] border border-[var(--border)] hover:text-[var(--foreground)]'
             }`}
           >

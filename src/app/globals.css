@@ -1,40 +1,47 @@
 @import "tailwindcss";
 
+/* Colours from the logo: champagne gold, platinum silver, near-black. */
 :root {
-  /* Light mode warm luxury schema */
-  --background: #FAF6F0;
-  --foreground: #362E28;
-  --primary: #8B3A3A;
-  --primary-hover: #6F2C2C;
-  --primary-light: #F3E4DE;
-  --primary-ring: rgba(139, 58, 58, 0.15);
+  /* Light mode: ivory and platinum, with a deep gold that reads on white */
+  --background: #F6F5F2;
+  --foreground: #151517;
+  --primary: #8A6A1F;
+  --primary-hover: #6F5418;
+  --primary-foreground: #FFFFFF;
+  --primary-light: #F1EADA;
+  --primary-ring: rgba(138, 106, 31, 0.18);
+  --silver: #8E8C86;
   --card: #FFFFFF;
-  --card-foreground: #362E28;
-  --muted: #F1EAE1;
-  --muted-foreground: #7A6F62;
-  --border: #EAE1D5;
-  --border-strong: #D9CCB8;
+  --card-foreground: #151517;
+  --muted: #EEEDE9;
+  --muted-foreground: #66645F;
+  --border: #E4E2DC;
+  --border-strong: #CFCCC4;
+  --shadow: rgba(21, 21, 23, 0.06);
 
-  /* Theme Customization Studio overrides */
+  /* Theme Customization Studio overrides (set only when the owner picks a custom colour) */
   --theme-primary: var(--primary);
-  --theme-secondary: #BE123C;
-  --theme-accent: #059669;
+  --theme-secondary: var(--silver);
+  --theme-accent: var(--primary);
 }
 
 .dark {
-  /* Dark mode warm luxury schema */
-  --background: #17130F;
-  --foreground: #F0E9E0;
-  --primary: #A84A41;
-  --primary-hover: #C15D52;
-  --primary-light: rgba(168, 74, 65, 0.12);
-  --primary-ring: rgba(168, 74, 65, 0.25);
-  --card: #211B16;
-  --card-foreground: #F0E9E0;
-  --muted: #241D17;
-  --muted-foreground: #A69A8C;
-  --border: #2C241D;
-  --border-strong: #3D3226;
+  /* Dark mode (default): black, champagne gold, platinum silver */
+  --background: #0A0A0B;
+  --foreground: #ECEAE5;
+  --primary: #C9A55C;
+  --primary-hover: #DDBF7E;
+  --primary-foreground: #0A0A0B;
+  --primary-light: rgba(201, 165, 92, 0.12);
+  --primary-ring: rgba(201, 165, 92, 0.32);
+  --silver: #C9C7C1;
+  --card: #141416;
+  --card-foreground: #ECEAE5;
+  --muted: #1B1B1E;
+  --muted-foreground: #A3A19B;
+  --border: #26262A;
+  --border-strong: #38383D;
+  --shadow: rgba(0, 0, 0, 0.5);
 }
 
 body {
@@ -48,13 +55,34 @@ body {
   background-color: var(--card);
   color: var(--card-foreground);
   border: 1px solid var(--border);
-  box-shadow: 0 4px 20px -2px rgba(54, 46, 40, 0.05);
+  box-shadow: 0 4px 20px -2px var(--shadow);
 }
 
+/* A thin highlight along the top edge gives buttons a polished-metal look. */
 .btn-primary {
   background-color: var(--theme-primary, var(--primary));
-  color: #FFFFFF;
+  color: var(--primary-foreground);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
   transition: all 0.2s ease-in-out;
+}
+
+/* Brushed-silver lettering, like the logo's wordmark. `.metal-silver-dark` is for panels that
+   stay black in light mode too. */
+.metal-silver,
+.metal-silver-dark {
+  background: linear-gradient(180deg, #FFFFFF 0%, var(--silver) 55%, #8A8882 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.metal-silver-dark {
+  --silver: #C9C7C1;
+}
+
+:root:not(.dark) .metal-silver {
+  background: none;
+  color: var(--foreground);
 }
 
 .btn-primary:hover {
@@ -135,9 +163,9 @@ body {
   justify-content: center;
   border-radius: 9999px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--primary-foreground);
   background: var(--theme-primary, var(--primary));
-  box-shadow: 0 10px 24px -12px var(--primary-ring);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 10px 24px -12px var(--primary-ring);
   transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 

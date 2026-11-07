@@ -102,11 +102,11 @@ function googleCalendarLink(info: BookingMailInfo): string {
 }
 
 function layout(heading: string, rows: string[], footer: string, button?: { href: string; label: string }) {
-  const html = `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;color:#2b2320">
+  const html = `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;color:#151517">
 <h2 style="margin:0 0 12px">${heading}</h2>
 ${rows.map((r) => `<p style="margin:4px 0">${r}</p>`).join('\n')}
-${button ? `<p style="margin:20px 0"><a href="${button.href}" style="background:#7a2e2e;color:#fff;padding:10px 18px;border-radius:10px;text-decoration:none">${button.label}</a></p>` : ''}
-<p style="margin-top:20px;color:#7a6f6a;font-size:13px">${footer}</p>
+${button ? `<p style="margin:20px 0"><a href="${button.href}" style="background:#0A0A0B;color:#C9A55C;border:1px solid #C9A55C;padding:10px 18px;border-radius:10px;text-decoration:none">${button.label}</a></p>` : ''}
+<p style="margin-top:20px;color:#66645F;font-size:13px">${footer}</p>
 </div>`;
   const text = [heading, '', ...rows.map((r) => r.replace(/<[^>]+>/g, '')), '', ...(button ? [`${button.label}: ${button.href}`, ''] : []), footer.replace(/<[^>]+>/g, '')].join('\n');
   return { html, text };

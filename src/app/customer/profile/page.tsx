@@ -541,7 +541,7 @@ export default function CustomerProfilePage() {
                     }}
                     className={`shrink-0 w-14 py-2 rounded-xl border text-center transition-colors ${
                       d === moveDate
-                        ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                        ? 'bg-[var(--primary)] border-[var(--primary)] text-[var(--primary-foreground)]'
                         : 'bg-[var(--muted)] border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)]'
                     }`}
                   >
@@ -568,7 +568,7 @@ export default function CustomerProfilePage() {
                       }}
                       className={`py-2 rounded-xl border text-xs font-bold transition-colors ${
                         t === moveTime
-                          ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                          ? 'bg-[var(--primary)] border-[var(--primary)] text-[var(--primary-foreground)]'
                           : 'bg-[var(--card)] border-[var(--border-strong)] text-[var(--foreground)] hover:border-[var(--primary)]'
                       }`}
                     >

@@ -155,9 +155,9 @@ export default async function HomePage() {
 
           <div className="relative mx-auto w-full max-w-sm">
             <div className="absolute inset-6 rounded-full bg-[var(--theme-primary)]/20 blur-3xl" aria-hidden />
-            <div className="relative aspect-square overflow-hidden rounded-[2rem] ring-1 ring-[var(--theme-primary)]/30 shadow-[0_30px_60px_-24px_rgba(54,46,40,0.35)]">
+            <div className="relative aspect-square overflow-hidden rounded-[2rem] ring-1 ring-[var(--theme-primary)]/30 shadow-[0_30px_60px_-24px_var(--shadow)]">
               <Image
-                src="/bdiamond-logo.png"
+                src="/logo-full.jpg"
                 alt={`${BUSINESS.name} logo`}
                 fill
                 priority

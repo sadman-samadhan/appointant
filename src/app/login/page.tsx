@@ -14,7 +14,6 @@ import {
   Mail,
   Shield,
   User,
-  Scissors,
   ArrowRight,
   ArrowLeft,
   UserPlus,
@@ -248,22 +247,20 @@ export default function LoginPage() {
 
       <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 rounded-3xl overflow-hidden glass-card shadow-2xl border border-[var(--border)]">
         {/* Left Branded Hero Panel */}
-        <div className="p-8 lg:p-12 bg-gradient-to-br from-[var(--primary)] to-[var(--primary-hover)] text-white flex flex-col justify-between relative overflow-hidden">
+        <div className="p-8 lg:p-12 bg-[#0A0A0B] text-[#ECEAE5] border-r border-[#C9A55C]/20 flex flex-col justify-between relative overflow-hidden">
           <div className="space-y-4 relative z-10">
-            <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20">
-              <Scissors className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight leading-tight">
+            <img src="/logo-mark.jpg" alt="" className="w-16 h-16 rounded-full ring-1 ring-[#C9A55C]/50 shadow-[0_0_30px_-6px_rgba(201,165,92,0.5)]" />
+            <h1 className="metal-silver-dark text-2xl sm:text-3xl font-black tracking-tight leading-tight">
               {settings.siteName}
             </h1>
-            <p className="text-xs sm:text-sm opacity-90 leading-relaxed font-medium">
+            <p className="text-xs sm:text-sm text-[#C9A55C] leading-relaxed font-medium">
               {settings.tagline} — Fredericton Downtown Main Branch
             </p>
           </div>
 
-          <div className="space-y-3 relative z-10 pt-8 border-t border-white/10 text-xs opacity-90">
+          <div className="space-y-3 relative z-10 pt-8 border-t border-[#C9A55C]/20 text-xs opacity-90">
             <div className="flex items-center gap-2 font-bold">
-              <Shield className="w-4 h-4 text-emerald-300 shrink-0" />
+              <Shield className="w-4 h-4 text-[#C9A55C] shrink-0" />
               <span>Authorized Salon & Customer Portal</span>
             </div>
             <p className="text-[11px] opacity-80 leading-relaxed">
@@ -272,7 +269,7 @@ export default function LoginPage() {
           </div>
 
           {/* Decorative background circle */}
-          <div className="absolute -bottom-16 -right-16 w-64 h-64 rounded-full bg-white/5 blur-2xl pointer-events-none" />
+          <div className="absolute -bottom-16 -right-16 w-64 h-64 rounded-full bg-[#C9A55C]/10 blur-3xl pointer-events-none" />
         </div>
 
         {/* Right Form Panel */}

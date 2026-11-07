@@ -390,7 +390,7 @@ export default function AdminExpensesPage() {
           onClick={() => setActiveTab('expenses')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             activeTab === 'expenses'
-              ? 'bg-[var(--primary)] text-white shadow-sm font-black'
+              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm font-black'
               : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
           }`}
         >
@@ -400,7 +400,7 @@ export default function AdminExpensesPage() {
           onClick={() => setActiveTab('categories')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             activeTab === 'categories'
-              ? 'bg-[var(--primary)] text-white shadow-sm font-black'
+              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm font-black'
               : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
           }`}
         >
