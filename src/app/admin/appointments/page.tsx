@@ -953,7 +953,7 @@ function AppointmentsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight">{isBarber ? 'My appointments' : 'Appointments'}</h1>
         <div className={`flex gap-2 ${isBarber ? 'hidden' : ''}`}>
-          <button onClick={openWalkIn} className="flex-1 sm:flex-none px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-sm">
+          <button onClick={openWalkIn} className="flex-1 sm:flex-none px-4 py-3 rounded-xl text-sm font-bold btn-silver flex items-center justify-center gap-2 shadow-sm">
             <Footprints className="w-4 h-4" /> Walk-in
           </button>
           <button onClick={openNew} className="flex-1 sm:flex-none btn-primary px-4 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-sm">

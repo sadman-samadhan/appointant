@@ -42,7 +42,7 @@ export function Navbar() {
             <>
               <Link
                 href="/admin/appointments?new=walkin"
-                className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-sm"
+                className="px-3 py-2 rounded-xl text-xs font-bold btn-silver flex items-center gap-1.5 shadow-sm"
                 title="A customer without a booking"
               >
                 <Footprints className="w-4 h-4" />
