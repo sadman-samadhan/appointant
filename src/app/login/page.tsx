@@ -247,29 +247,29 @@ export default function LoginPage() {
 
       <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 rounded-3xl overflow-hidden glass-card shadow-2xl border border-[var(--border)]">
         {/* Left Branded Hero Panel */}
-        <div className="p-8 lg:p-12 bg-[#0A0A0B] text-[#ECEAE5] border-r border-[#C9A55C]/20 flex flex-col justify-between relative overflow-hidden">
+        <div className="p-8 lg:p-12 brand-panel text-[var(--foreground)] border-b md:border-b-0 md:border-r border-[var(--border)] flex flex-col justify-between relative overflow-hidden">
           <div className="space-y-4 relative z-10">
-            <img src="/logo-mark.jpg" alt="" className="w-16 h-16 rounded-full ring-1 ring-[#C9A55C]/50 shadow-[0_0_30px_-6px_rgba(201,165,92,0.5)]" />
-            <h1 className="metal-silver-dark text-2xl sm:text-3xl font-black tracking-tight leading-tight">
+            <img src="/logo-mark.jpg" alt="" className="w-16 h-16 rounded-full ring-1 ring-[var(--primary)]/50 shadow-[0_0_30px_-6px_var(--primary-ring)]" />
+            <h1 className="metal-silver text-2xl sm:text-3xl font-black tracking-tight leading-tight">
               {settings.siteName}
             </h1>
-            <p className="text-xs sm:text-sm text-[#C9A55C] leading-relaxed font-medium">
+            <p className="text-xs sm:text-sm text-[var(--primary)] leading-relaxed font-medium">
               {settings.tagline} — Fredericton Downtown Main Branch
             </p>
           </div>
 
-          <div className="space-y-3 relative z-10 pt-8 border-t border-[#C9A55C]/20 text-xs opacity-90">
+          <div className="space-y-3 relative z-10 pt-8 border-t border-[var(--border)] text-xs opacity-90">
             <div className="flex items-center gap-2 font-bold">
-              <Shield className="w-4 h-4 text-[#C9A55C] shrink-0" />
+              <Shield className="w-4 h-4 text-[var(--primary)] shrink-0" />
               <span>Authorized Salon & Customer Portal</span>
             </div>
-            <p className="text-[11px] opacity-80 leading-relaxed">
+            <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">
               Enterprise security encryption protecting customer appointment records and salon transactions.
             </p>
           </div>
 
           {/* Decorative background circle */}
-          <div className="absolute -bottom-16 -right-16 w-64 h-64 rounded-full bg-[#C9A55C]/10 blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-16 -right-16 w-64 h-64 rounded-full bg-[var(--primary)]/10 blur-3xl pointer-events-none" />
         </div>
 
         {/* Right Form Panel */}

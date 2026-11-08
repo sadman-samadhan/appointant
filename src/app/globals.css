@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* `dark:` classes follow the app's day/night toggle (the .dark class), not the computer's setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Colours from the logo: champagne gold, platinum silver, near-black. */
 :root {
   /* Light mode: ivory and platinum, with a deep gold that reads on white */
@@ -66,6 +69,19 @@ body {
   background-attachment: fixed;
 }
 
+/* Sign-in page's brand panel: follows day/night. Ivory-platinum by day, the logo's black check by night. */
+.brand-panel {
+  background-color: var(--muted);
+  background-image:
+    repeating-linear-gradient(90deg, rgba(21, 21, 23, 0.04) 0 1px, transparent 1px 32px),
+    repeating-linear-gradient(0deg, rgba(21, 21, 23, 0.04) 0 1px, transparent 1px 32px);
+}
+
+.dark .brand-panel {
+  background-color: var(--background);
+  background-image: var(--grid);
+}
+
 /* Walk-in: platinum silver beside the gold "New booking", like the logo. In light mode it is
    black with silver lettering. */
 .btn-silver {
@@ -99,7 +115,8 @@ body {
   background-color: var(--theme-primary, var(--primary));
   color: var(--primary-foreground);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  transition: all 0.2s ease-in-out;
+  /* Only colour and lift animate; animating size made the button look squashed while the layout settled. */
+  transition: filter 0.2s ease-in-out, transform 0.2s ease-in-out, background-color 0.2s ease-in-out;
 }
 
 /* Brushed-silver lettering, like the logo's wordmark. `.metal-silver-dark` is for panels that

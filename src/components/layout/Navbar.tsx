@@ -42,20 +42,20 @@ export function Navbar() {
             <>
               <Link
                 href="/admin/appointments?new=walkin"
-                className="px-3 py-2 rounded-xl text-xs font-bold btn-silver flex items-center gap-1.5 shadow-sm"
+                className="px-3 py-2 rounded-xl text-xs font-bold btn-silver flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0"
                 title="A customer without a booking"
               >
                 <Footprints className="w-4 h-4" />
-                <span className="hidden sm:inline">Walk-in</span>
+                <span className="hidden lg:inline">Walk-in</span>
               </Link>
 
               <Link
                 href="/admin/appointments?new=booking"
-                className="btn-primary px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                className="btn-primary px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0"
                 title="Book an appointment"
               >
                 <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">New booking</span>
+                <span className="hidden lg:inline">New booking</span>
               </Link>
             </>
           )}
@@ -74,7 +74,7 @@ export function Navbar() {
             <div className="w-8 h-8 rounded-full bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center font-bold text-xs border border-[var(--primary-ring)]">
               {user?.name ? user.name.charAt(0).toUpperCase() : <Shield className="w-4 h-4" />}
             </div>
-            <div className="hidden md:block text-left">
+            <div className="hidden lg:block text-left whitespace-nowrap">
               <p className="text-xs font-bold text-[var(--foreground)] leading-tight">{user?.name || (isAdmin ? 'Admin User' : 'Specialist')}</p>
               <p className="text-[10px] text-[var(--muted-foreground)] font-medium">
                 {isAdmin ? 'Owner' : isBarber ? 'Barber' : 'Staff'}

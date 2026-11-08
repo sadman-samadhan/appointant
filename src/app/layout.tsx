@@ -19,6 +19,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
+      <head>
+        {/* Apply the saved day/night choice before the page paints, so day mode doesn't flash black. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var s=JSON.parse(localStorage.getItem('bdiamond_theme_settings')||'{}');if(s.darkMode===false)document.documentElement.classList.remove('dark')}catch(e){}",
+          }}
+        />
+      </head>
       <body className="antialiased">
         <ToastProvider>
           <ThemeProvider>
