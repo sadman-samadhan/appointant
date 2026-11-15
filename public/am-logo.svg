@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 540" role="img" aria-label="AM Barbershop">
+  <defs>
+    <linearGradient id="letters" x1="0" y1="0" x2="1" y2="0.4">
+      <stop offset="0" stop-color="#F6F4DC"/>
+      <stop offset="0.6" stop-color="#EFE9B8"/>
+      <stop offset="1" stop-color="#D8CC6A"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#B00E26"/>
+      <stop offset="1" stop-color="#D3172F"/>
+    </linearGradient>
+  </defs>
+  <g stroke="#5B6169" stroke-width="12" stroke-linejoin="round">
+    <!-- blue arc over the letters -->
+    <path fill="#1F34D8" d="M268 176 C330 96 430 52 515 58 C560 62 580 100 572 150 C548 112 505 100 450 106 C370 114 310 140 268 176 Z"/>
+    <!-- white swoosh -->
+    <path fill="#F4F5F6" d="M552 60 C660 72 735 130 742 215 C750 310 640 390 470 428 C600 370 668 300 668 222 C668 150 625 96 552 60 Z"/>
+    <!-- red swoosh -->
+    <path fill="url(#red)" d="M352 512 C580 470 760 330 812 82 C842 210 790 340 660 430 C570 490 460 512 352 512 Z"/>
+    <!-- A -->
+    <path fill="url(#letters)" d="M24 418 L196 184 L262 184 L262 418 L204 418 L204 372 L126 372 L94 418 Z M146 324 L204 324 L204 244 Z"/>
+    <!-- M -->
+    <path fill="url(#letters)" d="M268 418 L320 184 L388 184 L418 300 L494 184 L568 172 L506 418 L446 418 L476 300 L420 384 L388 384 L364 300 L332 418 Z"/>
+  </g>
+</svg>

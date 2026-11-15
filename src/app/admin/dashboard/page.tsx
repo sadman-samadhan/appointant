@@ -89,7 +89,7 @@ export default function TodayPage() {
           <Plus className="w-7 h-7" />
           <span className="text-base font-black">New booking</span>
         </Link>
-        <Link href="/admin/appointments?new=walkin" className="p-5 rounded-2xl flex flex-col items-start gap-2 shadow-md btn-silver">
+        <Link href="/admin/appointments?new=walkin" className="p-5 rounded-2xl flex flex-col items-start gap-2 shadow-md btn-outline-gold">
           <Footprints className="w-7 h-7" />
           <span className="text-base font-black">Walk-in</span>
         </Link>

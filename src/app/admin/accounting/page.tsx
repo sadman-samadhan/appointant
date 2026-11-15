@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { Modal } from '@/components/ui/Modal';
 import { KPICard } from '@/components/ui/KPICard';
 import { useToast } from '@/context/ToastContext';
-import { formatMoney, todayISO } from '@/lib/format';
+import { useT } from '@/context/LanguageContext';
+import { formatAmount as formatMoney, todayISO } from '@/lib/format';
 import {
   MoneyEntry,
   EntryType,
@@ -30,7 +31,12 @@ import {
   Tags,
   RefreshCw,
   Trash2,
+  ArrowUpRight,
   Wallet,
+  Receipt,
+  Building2,
+  Landmark,
+  Briefcase,
 } from 'lucide-react';
 import { useConfirm } from '@/context/ConfirmContext';
 
@@ -82,7 +88,9 @@ function periodBounds(mode: PeriodMode, anchor: string, range: { from: string; t
 }
 
 /** "$5.00" or "-$5.00" (after refunds). */
-const signed = (n: number) => `${n < 0 ? '-' : ''}$${formatMoney(Math.abs(n))}`;
+// The invisible left-to-right mark keeps "-$5.00" in order when the page is in Arabic.
+const LRM = '\u200E';
+const signed = (n: number) => `${LRM}${n < 0 ? '-' : ''}$${formatMoney(Math.abs(n))}`;
 
 /** Cash, or card (money to the bank) for customer payments; Bank for other entries. */
 function paidLabel(e: MoneyEntry) {
@@ -91,6 +99,7 @@ function paidLabel(e: MoneyEntry) {
 }
 
 export default function MoneyBookPage() {
+  const { t: tr } = useT();
   const { showSuccess, showError } = useToast();
   const confirm = useConfirm();
 
@@ -343,14 +352,34 @@ export default function MoneyBookPage() {
             <ArrowDownCircle className="w-4 h-4" />
             <span>Add income</span>
           </button>
-          <button
-            onClick={() => openModal('OUT')}
+          {/* Expenses are added in one place, the Expenses page, so nothing is counted twice. */}
+          <Link
+            href="/admin/expenses?new=1"
             className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
           >
             <ArrowUpCircle className="w-4 h-4" />
             <span>Add expense</span>
-          </button>
+          </Link>
         </div>
+      </div>
+
+      {/* The other money pages (on phones this is the way to them) */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {[
+          { href: '/admin/expenses', label: 'Expenses', icon: Receipt },
+          { href: '/admin/vendors', label: 'Vendors', icon: Building2 },
+          { href: '/admin/bank', label: 'Bank import', icon: Landmark },
+          { href: '/admin/payroll', label: 'Payroll', icon: Briefcase },
+        ].map(({ href, label, icon: Icon }) => (
+          <Link
+            key={href}
+            href={href}
+            className="glass-card flex items-center gap-2.5 rounded-xl px-3 py-3 text-xs font-bold text-[var(--foreground)] transition-colors hover:border-[var(--primary)]"
+          >
+            <Icon className="h-4 w-4 shrink-0 text-[var(--primary)]" />
+            <span className="truncate">{label}</span>
+          </Link>
+        ))}
       </div>
 
       {/* Period: a day, a month, a year or any range of days */}
@@ -425,7 +454,7 @@ export default function MoneyBookPage() {
           className="p-2 rounded-xl hover:bg-[var(--muted)] text-[var(--foreground)]"
           title={mode === 'range' ? 'Same number of days before' : `Previous ${mode}`}
         >
-          <ChevronLeft className="w-4 h-4" />
+          <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
         </button>
         <div className="flex items-center gap-2">
           <span className="text-sm font-black text-[var(--foreground)]">{period.label}</span>
@@ -442,7 +471,7 @@ export default function MoneyBookPage() {
           className="p-2 rounded-xl hover:bg-[var(--muted)] text-[var(--foreground)]"
           title={mode === 'range' ? 'Same number of days after' : `Next ${mode}`}
         >
-          <ChevronRight className="w-4 h-4" />
+          <ChevronRight className="w-4 h-4 rtl:rotate-180" />
         </button>
       </div>
       </div>
@@ -451,7 +480,7 @@ export default function MoneyBookPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KPICard
           label="Income"
-          value={`$${formatMoney(totals.income)}`}
+          value={`${LRM}$${formatMoney(totals.income)}`}
           sub={`${period.word}, before HST`}
           icon={ArrowDownCircle}
           accentColor="text-emerald-600"
@@ -459,7 +488,7 @@ export default function MoneyBookPage() {
         />
         <KPICard
           label="Expenses"
-          value={`$${formatMoney(totals.expenses)}`}
+          value={`${LRM}$${formatMoney(totals.expenses)}`}
           sub={`${period.word}, before HST`}
           icon={ArrowUpCircle}
           accentColor="text-rose-600"
@@ -467,7 +496,7 @@ export default function MoneyBookPage() {
         />
         <KPICard
           label={totals.profit >= 0 ? 'Profit' : 'Loss'}
-          value={`${totals.profit < 0 ? '-' : ''}$${formatMoney(Math.abs(totals.profit))}`}
+          value={signed(totals.profit)}
           sub="Income minus expenses"
           icon={PiggyBank}
           accentColor={totals.profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}
@@ -477,10 +506,12 @@ export default function MoneyBookPage() {
 
       {(totals.hstCollected > 0 || totals.hstPaid > 0) && (
         <p className="text-xs text-[var(--muted-foreground)] -mt-2">
-          {BUSINESS.taxLabel} collected ${formatMoney(totals.hstCollected)} · {BUSINESS.taxLabel} paid on expenses $
-          {formatMoney(totals.hstPaid)} ·{' '}
+          {tr('{tax} collected {amount}', { tax: BUSINESS.taxLabel, amount: signed(totals.hstCollected) })} ·{' '}
+          {tr('{tax} paid on expenses {amount}', { tax: BUSINESS.taxLabel, amount: signed(totals.hstPaid) })} ·{' '}
           <strong className="text-[var(--foreground)]">
-            {hstOwed >= 0 ? `Owed to the CRA: $${formatMoney(hstOwed)}` : `Refund from the CRA: $${formatMoney(-hstOwed)}`}
+            {hstOwed >= 0
+              ? tr('Owed to the CRA: {amount}', { amount: signed(hstOwed) })
+              : tr('Refund from the CRA: {amount}', { amount: signed(-hstOwed) })}
           </strong>
         </p>
       )}
@@ -620,8 +651,18 @@ export default function MoneyBookPage() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`text-sm font-black ${entry.type === 'IN' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {entry.type === 'IN' && entry.amount >= 0 ? '+' : '-'}${formatMoney(Math.abs(entry.amount))}
+                      {LRM}{entry.type === 'IN' && entry.amount >= 0 ? '+' : '-'}${formatMoney(Math.abs(entry.amount))}
                     </span>
+                    {entry.managedIn ? (
+                      <Link
+                        href={entry.managedIn === 'payroll' ? '/admin/payroll' : '/admin/expenses'}
+                        className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:bg-[var(--muted)]"
+                        title={entry.managedIn === 'payroll' ? 'Open in Payroll' : 'Open in Expenses'}
+                        aria-label={entry.managedIn === 'payroll' ? 'Open in Payroll' : 'Open in Expenses'}
+                      >
+                        <ArrowUpRight className="w-3.5 h-3.5" />
+                      </Link>
+                    ) : (
                     <button
                       onClick={() => handleRemove(entry)}
                       disabled={removingId === entry.id}
@@ -631,6 +672,7 @@ export default function MoneyBookPage() {
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -676,24 +718,13 @@ export default function MoneyBookPage() {
         maxWidth="sm"
       >
         <form onSubmit={handleSave} className="space-y-4">
-          <div className="grid grid-cols-2 gap-2">
-            {(['IN', 'OUT'] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => chooseType(t)}
-                className={`py-2 rounded-xl text-xs font-bold border transition-colors ${
-                  entryType === t
-                    ? t === 'IN'
-                      ? 'bg-emerald-600 text-white border-emerald-600'
-                      : 'bg-rose-600 text-white border-rose-600'
-                    : 'bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]'
-                }`}
-              >
-                {t === 'IN' ? 'Income' : 'Expense'}
-              </button>
-            ))}
-          </div>
+          {/* Expenses have their own page (vendor, HST, bank lines), so this form is for income only. */}
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Paying for something?{' '}
+            <Link href="/admin/expenses?new=1" className="font-bold text-[var(--primary)] underline-offset-2 hover:underline">
+              Add an expense
+            </Link>
+          </p>
 
           <div>
             <label className="block text-xs font-bold text-[var(--foreground)] mb-1">

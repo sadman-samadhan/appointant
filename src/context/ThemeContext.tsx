@@ -15,15 +15,15 @@ export interface ThemeSettings {
 }
 
 // Empty colours mean "use the logo palette in globals.css" (gold on black in dark mode,
-// deep gold on ivory in light mode). The owner can still pick custom colours in Settings.
+// deep bronze gold on cream in light mode). The owner can still pick custom colours in Settings.
 const DEFAULT_THEME: ThemeSettings = {
   primaryColor: '',
   secondaryColor: '',
   accentColor: '',
-  logoUrl: '/logo-mark.jpg',
+  logoUrl: '/am-logo.svg',
   featuredImageUrl: '',
-  siteName: 'B DIAMOND BARBERSHOP',
-  tagline: 'Barbershop · Fredericton',
+  siteName: 'AM BARBERSHOP',
+  tagline: 'York Street · Fredericton',
   currency: 'CAD $',
   darkMode: true,
 };
@@ -33,7 +33,7 @@ const OLD_DEFAULTS: Partial<Record<keyof ThemeSettings, string[]>> = {
   primaryColor: ['#8B3A3A'],
   secondaryColor: ['#BE123C', '#6F2C2C'],
   accentColor: ['#059669', '#F3E4DE'],
-  logoUrl: ['/bdiamond-logo.png'],
+  logoUrl: ['/bdiamond-logo.png', '/logo-mark.jpg'],
 };
 
 function withoutOldDefaults(saved: Partial<ThemeSettings>): Partial<ThemeSettings> {
@@ -59,7 +59,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Load persisted theme settings
   useEffect(() => {
-    const saved = localStorage.getItem('bdiamond_theme_settings');
+    const saved = localStorage.getItem('am_theme_settings');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -94,21 +94,22 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         link.rel = 'shortcut icon';
         document.getElementsByTagName('head')[0].appendChild(link);
       }
-      link.href = settings.logoUrl;
+      // The shop's own logo is wide; the tab shows its square badge instead.
+      link.href = settings.logoUrl === '/am-logo.svg' ? '/am-icon.svg' : settings.logoUrl;
     }
   }, [settings]);
 
   const updateSettings = (newSettings: Partial<ThemeSettings>) => {
     setSettings((prev) => {
       const updated = { ...prev, ...newSettings };
-      localStorage.setItem('bdiamond_theme_settings', JSON.stringify(updated));
+      localStorage.setItem('am_theme_settings', JSON.stringify(updated));
       return updated;
     });
   };
 
   const resetDefaults = () => {
     setSettings(DEFAULT_THEME);
-    localStorage.setItem('bdiamond_theme_settings', JSON.stringify(DEFAULT_THEME));
+    localStorage.setItem('am_theme_settings', JSON.stringify(DEFAULT_THEME));
   };
 
   const toggleDarkMode = () => {

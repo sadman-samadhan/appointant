@@ -20,11 +20,11 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
               <img
                 src={settings.logoUrl}
                 alt={settings.siteName}
-                className="w-8 h-8 rounded-full object-cover ring-1 ring-[var(--primary)]/40"
+                className="h-8 w-auto max-w-[64px] object-contain"
               />
             ) : (
               <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center font-black text-xs">
-                BD
+                AM
               </div>
             )}
             <span className="hidden sm:inline font-extrabold text-sm text-[var(--foreground)] truncate">{settings.siteName}</span>

@@ -28,7 +28,7 @@ export function mailFrom(): string {
   const from = (process.env.MAIL_FROM || '').trim().replace(/^(["'])(.*)\1$/, '$2').trim();
   const user = process.env.SMTP_USER || '';
   if (from.includes('@')) return from;
-  // A name without an address ("B Diamond Barbershop"): send from the login's address under that name.
+  // A name without an address ("AM Barbershop"): send from the login's address under that name.
   return from && user ? `"${from.replace(/"/g, '')}" <${user}>` : user;
 }
 

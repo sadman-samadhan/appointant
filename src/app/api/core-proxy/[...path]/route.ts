@@ -32,8 +32,9 @@ async function handleProxy(
   const tenantId = request.headers.get('x-tenant-id') || DEFAULT_TENANT_ID;
   const branchId = request.headers.get('x-branch-id') || DEFAULT_BRANCH_ID;
 
+  // Keep the caller's content type: file uploads (bank statements) are multipart, not JSON.
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    'Content-Type': request.headers.get('content-type') || 'application/json',
     Authorization: authHeader,
     'x-tenant-id': tenantId,
     'x-branch-id': branchId,
@@ -42,10 +43,11 @@ async function handleProxy(
   const idempotencyKey = request.headers.get('Idempotency-Key');
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
 
-  let body: string | undefined = undefined;
+  // Bytes, not text, so uploaded files arrive unchanged.
+  let body: ArrayBuffer | undefined = undefined;
   if (['POST', 'PUT', 'PATCH'].includes(method)) {
     try {
-      body = await request.text();
+      body = await request.arrayBuffer();
     } catch {
       /* body might be empty */
     }
@@ -55,13 +57,12 @@ async function handleProxy(
     const res = await safeFetch(url, { method, headers, body });
     // "No content" answers (e.g. a DELETE's 204) can't carry a body, not even an empty one.
     if ([204, 205, 304].includes(res.status)) return new NextResponse(null, { status: res.status });
-    const data = await res.text();
-    return new NextResponse(data, {
-      status: res.status,
-      headers: {
-        'Content-Type': res.headers.get('content-type') || 'application/json',
-      },
-    });
+    // Bytes, not text, so files (pay stub PDFs) come back intact.
+    const data = await res.arrayBuffer();
+    const out: Record<string, string> = { 'Content-Type': res.headers.get('content-type') || 'application/json' };
+    const disposition = res.headers.get('content-disposition');
+    if (disposition) out['Content-Disposition'] = disposition;
+    return new NextResponse(data, { status: res.status, headers: out });
   } catch (err: any) {
     const timedOut = err?.name === 'AbortError';
     return NextResponse.json(

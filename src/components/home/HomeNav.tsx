@@ -21,17 +21,10 @@ export function HomeNav({ bookHref, bookExternal }: { bookHref: string; bookExte
     <header className="fixed inset-x-0 top-0 z-50 border-b border-[var(--border)] bg-[var(--card)]/85 backdrop-blur-xl">
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3 sm:px-8">
         <Link href="/" className="flex items-center gap-3" aria-label={`${BUSINESS.name} home`}>
-          <Image
-            src="/logo-mark.jpg"
-            alt=""
-            width={40}
-            height={40}
-            priority
-            className="h-10 w-10 rounded-full ring-1 ring-[var(--theme-primary)]/40"
-          />
+          <Image src="/am-logo.svg" alt="" width={68} height={42} priority className="h-[42px] w-auto" />
           <span className="leading-none">
-            <span className="metal-silver block font-display text-lg tracking-[0.18em]">B DIAMOND</span>
-            <span className="mt-1 block text-[10px] uppercase tracking-[0.35em] text-[var(--theme-primary)]">Barbershop</span>
+            <span className="block font-display text-sm font-bold uppercase tracking-[0.3em] text-[var(--foreground)]">Barbershop</span>
+            <span className="mt-1 block text-[10px] uppercase tracking-[0.3em] text-[var(--muted-foreground)]">York Street</span>
           </span>
         </Link>
 

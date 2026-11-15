@@ -2,7 +2,7 @@ import { AUTH_API_URL, CORE_API_URL, DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from
 
 const TOKEN_KEY = 'auth_access_token';
 const REFRESH_TOKEN_KEY = 'auth_refresh_token';
-export const USER_INFO_KEY = 'bdiamond_user_info';
+export const USER_INFO_KEY = 'am_user_info';
 
 export function getStoredToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -79,6 +79,9 @@ export async function apiRequest<T>(
     'Content-Type': 'application/json',
     ...(customHeaders as Record<string, string>),
   };
+
+  // A file upload sets its own multipart content type (with the boundary).
+  if (typeof FormData !== 'undefined' && restOptions.body instanceof FormData) delete headers['Content-Type'];
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
@@ -180,4 +183,29 @@ function clearSession() {
   removeStoredToken();
   localStorage.removeItem(USER_INFO_KEY);
   window.dispatchEvent(new CustomEvent('auth:expired'));
+}
+
+/** Downloads a file (e.g. a pay stub PDF) with the signed-in user's access. */
+export async function apiDownload(path: string): Promise<Blob> {
+  const token = getStoredToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (DEFAULT_TENANT_ID) headers['x-tenant-id'] = DEFAULT_TENANT_ID;
+  if (DEFAULT_BRANCH_ID) headers['x-branch-id'] = DEFAULT_BRANCH_ID;
+  let res = await fetch(`${CORE_API_URL}${path}`, { headers });
+  if (res.status === 401 && token && (await refreshAuthToken())) {
+    headers['Authorization'] = `Bearer ${getStoredToken()}`;
+    res = await fetch(`${CORE_API_URL}${path}`, { headers });
+  }
+  if (!res.ok) {
+    let message = `API Error ${res.status}`;
+    try {
+      const data = await res.json();
+      if (data?.message) message = Array.isArray(data.message) ? data.message.join('; ') : String(data.message);
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(message, res.status);
+  }
+  return res.blob();
 }

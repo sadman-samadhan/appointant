@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -24,28 +24,34 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  const addToast = (type: ToastType, title: string, description?: string) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    const newToast: ToastMessage = { id, type, title, description };
-    setToasts((prev) => [...prev, newToast]);
-
-    setTimeout(() => {
-      removeToast(id);
-    }, 4000);
-  };
-
-  const removeToast = (id: string) => {
+  // Stable functions: pages list them as effect dependencies, so a new copy on every render
+  // would reload the page after each message (and an error message would repeat forever).
+  const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
+  }, []);
 
-  const showSuccess = (title: string, description?: string) => addToast('success', title, description);
-  const showError = (title: string, description?: string) => addToast('error', title, description);
+  const addToast = useCallback(
+    (type: ToastType, title: string, description?: string) => {
+      const id = Math.random().toString(36).substring(2, 9);
+      setToasts((prev) => [...prev, { id, type, title, description }]);
+      setTimeout(() => removeToast(id), 4000);
+    },
+    [removeToast]
+  );
+
+  const showSuccess = useCallback((title: string, description?: string) => addToast('success', title, description), [addToast]);
+  const showError = useCallback((title: string, description?: string) => addToast('error', title, description), [addToast]);
+
+  const value = useMemo(
+    () => ({ toasts, addToast, removeToast, showSuccess, showError }),
+    [toasts, addToast, removeToast, showSuccess, showError]
+  );
 
   return (
-    <ToastContext.Provider value={{ toasts, addToast, removeToast, showSuccess, showError }}>
+    <ToastContext.Provider value={value}>
       {children}
       {/* Toast Notification Container */}
-      <div className="fixed bottom-5 right-5 z-[10000] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+      <div className="fixed bottom-5 end-5 z-[10000] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
         {toasts.map((toast) => (
           <div
             key={toast.id}

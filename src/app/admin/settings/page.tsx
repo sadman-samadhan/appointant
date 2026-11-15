@@ -104,7 +104,7 @@ export default function AdminSettingsPage() {
         <button
           onClick={() => {
             resetDefaults();
-            showSuccess('Defaults Restored', 'Reverted to default B Diamond theme.');
+            showSuccess('Defaults Restored', 'Reverted to the default AM Barbershop theme.');
           }}
           className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] border border-[var(--border)] hover:bg-[var(--border)] transition-colors flex items-center gap-1.5 self-start"
         >

@@ -30,6 +30,7 @@ export interface SetmoreService {
 }
 
 async function getSetmoreCompany(): Promise<any | null> {
+  if (!BUSINESS.setmoreUrl) return null;
   try {
     const res = await fetch(BUSINESS.setmoreUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BDiamondSite/1.0)' },

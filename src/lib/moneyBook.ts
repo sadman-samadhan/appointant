@@ -18,6 +18,8 @@ export type PaidWith = 'CASH' | 'BANK';
 
 export interface MoneyEntry {
   id: string;
+  /** Booked by the Expenses or Payroll page; changed or undone there, not here. */
+  managedIn?: 'expenses' | 'payroll';
   type: EntryType;
   /** What actually changed hands, HST and tips included (negative for a refund). */
   amount: number;
@@ -452,6 +454,16 @@ function accountLabel(a: Account): string {
   return a.accountName.replace(/\s+(expense|revenue|income)$/i, '').trim() || a.accountName;
 }
 
+type BookLine = { debit: number; credit: number; acc?: Account };
+
+// The account carrying most of the money names the entry: a pay run books salary and the
+// shop's CPP/EI share, and it should read "Salary", not whichever line came first.
+function biggest(lines: BookLine[], type: string, size: (l: BookLine) => number): Account | undefined {
+  let best: BookLine | undefined;
+  for (const l of lines) if (l.acc?.accountType === type && (!best || size(l) > size(best))) best = l;
+  return best?.acc;
+}
+
 // Converts a backend journal into an owner-facing entry, or null when the journal
 // is not income/spending (e.g. transfers, invoice settlements) or was reversed.
 function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Map<string, InvoiceInfo>): MoneyEntry | null {
@@ -483,12 +495,12 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
     type = 'IN';
     tax = Math.max(0, taxNet);
     amount = incomeAmt - expenseAmt + tax;
-    categoryAcc = withAcc.find((l) => l.acc?.accountType === 'REVENUE')?.acc;
+    categoryAcc = biggest(withAcc, 'REVENUE', (l) => l.credit - l.debit);
   } else if (expenseAmt > 0) {
     type = 'OUT';
     tax = Math.max(0, -taxNet);
     amount = expenseAmt - incomeAmt + tax;
-    categoryAcc = withAcc.find((l) => l.acc?.accountType === 'EXPENSE')?.acc;
+    categoryAcc = biggest(withAcc, 'EXPENSE', (l) => l.debit - l.credit);
   } else if (incomeAmt < 0 && moneyLine && moneyLine.credit > 0) {
     // Money given back to a customer (with its HST share, when the app recorded the refund).
     type = 'IN';
@@ -578,8 +590,14 @@ function journalToEntry(j: any, accountsById: Map<string, Account>, invoices: Ma
   }
   if (categoryAcc?.accountCode === TIPS_CODE) tip = amount;
 
+  const ref = String(j.referenceType || '').toUpperCase();
+  const managedIn = ref === 'EXPENSE' ? 'expenses' : ref === 'PAYROLL' ? 'payroll' : undefined;
+  if (managedIn === 'expenses') note = description.replace(/^Expense:\s*/i, '');
+  if (managedIn === 'payroll') note = 'Pay run';
+
   return {
     id: j.journalId || j.id,
+    ...(managedIn ? { managedIn } : {}),
     type,
     amount: round(amount),
     tax: round(tax),

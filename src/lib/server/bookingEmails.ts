@@ -67,11 +67,11 @@ export function bookingIcs(info: BookingMailInfo, method: 'REQUEST' | 'CANCEL'):
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//B Diamond Barbershop//Booking//EN',
+    'PRODID:-//AM Barbershop//Booking//EN',
     `METHOD:${method}`,
     ...VTIMEZONE,
     'BEGIN:VEVENT',
-    `UID:booking-${info.key}@bdiamond`,
+    `UID:booking-${info.key}@ambarbershop`,
     // A later SEQUENCE replaces an earlier one (a move or a cancel).
     `SEQUENCE:${Math.floor(Date.now() / 1000)}`,
     `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`,

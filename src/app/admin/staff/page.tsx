@@ -810,7 +810,7 @@ export default function AdminStaffPage() {
               <input
                 type="email"
                 required
-                placeholder="elena@bdiamond.com"
+                placeholder="elena@ambarbershop.ca"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)] focus:outline-none"
@@ -936,7 +936,7 @@ export default function AdminStaffPage() {
         >
           <div className="space-y-4">
             <p className="text-xs text-[var(--muted-foreground)] font-medium">
-              Configure operational working shift hours for Downtown Main Branch.
+              Set the working hours for each barber.
             </p>
 
             <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">

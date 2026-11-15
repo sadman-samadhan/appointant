@@ -1,811 +1,586 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { apiRequest } from '@/lib/api/client';
-import { Modal } from '@/components/ui/Modal';
-import { Badge } from '@/components/ui/Badge';
-import { useToast } from '@/context/ToastContext';
-import { DEFAULT_TENANT_ID, DEFAULT_BRANCH_ID } from '@/lib/api/config';
-import {
-  DollarSign,
-  Plus,
-  Upload,
-  CheckCircle2,
-  XCircle,
-  FolderPlus,
-  RefreshCw,
-  Trash2,
-  CreditCard,
-  Receipt,
-} from 'lucide-react';
+// Expenses: shop bills and staff spending, with the vendor paid and the HST to claim back.
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@/context/AuthContext';
-import { ExpenseDto, ExpenseCategoryDto, AccountDto, StaffResponseDto } from '@/lib/types';
-import { formatMoney, toNumber, toList, todayISO } from '@/lib/format';
+import { useSearchParams } from 'next/navigation';
+import { Receipt, Plus, RefreshCw, Tags, Landmark, Check, X, Send, Wallet } from 'lucide-react';
+import { apiRequest } from '@/lib/api/client';
+import { toList } from '@/lib/format';
+import { useT, useMoney } from '@/context/LanguageContext';
+import { useToast } from '@/context/ToastContext';
+import {
+  Card,
+  Empty,
+  Field,
+  Loading,
+  Modal,
+  PageHeader,
+  Pill,
+  Stat,
+  dangerButton,
+  errorText,
+  inputClass,
+  num,
+  pick,
+  primaryButton,
+  quietButton,
+} from '@/components/admin/kit';
+import {
+  ExpenseCategory,
+  PAYMENT_METHODS,
+  PAYMENT_METHOD_LABEL,
+  PaymentMethod,
+  StaffMember,
+  Vendor,
+  hstIncluded,
+  loadExpenseCategories,
+  loadStaff,
+  loadVendors,
+  todayLocal,
+  loadSpendCategories,
+  expenseCategoryFor,
+} from '@/lib/money/shopMoney';
+import type { Category } from '@/lib/moneyBook';
 
-function formatDate(value: unknown): string {
-  if (!value) return '—';
-  const d = new Date(String(value));
-  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+type Status = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'PAID' | 'CANCELLED';
+
+interface Expense {
+  expenseId: string;
+  description: string;
+  amount: number;
+  hstAmount: number;
+  vendorId?: string;
+  vendorName?: string;
+  categoryId?: string;
+  categoryName?: string;
+  staffId?: string;
+  staffName?: string;
+  expenseDate: string;
+  paymentMethod?: PaymentMethod;
+  status: Status;
+  receiptNumber?: string;
+  notes?: string;
 }
 
-export default function AdminExpensesPage() {
+const STATUS_TONE: Record<Status, 'good' | 'warn' | 'bad' | 'gold' | 'plain'> = {
+  DRAFT: 'plain',
+  SUBMITTED: 'warn',
+  APPROVED: 'gold',
+  REJECTED: 'bad',
+  PAID: 'good',
+  CANCELLED: 'plain',
+};
+const STATUS_LABEL: Record<Status, string> = {
+  DRAFT: 'Draft',
+  SUBMITTED: 'Waiting for approval',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  PAID: 'Paid',
+  CANCELLED: 'Cancelled',
+};
+
+function monthStart(offset = 0) {
+  const d = new Date();
+  d.setMonth(d.getMonth() + offset, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+const EMPTY_FORM = {
+  categoryId: '',
+  vendorId: '',
+  vendorName: '',
+  description: '',
+  amount: '',
+  hstAmount: '',
+  expenseDate: '',
+  paymentMethod: 'BANK_TRANSFER' as PaymentMethod,
+  staffId: '',
+  receiptNumber: '',
+  notes: '',
+};
+
+// Reading ?new=1 needs a Suspense boundary in Next.js.
+export default function ExpensesPage() {
+  return (
+    <Suspense fallback={null}>
+      <Expenses />
+    </Suspense>
+  );
+}
+
+function Expenses() {
+  const { t } = useT();
+  const money = useMoney();
   const { showSuccess, showError } = useToast();
-  const { isAdmin, isLoading: isAuthLoading } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'expenses' | 'categories'>('expenses');
-  const [expenses, setExpenses] = useState<ExpenseDto[]>([]);
-  const [categories, setCategories] = useState<ExpenseCategoryDto[]>([]);
-  const [accounts, setAccounts] = useState<AccountDto[]>([]);
-  const [staffList, setStaffList] = useState<StaffResponseDto[]>([]);
-  const [selectedStaffId, setSelectedStaffId] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  // Backend expense categories (to name existing expenses) and Accounting's categories (to pick from).
+  const [categories, setCategories] = useState<ExpenseCategory[]>([]);
+  const [spendCats, setSpendCats] = useState<Category[]>([]);
+  const searchParams = useSearchParams();
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [from, setFrom] = useState(monthStart(-2));
+  const [to, setTo] = useState(todayLocal());
+  const [statusFilter, setStatusFilter] = useState<'' | Status>('');
 
-  // Log Expense Modal
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState('150.00');
-  const [categoryId, setCategoryId] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'COMPANY_CARD' | 'BANK_TRANSFER' | 'PERSONAL_CARD'>('CASH');
-  const [expenseDate, setExpenseDate] = useState(todayISO());
-  const [receiptNumber, setReceiptNumber] = useState('');
-  const [notes, setNotes] = useState('');
-  const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Expense | null>(null);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState('');
 
-  // Add Category Modal
-  const [showCatModal, setShowCatModal] = useState(false);
-  const [categoryName, setCategoryName] = useState('');
-  const [categoryDescription, setCategoryDescription] = useState('');
-  const [categoryAccountId, setCategoryAccountId] = useState('');
-  const [isSubmittingCat, setIsSubmittingCat] = useState(false);
+  const [catsOpen, setCatsOpen] = useState(false);
 
-  // Reject Reason Modal
-  const [showRejectModal, setShowRejectModal] = useState(false);
-  const [selectedExpense, setSelectedExpense] = useState<ExpenseDto | null>(null);
-  const [rejectionReason, setRejectionReason] = useState('Expense receipt missing or unapproved amount');
-  const [isRejecting, setIsRejecting] = useState(false);
+  const [rejecting, setRejecting] = useState<Expense | null>(null);
+  const [reason, setReason] = useState('');
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
-    let loadedCategories: ExpenseCategoryDto[] = [];
-
-    try {
-      const catRes = await apiRequest<any>('/api/v1/expenses/categories');
-      loadedCategories = toList<any>(catRes, 'categories')
-        .filter((c: any) => c && (c.categoryId || c.id))
-        .map((c: any) => ({
-          categoryId: c.categoryId || c.id,
-          categoryName: c.categoryName || c.name,
-          name: c.name || c.categoryName,
-          description: c.description,
-          accountId: c.accountId,
-        }));
-      setCategories(loadedCategories);
-      if (loadedCategories.length > 0) {
-        setCategoryId((prev) => prev || loadedCategories[0].categoryId);
-      }
-    } catch {
-      setCategories([]);
-    }
-
-    try {
-      const expRes = await apiRequest<any>('/api/v1/expenses');
-      const eList = toList<any>(expRes, 'expenses').filter(Boolean);
-      setExpenses(
-        eList.map((e: any) => {
-          const matchedCat = loadedCategories.find((c) => c.categoryId === e.categoryId);
-          return {
-            expenseId: e.expenseId || e.id,
-            description: e.description || e.title,
-            title: e.description || e.title,
-            amount: toNumber(e.amount),
-            currency: e.currency || 'CAD',
-            categoryName:
-              e.categoryName || e.category?.categoryName || e.category?.name || matchedCat?.categoryName || 'General Operating',
-            categoryId: e.categoryId,
-            paymentMethod: e.paymentMethod || 'CASH',
-            status: e.status || 'SUBMITTED',
-            receiptNumber: e.receiptNumber,
-            notes: e.notes,
-            createdAt: e.expenseDate || e.createdAt || '',
-          };
-        })
-      );
-    } catch {
-      setExpenses([]);
-    }
-
-    try {
-      const stfRes = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
-      const sList = toList<any>(stfRes, 'staff').filter((s: any) => s && (s.staffId || s.id));
-      if (sList.length > 0) {
-        const validStaff = sList
-          .filter((s: any) => s.staffId !== 'c3e2cead-5ad3-41f8-83c2-26c85bbd0648' && s.id !== 'c3e2cead-5ad3-41f8-83c2-26c85bbd0648')
-          .filter((s: any) => !s.tenantId || s.tenantId === DEFAULT_TENANT_ID);
-        const effectiveList = validStaff.length > 0 ? validStaff : sList;
-
-        const normalized: StaffResponseDto[] = effectiveList.map((s: any) => ({
-          staffId: s.staffId || s.id,
-          fullName: s.fullName || s.name || 'Specialist',
-          email: s.email,
-          phone: s.phone,
-          roleTitle: s.roleTitle || s.role || 'Barber Specialist',
-          employmentType: s.employmentType || 'FULL_TIME',
-          status: s.status || 'ACTIVE',
-        }));
-        setStaffList(normalized);
-        if (normalized.length > 0) {
-          setSelectedStaffId(normalized[0].staffId);
-        }
-      }
-    } catch {
-      setStaffList([]);
-    }
-
-    try {
-      const accRes = await apiRequest<any>('/api/v1/accounting/accounts');
-      setAccounts(
-        toList<any>(accRes, 'accounts')
-          .filter((a: any) => a && (a.accountId || a.id))
-          .map((a: any) => ({ ...a, accountId: a.accountId || a.id }))
-      );
-    } catch {
-      setAccounts([]);
-    }
-
-    setIsLoading(false);
+  const loadLists = useCallback(async () => {
+    const [c, v, s, sc] = await Promise.allSettled([loadExpenseCategories(), loadVendors(), loadStaff(), loadSpendCategories()]);
+    if (c.status === 'fulfilled') setCategories(c.value);
+    if (sc.status === 'fulfilled') setSpendCats(sc.value);
+    if (v.status === 'fulfilled') setVendors(v.value);
+    if (s.status === 'fulfilled') setStaff(s.value);
   }, []);
 
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams({ from, to });
+      if (statusFilter) qs.set('status', statusFilter);
+      const res = await apiRequest<any>(`/api/v1/expenses?${qs}`);
+      const list = toList(res, 'expenses', 'items', 'data').map(
+        (e: any): Expense => ({
+          expenseId: String(pick(e, 'expenseId', 'id')),
+          description: String(pick(e, 'description') ?? ''),
+          amount: num(e, 'amount', 'totalAmount'),
+          hstAmount: num(e, 'hstAmount', 'taxAmount'),
+          vendorId: pick(e, 'vendorId', 'vendor.vendorId'),
+          vendorName: pick(e, 'vendorName', 'vendor.name'),
+          categoryId: pick(e, 'categoryId', 'category.categoryId'),
+          categoryName: pick(e, 'categoryName', 'category.categoryName', 'category.name'),
+          staffId: pick(e, 'staffId', 'staff.staffId'),
+          staffName: pick(e, 'staffName', 'staff.fullName'),
+          expenseDate: String(pick(e, 'expenseDate', 'date') ?? '').slice(0, 10),
+          paymentMethod: pick(e, 'paymentMethod'),
+          status: String(pick(e, 'status') ?? 'DRAFT').toUpperCase() as Status,
+          receiptNumber: pick(e, 'receiptNumber'),
+          notes: pick(e, 'notes'),
+        })
+      );
+      list.sort((a, b) => b.expenseDate.localeCompare(a.expenseDate));
+      setExpenses(list);
+    } catch (err) {
+      showError(t('Could not load expenses'), errorText(err, ''));
+    } finally {
+      setLoading(false);
+    }
+  }, [from, to, statusFilter, showError, t]);
+
   useEffect(() => {
-    if (isAdmin) {
-      loadData();
-    } else {
-      setIsLoading(false);
-    }
-  }, [loadData, isAdmin]);
+    loadLists();
+  }, [loadLists]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  // Create Expense
-  const handleCreateExpense = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!categoryId) {
-      showError('Category Missing', 'Please create an expense category first.');
-      return;
-    }
+  const catName = (e: Expense) => {
+    const ec = categories.find((c) => c.categoryId === e.categoryId);
+    return spendCats.find((c) => c.id === ec?.accountId)?.name || e.categoryName || ec?.name || '—';
+  };
+  const staffName = (e: Expense) => e.staffName || staff.find((s) => s.staffId === e.staffId)?.fullName;
+  const vendorName = (e: Expense) => e.vendorName || vendors.find((v) => v.vendorId === e.vendorId)?.name;
 
-    let finalStaffId = selectedStaffId;
-    if (!finalStaffId && staffList.length > 0) {
-      finalStaffId = staffList[0].staffId;
-    }
-    if (!finalStaffId) {
-      showError('Staff Required', 'Please register at least one specialist or staff member first.');
-      return;
-    }
+  const totals = useMemo(() => {
+    const live = expenses.filter((e) => e.status !== 'REJECTED' && e.status !== 'CANCELLED');
+    return {
+      spent: live.reduce((s, e) => s + e.amount, 0),
+      hst: live.reduce((s, e) => s + e.hstAmount, 0),
+      waiting: expenses.filter((e) => e.status === 'SUBMITTED' || e.status === 'APPROVED').length,
+    };
+  }, [expenses]);
 
-    setIsSubmittingExpense(true);
+  const openNew = () => {
+    setEditing(null);
+    setForm({ ...EMPTY_FORM, expenseDate: todayLocal() });
+    setOpen(true);
+  };
+
+  const openEdit = (e: Expense) => {
+    setEditing(e);
+    setForm({
+      categoryId: categories.find((c) => c.categoryId === e.categoryId)?.accountId || '',
+      vendorId: e.vendorId || '',
+      vendorName: e.vendorId ? '' : e.vendorName || '',
+      description: e.description,
+      amount: String(e.amount),
+      hstAmount: e.hstAmount ? String(e.hstAmount) : '',
+      expenseDate: e.expenseDate,
+      paymentMethod: e.paymentMethod || 'BANK_TRANSFER',
+      staffId: e.staffId || '',
+      receiptNumber: e.receiptNumber || '',
+      notes: e.notes || '',
+    });
+    setOpen(true);
+  };
+
+  const set = (k: keyof typeof EMPTY_FORM) => (ev: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm((f) => ({ ...f, [k]: ev.target.value }));
+
+  const save = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    const amount = Number(form.amount);
+    const hst = form.hstAmount === '' ? 0 : Number(form.hstAmount);
+    if (!(amount > 0)) return showError(t('Enter an amount above zero'));
+    if (hst < 0 || hst > amount) return showError(t('HST must be between zero and the amount'));
+    setSaving(true);
     try {
-      await apiRequest('/api/v1/expenses', {
-        method: 'POST',
-        body: JSON.stringify({
-          staffId: finalStaffId,
-          categoryId,
-          description: description.trim(),
-          amount: toNumber(amount),
-          currency: 'CAD',
-          expenseDate,
-          paymentMethod,
-          receiptNumber: receiptNumber.trim() || undefined,
-          notes: notes.trim() || undefined,
-        }),
-      });
-
-      showSuccess('Expense Logged', `${description} submitted for approval.`);
-      setShowAddModal(false);
-      setDescription('');
-      loadData();
-    } catch (err: any) {
-      showError('Action Failed', err?.message || 'Could not log expense');
-    } finally {
-      setIsSubmittingExpense(false);
-    }
-  };
-
-  // Create Category
-  const handleCreateCategory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmittingCat(true);
-    try {
-      await apiRequest('/api/v1/expenses/categories', {
-        method: 'POST',
-        body: JSON.stringify({
-          categoryName: categoryName.trim(),
-          description: categoryDescription.trim(),
-          accountId: categoryAccountId || undefined,
-          requiresReceipt: true,
-        }),
-      });
-      showSuccess('Category Created', `${categoryName} added to expense categories.`);
-      setShowCatModal(false);
-      setCategoryName('');
-      setCategoryDescription('');
-      loadData();
-    } catch (err: any) {
-      showError('Action Failed', err?.message || 'Could not create category');
-    } finally {
-      setIsSubmittingCat(false);
-    }
-  };
-
-  // Workflow Approvals
-  // Newly created expenses may start as DRAFT and must be submitted before approval.
-  const handleSubmitExpense = async (expenseId: string) => {
-    try {
-      await apiRequest(`/api/v1/expenses/${expenseId}/submit`, { method: 'POST' });
-      showSuccess('Expense Submitted', 'Expense submitted for approval.');
-      loadData();
-    } catch (err: any) {
-      showError('Submit Failed', err?.message || 'Could not submit expense');
-    }
-  };
-
-  const handleApproveExpense = async (expenseId: string) => {
-    try {
-      await apiRequest(`/api/v1/expenses/${expenseId}/approve`, { method: 'POST' });
-      showSuccess('Expense Approved', 'Expense approved for payment.');
-      loadData();
-    } catch (err: any) {
-      showError('Approval Failed', err?.message || 'Could not approve expense');
-    }
-  };
-
-  const handlePayExpense = async (expenseId: string) => {
-    try {
-      await apiRequest(`/api/v1/expenses/${expenseId}/process-payment`, { method: 'POST' });
-      showSuccess('Expense Paid', 'Expense marked as PAID and settled.');
-      loadData();
-    } catch (err: any) {
-      showError('Payment Failed', err?.message || 'Could not pay expense');
-    }
-  };
-
-  const handleRejectSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedExpense) return;
-    setIsRejecting(true);
-    try {
-      await apiRequest(`/api/v1/expenses/${selectedExpense.expenseId}/reject`, {
-        method: 'POST',
-        body: JSON.stringify({ rejectionReason }),
-      });
-      showSuccess('Expense Rejected', 'Expense marked as REJECTED.');
-      setShowRejectModal(false);
-      setSelectedExpense(null);
-      loadData();
-    } catch (err: any) {
-      showError('Action Failed', err?.message || 'Could not reject expense');
-    } finally {
-      setIsRejecting(false);
-    }
-  };
-
-  const generateReceiptNumber = () => {
-    const d = new Date();
-    const ymd = d.toISOString().slice(0, 10).replace(/-/g, '');
-    const rand = Math.floor(1000 + Math.random() * 9000);
-    return `RCP-${ymd}-${rand}`;
-  };
-
-  const openAddExpenseModal = async () => {
-    setReceiptNumber(generateReceiptNumber());
-    setShowAddModal(true);
-    if (staffList.length === 0) {
-      try {
-        const stfRes = await apiRequest<any>(`/api/v1/staff?tenantId=${DEFAULT_TENANT_ID}`);
-        const sList = toList<any>(stfRes, 'staff').filter((s: any) => s && (s.staffId || s.id));
-        if (sList.length > 0) {
-          const validStaff = sList
-            .filter((s: any) => s.staffId !== 'c3e2cead-5ad3-41f8-83c2-26c85bbd0648' && s.id !== 'c3e2cead-5ad3-41f8-83c2-26c85bbd0648')
-            .filter((s: any) => !s.tenantId || s.tenantId === DEFAULT_TENANT_ID);
-          const effectiveList = validStaff.length > 0 ? validStaff : sList;
-
-          const normalized: StaffResponseDto[] = effectiveList.map((s: any) => ({
-            staffId: s.staffId || s.id,
-            fullName: s.fullName || s.name || 'Specialist',
-            email: s.email,
-            phone: s.phone,
-            roleTitle: s.roleTitle || s.role || 'Barber Specialist',
-            employmentType: s.employmentType || 'FULL_TIME',
-            status: s.status || 'ACTIVE',
-          }));
-          setStaffList(normalized);
-          if (normalized.length > 0) {
-            setSelectedStaffId(normalized[0].staffId);
-          }
+      if (editing) {
+        const body: Record<string, unknown> = {
+          description: form.description.trim(),
+          amount,
+          hstAmount: hst,
+          expenseDate: form.expenseDate,
+          notes: form.notes.trim() || undefined,
+          vendorId: form.vendorId || null,
+          vendorName: form.vendorId ? null : form.vendorName.trim() || null,
+        };
+        await apiRequest(`/api/v1/expenses/${editing.expenseId}`, { method: 'PUT', body: JSON.stringify(body) });
+        showSuccess(t('Expense saved'));
+      } else {
+        const spendCat = spendCats.find((c) => c.id === form.categoryId);
+        if (!spendCat) {
+          setSaving(false);
+          return showError(t('Pick a category'));
         }
-      } catch {
-        /* empty */
+        const body: Record<string, unknown> = {
+          categoryId: await expenseCategoryFor(spendCat),
+          description: form.description.trim(),
+          amount,
+          hstAmount: hst,
+          currency: 'CAD',
+          expenseDate: form.expenseDate,
+          paymentMethod: form.paymentMethod,
+        };
+        if (form.vendorId) body.vendorId = form.vendorId;
+        else if (form.vendorName.trim()) body.vendorName = form.vendorName.trim();
+        if (form.staffId) body.staffId = form.staffId;
+        if (form.receiptNumber.trim()) body.receiptNumber = form.receiptNumber.trim();
+        if (form.notes.trim()) body.notes = form.notes.trim();
+        await apiRequest('/api/v1/expenses', { method: 'POST', body: JSON.stringify(body) });
+        showSuccess(t('Expense added'));
       }
+      setOpen(false);
+      load();
+      loadExpenseCategories().then(setCategories).catch(() => {});
+    } catch (err) {
+      showError(t('Could not save the expense'), errorText(err, ''));
+    } finally {
+      setSaving(false);
     }
   };
 
-  if (!isAuthLoading && !isAdmin) {
-    return (
-      <div className="p-8 max-w-lg mx-auto text-center space-y-4 pt-16 animate-fade-in">
-        <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 dark:bg-amber-950/50 flex items-center justify-center mx-auto border border-amber-200">
-          <DollarSign className="w-7 h-7" />
-        </div>
-        <h2 className="text-lg font-black text-[var(--foreground)]">Administrator Access Required</h2>
-        <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
-          Operating expenses, accounting budgets, and expense approval workflows are restricted to Salon Owners and Administrators.
-        </p>
-        <div className="pt-2">
-          <Link
-            href="/admin/dashboard"
-            className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-2"
-          >
-            Back to Dashboard
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  const step = async (e: Expense, action: 'submit' | 'approve' | 'process-payment', done: string) => {
+    setBusyId(e.expenseId);
+    try {
+      await apiRequest(`/api/v1/expenses/${e.expenseId}/${action}`, { method: 'POST', body: '{}' });
+      showSuccess(t(done));
+      load();
+    } catch (err) {
+      showError(t('That did not work'), errorText(err, ''));
+    } finally {
+      setBusyId('');
+    }
+  };
+
+  const reject = async () => {
+    if (!rejecting || !reason.trim()) return;
+    setBusyId(rejecting.expenseId);
+    try {
+      await apiRequest(`/api/v1/expenses/${rejecting.expenseId}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ rejectionReason: reason.trim() }),
+      });
+      showSuccess(t('Expense rejected'));
+      setRejecting(null);
+      setReason('');
+      load();
+    } catch (err) {
+      showError(t('That did not work'), errorText(err, ''));
+    } finally {
+      setBusyId('');
+    }
+  };
+
+  // Accounting's "Add expense" sends people here (?new=1) so every expense is added in one place.
+  const wantsNew = searchParams.get('new') === '1';
+  useEffect(() => {
+    if (wantsNew) openNew();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsNew]);
+
+  const amountNum = Number(form.amount) || 0;
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-[var(--foreground)] tracking-tight">Business Operating Expenses</h1>
-          <p className="text-xs text-[var(--muted-foreground)] mt-0.5 font-medium">
-            Track operational salon spending, receipt documentation, and expense approval workflows.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={loadData}
-            className="p-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)]"
-            title="Refresh Data"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowCatModal(true)}
-            className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--border)] border border-[var(--border)] flex items-center gap-1.5"
-          >
-            <FolderPlus className="w-4 h-4 text-[var(--primary)]" />
-            <span>New Category</span>
-          </button>
-          <button
-            onClick={openAddExpenseModal}
-            className="btn-primary px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Log Expense</span>
+    <div className="space-y-6">
+      <PageHeader
+        title={t('Expenses')}
+        subtitle={t('Shop bills and staff spending, with who was paid and the HST you can claim back.')}
+        actions={
+          <>
+            <Link href="/admin/bank" className={quietButton}>
+              <Landmark className="h-4 w-4" /> {t('Bank import')}
+            </Link>
+            <button onClick={() => setCatsOpen(true)} className={quietButton}>
+              <Tags className="h-4 w-4" /> {t('Categories')}
+            </button>
+            <button onClick={openNew} className={primaryButton}>
+              <Plus className="h-4 w-4" /> {t('Add expense')}
+            </button>
+          </>
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Stat label={t('Spent')} value={money(totals.spent)} hint={t('HST included')} />
+        <Stat label={t('HST to claim back')} value={money(totals.hst)} hint={t('Input tax credits')} />
+        <Stat label={t('Waiting')} value={String(totals.waiting)} hint={t('To approve or pay')} />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
+        <Field label={t('From')}>
+          <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className={inputClass} />
+        </Field>
+        <Field label={t('To')}>
+          <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className={inputClass} />
+        </Field>
+        <Field label={t('Status')}>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as Status | '')} className={inputClass}>
+            <option value="">{t('All')}</option>
+            {(Object.keys(STATUS_LABEL) as Status[]).map((s) => (
+              <option key={s} value={s}>
+                {t(STATUS_LABEL[s])}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <div className="flex items-end">
+          <button onClick={load} className={`${quietButton} h-[42px] w-full`} aria-label={t('Refresh')}>
+            <RefreshCw className="h-4 w-4" />
           </button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-[var(--border)] pb-2">
-        <button
-          onClick={() => setActiveTab('expenses')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'expenses'
-              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm font-black'
-              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-          }`}
-        >
-          Expenses Ledger ({expenses.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('categories')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'categories'
-              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm font-black'
-              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-          }`}
-        >
-          Expense Categories ({categories.length})
-        </button>
-      </div>
-
-      {/* Expenses Tab */}
-      {activeTab === 'expenses' && (
-        <div className="glass-card rounded-2xl overflow-hidden border border-[var(--border)]">
-          {isLoading ? (
-            <div className="p-12 text-center text-xs text-[var(--muted-foreground)]">Loading expenses...</div>
-          ) : expenses.length === 0 ? (
-            <div className="p-12 text-center space-y-3">
-              <DollarSign className="w-10 h-10 text-[var(--muted-foreground)] mx-auto opacity-40" />
-              <h3 className="text-sm font-bold text-[var(--foreground)]">No operational expenses logged</h3>
-              <p className="text-xs text-[var(--muted-foreground)] max-w-sm mx-auto">
-                Log utilities, salon supplies, marketing, or rent expenses to track disbursements.
-              </p>
-              <button
-                onClick={openAddExpenseModal}
-                className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Log First Expense</span>
-              </button>
-            </div>
-          ) : (
-            <div className="divide-y divide-[var(--border)]">
-              {expenses.map((exp) => (
-                <div key={exp.expenseId} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 flex items-center justify-center shrink-0 border border-amber-200">
-                      <DollarSign className="w-5 h-5" />
+      <Card className="overflow-hidden">
+        {loading ? (
+          <Loading text={t('Loading…')} />
+        ) : expenses.length === 0 ? (
+          <Empty
+            icon={<Receipt className="h-6 w-6" />}
+            title={t('No expenses in these dates')}
+            text={t('Add one by hand, or import a bank statement to turn its lines into expenses.')}
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <button onClick={openNew} className={primaryButton}>
+                  <Plus className="h-4 w-4" /> {t('Add expense')}
+                </button>
+                <Link href="/admin/bank" className={quietButton}>
+                  <Landmark className="h-4 w-4" /> {t('Bank import')}
+                </Link>
+              </div>
+            }
+          />
+        ) : (
+          <ul className="divide-y divide-[var(--border)]">
+            {expenses.map((e) => {
+              const who = vendorName(e);
+              const person = staffName(e);
+              const busy = busyId === e.expenseId;
+              return (
+                <li key={e.expenseId} className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+                  <button onClick={() => openEdit(e)} className="flex min-w-0 items-start gap-3 text-start">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--primary-light)] text-[var(--primary)]">
+                      <Receipt className="h-5 w-5" />
                     </div>
-                    <div>
-                      <h3 className="text-xs font-black text-[var(--foreground)]">{exp.description}</h3>
-                      <span className="text-[10px] font-bold text-[var(--primary)] uppercase block">
-                        {exp.categoryName || 'General'} · {exp.paymentMethod || 'CASH'}
-                      </span>
-                      <span className="text-[11px] text-[var(--muted-foreground)] block">
-                        {formatDate(exp.createdAt)}
-                      </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-[var(--foreground)]">{e.description || who || catName(e)}</p>
+                      <p className="text-xs text-[var(--muted-foreground)]">
+                        <span dir="ltr">{e.expenseDate}</span> · {catName(e)}
+                        {who ? ` · ${who}` : ''}
+                        {person ? ` · ${t('Spent by {name}', { name: person })}` : ''}
+                      </p>
                     </div>
-                  </div>
-
-                  <div className="flex items-center justify-between sm:justify-end gap-3">
-                    <div className="text-right">
-                      <span className="text-sm font-black text-[var(--foreground)] block">
-                        ${formatMoney(exp.amount)} CAD
-                      </span>
-                      <Badge variant={exp.status} />
+                  </button>
+                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                    <div className="me-2 text-end">
+                      <p className="text-sm font-bold tabular-nums text-[var(--foreground)]">{money(e.amount)}</p>
+                      {e.hstAmount > 0 && (
+                        <p className="text-[11px] tabular-nums text-[var(--muted-foreground)]">
+                          {t('HST')} {money(e.hstAmount)}
+                        </p>
+                      )}
                     </div>
-
-                    {/* Workflow triggers */}
-                    <div className="flex items-center gap-1">
-                      {exp.status === 'DRAFT' && (
-                        <button
-                          onClick={() => handleSubmitExpense(exp.expenseId)}
-                          className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] border border-[var(--border)]"
-                          title="Submit for approval"
-                        >
-                          Submit
+                    <Pill tone={STATUS_TONE[e.status]}>{t(STATUS_LABEL[e.status] || e.status)}</Pill>
+                    {e.status === 'DRAFT' && (
+                      <button disabled={busy} onClick={() => step(e, 'submit', 'Sent for approval')} className={quietButton}>
+                        <Send className="h-3.5 w-3.5" /> {t('Submit')}
+                      </button>
+                    )}
+                    {e.status === 'SUBMITTED' && (
+                      <>
+                        <button disabled={busy} onClick={() => step(e, 'approve', 'Expense approved')} className={quietButton}>
+                          <Check className="h-3.5 w-3.5" /> {t('Approve')}
                         </button>
-                      )}
-
-                      {exp.status === 'SUBMITTED' && (
-                        <>
-                          <button
-                            onClick={() => handleApproveExpense(exp.expenseId)}
-                            className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50"
-                            title="Approve Expense"
-                          >
-                            <CheckCircle2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setSelectedExpense(exp);
-                              setShowRejectModal(true);
-                            }}
-                            className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50"
-                            title="Reject Expense"
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
-
-                      {exp.status === 'APPROVED' && (
-                        <button
-                          onClick={() => handlePayExpense(exp.expenseId)}
-                          className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1"
-                        >
-                          <CreditCard className="w-3.5 h-3.5" />
-                          <span>Pay</span>
+                        <button disabled={busy} onClick={() => setRejecting(e)} className={dangerButton}>
+                          <X className="h-3.5 w-3.5" /> {t('Reject')}
                         </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Categories Tab */}
-      {activeTab === 'categories' && (
-        <div className="glass-card rounded-2xl overflow-hidden border border-[var(--border)]">
-          {categories.length === 0 ? (
-            <div className="p-12 text-center space-y-3">
-              <FolderPlus className="w-10 h-10 text-[var(--muted-foreground)] mx-auto opacity-40" />
-              <h3 className="text-sm font-bold text-[var(--foreground)]">No expense categories created</h3>
-              <p className="text-xs text-[var(--muted-foreground)] max-w-sm mx-auto">
-                Create categories (Supplies, Rent, Utilities, Marketing) to categorize expenses.
-              </p>
-              <button
-                onClick={() => setShowCatModal(true)}
-                className="btn-primary px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Create First Category</span>
-              </button>
-            </div>
-          ) : (
-            <div className="divide-y divide-[var(--border)]">
-              {categories.map((cat) => (
-                <div key={cat.categoryId} className="p-4 flex items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-xs font-black text-[var(--foreground)]">{cat.name || cat.categoryName}</h3>
-                    {cat.description && (
-                      <p className="text-[11px] text-[var(--muted-foreground)]">{cat.description}</p>
+                      </>
+                    )}
+                    {e.status === 'APPROVED' && (
+                      <button disabled={busy} onClick={() => step(e, 'process-payment', 'Marked as paid')} className={primaryButton}>
+                        <Wallet className="h-3.5 w-3.5" /> {t('Mark paid')}
+                      </button>
                     )}
                   </div>
-                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[var(--muted)] text-[var(--primary)]">
-                    Active Category
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
 
-      {/* Log Expense Modal */}
+      {/* Add / edit */}
       <Modal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        title="Log Operating Expense"
-        maxWidth="md"
-      >
-        <form onSubmit={handleCreateExpense} className="space-y-4">
-          <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-600 dark:text-blue-400 font-medium flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>Approved expenses automatically sync and post debit/credit journals to the General Ledger.</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Expense Description</label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. Barber Chairs Disinfectant & Towels"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Staff Submitter</label>
-              {staffList.length === 0 ? (
-                <div className="px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-[11px] font-semibold text-amber-800 dark:text-amber-300 border border-amber-200">
-                  No staff found. Please add a specialist first.
-                </div>
-              ) : (
-                <select
-                  value={selectedStaffId}
-                  onChange={(e) => setSelectedStaffId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-                >
-                  {staffList.map((stf) => (
-                    <option key={stf.staffId} value={stf.staffId}>
-                      {stf.fullName} ({stf.roleTitle || 'Specialist'})
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Amount (CAD $)</label>
-              <input
-                type="number"
-                step="0.01"
-                required
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Category</label>
-              <select
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-              >
-                {categories.map((c) => (
-                  <option key={c.categoryId} value={c.categoryId}>
-                    {c.name || c.categoryName}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Payment Method</label>
-              <select
-                value={paymentMethod}
-                onChange={(e: any) => setPaymentMethod(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-              >
-                <option value="CASH">CASH</option>
-                <option value="COMPANY_CARD">COMPANY CARD</option>
-                <option value="BANK_TRANSFER">BANK TRANSFER</option>
-                <option value="PERSONAL_CARD">PERSONAL CARD</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Expense Date</label>
-              <input
-                type="date"
-                required
-                value={expenseDate}
-                onChange={(e) => setExpenseDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-bold text-[var(--foreground)]">Receipt / Ref #</label>
-                <button
-                  type="button"
-                  onClick={() => setReceiptNumber(generateReceiptNumber())}
-                  className="text-[10px] text-[var(--primary)] hover:underline flex items-center gap-1 font-semibold"
-                  title="Generate new receipt number"
-                >
-                  <RefreshCw className="w-2.5 h-2.5" />
-                  <span>Auto-Gen</span>
-                </button>
-              </div>
-              <input
-                type="text"
-                placeholder="e.g. RCP-20260906-4402"
-                value={receiptNumber}
-                onChange={(e) => setReceiptNumber(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Notes</label>
-              <input
-                type="text"
-                placeholder="Additional notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)]"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
-            <button
-              type="button"
-              onClick={() => setShowAddModal(false)}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]"
-            >
-              Cancel
+        open={open}
+        wide
+        title={editing ? t('Edit expense') : t('Add expense')}
+        onClose={() => setOpen(false)}
+        footer={
+          <>
+            <button type="button" onClick={() => setOpen(false)} className={quietButton}>
+              {t('Cancel')}
             </button>
-            <button
-              type="submit"
-              disabled={isSubmittingExpense}
-              className="btn-primary px-5 py-2 rounded-xl text-xs font-bold disabled:opacity-50"
-            >
-              {isSubmittingExpense ? 'Submitting...' : 'Submit Expense'}
+            <button type="submit" form="expense-form" disabled={saving} className={primaryButton}>
+              {saving ? t('Saving…') : t('Save')}
             </button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Create Category Modal */}
-      <Modal
-        isOpen={showCatModal}
-        onClose={() => setShowCatModal(false)}
-        title="Create Expense Category"
-        maxWidth="sm"
+          </>
+        }
       >
-        <form onSubmit={handleCreateCategory} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Category Name</label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. Salon Equipment & Supplies"
-              value={categoryName}
-              onChange={(e) => setCategoryName(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Description (Optional)</label>
-            <input
-              type="text"
-              placeholder="e.g. Shaving cream, oils, disinfectant"
-              value={categoryDescription}
-              onChange={(e) => setCategoryDescription(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-semibold text-[var(--foreground)]"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-[var(--foreground)] mb-1">Linked GL Account (Optional)</label>
-            <select
-              value={categoryAccountId}
-              onChange={(e) => setCategoryAccountId(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold text-[var(--foreground)]"
-            >
-              <option value="">None / Auto Assign</option>
-              {accounts.map((a) => (
-                <option key={a.accountId} value={a.accountId}>
-                  {a.accountCode} - {a.accountName}
+        <form id="expense-form" onSubmit={save} className="grid gap-4 sm:grid-cols-2">
+          <Field label={t('Category')} hint={editing ? t('The category and payment method are fixed once saved.') : undefined}>
+            <select required value={form.categoryId} onChange={set('categoryId')} disabled={!!editing} className={inputClass}>
+              <option value="">{t('Choose…')}</option>
+              {spendCats.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {t(c.name)}
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
-            <button
-              type="button"
-              onClick={() => setShowCatModal(false)}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)]"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmittingCat}
-              className="btn-primary px-5 py-2 rounded-xl text-xs font-bold disabled:opacity-50"
-            >
-              {isSubmittingCat ? 'Creating...' : 'Create Category'}
-            </button>
-          </div>
+          </Field>
+          <Field label={t('Date')}>
+            <input type="date" required value={form.expenseDate} onChange={set('expenseDate')} className={inputClass} />
+          </Field>
+          <Field label={t('Vendor')} hint={t('Who was paid. Not in the list? Type the name below.')}>
+            <select value={form.vendorId} onChange={set('vendorId')} className={inputClass}>
+              <option value="">{t('Not in the list')}</option>
+              {vendors.map((v) => (
+                <option key={v.vendorId} value={v.vendorId}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label={t('Paid to (name)')}>
+            <input value={form.vendorName} onChange={set('vendorName')} disabled={!!form.vendorId} className={inputClass} placeholder={form.vendorId ? '' : 'e.g. Kent Building Supplies'} />
+          </Field>
+          <Field label={t('What was it for?')} className="sm:col-span-2">
+            <input required value={form.description} onChange={set('description')} className={inputClass} />
+          </Field>
+          <Field label={t('Amount, HST included')}>
+            <input type="number" inputMode="decimal" step="0.01" min="0.01" required dir="ltr" value={form.amount} onChange={set('amount')} className={inputClass} />
+          </Field>
+          <Field label={t('HST in that amount')} hint={t('Leave empty if there was no HST.')}>
+            <div className="flex gap-2">
+              <input type="number" inputMode="decimal" step="0.01" min="0" dir="ltr" value={form.hstAmount} onChange={set('hstAmount')} className={inputClass} />
+              <button
+                type="button"
+                disabled={!(amountNum > 0)}
+                onClick={() => setForm((f) => ({ ...f, hstAmount: hstIncluded(amountNum).toFixed(2) }))}
+                className={quietButton}
+              >
+                15%
+              </button>
+            </div>
+          </Field>
+          <Field label={t('Paid with')}>
+            <select value={form.paymentMethod} onChange={set('paymentMethod')} disabled={!!editing} className={inputClass}>
+              {PAYMENT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {t(PAYMENT_METHOD_LABEL[m])}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label={t('Spent by (staff)')} hint={t('Leave as "Shop" for shop bills.')}>
+            <select value={form.staffId} onChange={set('staffId')} disabled={!!editing} className={inputClass}>
+              <option value="">{t('Shop')}</option>
+              {staff.map((s) => (
+                <option key={s.staffId} value={s.staffId}>
+                  {s.fullName}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {!editing && (
+            <Field label={t('Receipt number')}>
+              <input dir="ltr" value={form.receiptNumber} onChange={set('receiptNumber')} className={inputClass} />
+            </Field>
+          )}
+          <Field label={t('Notes')} className={editing ? 'sm:col-span-2' : ''}>
+            <input value={form.notes} onChange={set('notes')} className={inputClass} />
+          </Field>
         </form>
       </Modal>
 
-      {/* Reject Modal */}
-      {selectedExpense && (
-        <Modal
-          isOpen={showRejectModal}
-          onClose={() => setShowRejectModal(false)}
-          title="Reject Expense"
-          maxWidth="sm"
-        >
-          <form onSubmit={handleRejectSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold mb-1">Rejection Reason</label>
-              <input
-                type="text"
-                required
-                value={rejectionReason}
-                onChange={(e) => setRejectionReason(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[var(--muted)] border border-[var(--border-strong)] text-xs font-bold"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
-              <button
-                type="button"
-                onClick={() => setShowRejectModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--muted)]"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isRejecting}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
-              >
-                {isRejecting ? 'Rejecting...' : 'Reject Expense'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
+      {/* Categories: Accounting's own list */}
+      <Modal open={catsOpen} title={t('Expense categories')} onClose={() => setCatsOpen(false)}>
+        <p className="text-sm text-[var(--muted-foreground)]">
+          {t('Expenses use the same categories as Accounting, so every expense shows there under the right heading.')}
+        </p>
+        <ul className="flex flex-wrap gap-2">
+          {spendCats.map((c) => (
+            <li key={c.id}>
+              <Pill tone="gold">{t(c.name)}</Pill>
+            </li>
+          ))}
+        </ul>
+        <Link href="/admin/accounting/categories" className={primaryButton}>
+          <Tags className="h-4 w-4" /> {t('Add or rename categories in Accounting')}
+        </Link>
+      </Modal>
+
+      {/* Reject */}
+      <Modal
+        open={!!rejecting}
+        title={t('Reject expense')}
+        onClose={() => setRejecting(null)}
+        footer={
+          <>
+            <button onClick={() => setRejecting(null)} className={quietButton}>
+              {t('Cancel')}
+            </button>
+            <button onClick={reject} disabled={!reason.trim() || !!busyId} className={dangerButton}>
+              {t('Reject')}
+            </button>
+          </>
+        }
+      >
+        <Field label={t('Reason')}>
+          <input value={reason} onChange={(e) => setReason(e.target.value)} className={inputClass} autoFocus />
+        </Field>
+      </Modal>
     </div>
   );
 }

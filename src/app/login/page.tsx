@@ -249,12 +249,12 @@ export default function LoginPage() {
         {/* Left Branded Hero Panel */}
         <div className="p-8 lg:p-12 brand-panel text-[var(--foreground)] border-b md:border-b-0 md:border-r border-[var(--border)] flex flex-col justify-between relative overflow-hidden">
           <div className="space-y-4 relative z-10">
-            <img src="/logo-mark.jpg" alt="" className="w-16 h-16 rounded-full ring-1 ring-[var(--primary)]/50 shadow-[0_0_30px_-6px_var(--primary-ring)]" />
-            <h1 className="metal-silver text-2xl sm:text-3xl font-black tracking-tight leading-tight">
+            <img src="/am-logo.svg" alt="" className="h-20 w-auto drop-shadow-[0_0_30px_var(--primary-ring)]" />
+            <h1 className="metal-gold font-display text-2xl sm:text-3xl font-bold tracking-[0.08em] leading-tight">
               {settings.siteName}
             </h1>
             <p className="text-xs sm:text-sm text-[var(--primary)] leading-relaxed font-medium">
-              {settings.tagline} — Fredericton Downtown Main Branch
+              {settings.tagline}
             </p>
           </div>
 
@@ -545,7 +545,7 @@ export default function LoginPage() {
 
           <div className="pt-4 border-t border-[var(--border)] text-center">
             <p className="text-[11px] text-[var(--muted-foreground)] font-medium">
-              © {settings.siteName} • Downtown Fredericton, NB
+              © {settings.siteName} • 80 York Street, Fredericton, NB
             </p>
           </div>
         </div>

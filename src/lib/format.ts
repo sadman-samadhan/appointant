@@ -14,6 +14,13 @@ export function formatMoney(value: unknown): string {
   return toNumber(value).toFixed(2);
 }
 
+const amountFormat = new Intl.NumberFormat('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** For reading, not for form fields: "1,942.97". */
+export function formatAmount(value: unknown): string {
+  return amountFormat.format(toNumber(value));
+}
+
 // Services expose `basePrice` (string); older mock data used `price`.
 export function servicePrice(service: any): number {
   return toNumber(service?.price ?? service?.basePrice);

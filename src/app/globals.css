@@ -3,103 +3,130 @@
 /* `dark:` classes follow the app's day/night toggle (the .dark class), not the computer's setting. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Colours from the logo: champagne gold, platinum silver, near-black. */
+/* AM Barbershop: polished gold on warm black, Art Deco corners. No silver. */
+@theme {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 5px;
+  --radius-2xl: 7px;
+  --radius-3xl: 9px;
+}
+
 :root {
-  /* Light mode: ivory and platinum, with a deep gold that reads on white */
-  --background: #F6F5F2;
-  --foreground: #151517;
-  --primary: #8A6A1F;
-  --primary-hover: #6F5418;
+  /* Day: warm cream with a deep bronze gold that reads on white */
+  --background: #FBF7EE;
+  --foreground: #17130C;
+  --primary: #8C6514;
+  --primary-hover: #6E4F0F;
   --primary-foreground: #FFFFFF;
-  --primary-light: #F1EADA;
-  --primary-ring: rgba(138, 106, 31, 0.18);
-  --silver: #8E8C86;
+  --primary-light: #F4EAD2;
+  --primary-ring: rgba(140, 101, 20, 0.2);
+  --gold-glow: rgba(196, 146, 40, 0.16);
   --card: #FFFFFF;
-  --card-foreground: #151517;
-  --muted: #EEEDE9;
-  --muted-foreground: #66645F;
-  --border: #E4E2DC;
-  --border-strong: #CFCCC4;
-  --shadow: rgba(21, 21, 23, 0.06);
+  --card-foreground: #17130C;
+  --muted: #F3ECDD;
+  --muted-foreground: #6B5F4A;
+  --border: #E8DFCC;
+  --border-strong: #D4C6A8;
+  --shadow: rgba(60, 42, 10, 0.08);
 
   /* Theme Customization Studio overrides (set only when the owner picks a custom colour) */
   --theme-primary: var(--primary);
-  --theme-secondary: var(--silver);
+  --theme-secondary: var(--primary-hover);
   --theme-accent: var(--primary);
 }
 
 .dark {
-  /* Dark mode (default): black, champagne gold, platinum silver */
-  --background: #0A0A0B;
-  --foreground: #ECEAE5;
-  --primary: #C9A55C;
-  --primary-hover: #DDBF7E;
-  --primary-foreground: #0A0A0B;
-  --primary-light: rgba(201, 165, 92, 0.12);
-  --primary-ring: rgba(201, 165, 92, 0.32);
-  --silver: #C9C7C1;
-  --card: #141416;
-  --card-foreground: #ECEAE5;
-  --muted: #1B1B1E;
-  --muted-foreground: #A3A19B;
-  --border: #26262A;
-  --border-strong: #38383D;
-  --shadow: rgba(0, 0, 0, 0.5);
+  /* Night (default): warm black and polished gold */
+  --background: #0B0906;
+  --foreground: #F3EBDD;
+  --primary: #E2B04A;
+  --primary-hover: #F0C866;
+  --primary-foreground: #0B0906;
+  --primary-light: rgba(226, 176, 74, 0.12);
+  --primary-ring: rgba(226, 176, 74, 0.35);
+  --gold-glow: rgba(226, 176, 74, 0.13);
+  --card: #15110B;
+  --card-foreground: #F3EBDD;
+  --muted: #1C170F;
+  --muted-foreground: #B5A88F;
+  --border: #2B2418;
+  --border-strong: #43382A;
+  --shadow: rgba(0, 0, 0, 0.55);
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
   min-height: 100vh;
+  font-family: var(--font-sans), system-ui, sans-serif;
 }
 
-/* Dark mode: the woven black check from the logo's background, behind the content only
-   (cards stay solid). Thin light threads every 32px over broader alternating bands. */
-.dark {
-  --grid:
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 32px),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 32px),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.018) 0 16px, transparent 16px 32px),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.018) 0 16px, transparent 16px 32px);
-}
-
-.dark body,
-.dark .bg-\[var\(--background\)\] {
-  background-image: var(--grid);
+/* A soft gold glow from the top of every page. */
+body,
+.bg-\[var\(--background\)\] {
+  background-image: radial-gradient(ellipse 90% 55% at 50% -10%, var(--gold-glow), transparent 70%);
+  background-repeat: no-repeat;
   background-attachment: fixed;
 }
 
-/* Sign-in page's brand panel: follows day/night. Ivory-platinum by day, the logo's black check by night. */
+/* Sign-in page's brand panel: cream by day, black with a gold glow by night. */
 .brand-panel {
   background-color: var(--muted);
   background-image:
-    repeating-linear-gradient(90deg, rgba(21, 21, 23, 0.04) 0 1px, transparent 1px 32px),
-    repeating-linear-gradient(0deg, rgba(21, 21, 23, 0.04) 0 1px, transparent 1px 32px);
+    radial-gradient(ellipse 80% 60% at 50% 0%, var(--gold-glow), transparent 70%),
+    repeating-linear-gradient(135deg, transparent 0 22px, rgba(140, 101, 20, 0.05) 22px 23px);
 }
 
 .dark .brand-panel {
   background-color: var(--background);
-  background-image: var(--grid);
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% 0%, var(--gold-glow), transparent 70%),
+    repeating-linear-gradient(135deg, transparent 0 22px, rgba(226, 176, 74, 0.05) 22px 23px);
 }
 
-/* Walk-in: platinum silver beside the gold "New booking", like the logo. In light mode it is
-   black with silver lettering. */
-.btn-silver {
-  background: linear-gradient(180deg, #F2F1EE 0%, #CFCDC7 55%, #ADABA5 100%);
-  color: #0A0A0B;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  transition: filter 0.2s ease, transform 0.2s ease;
+/* Walk-in: a gold outline beside the solid gold "New booking". */
+.btn-outline-gold {
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
-:root:not(.dark) .btn-silver {
-  background: linear-gradient(180deg, #2A2A2E 0%, #141416 100%);
-  color: #E4E2DC;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-}
-
-.btn-silver:hover {
-  filter: brightness(1.06);
+.btn-outline-gold:hover {
+  background: var(--primary-light);
   transform: translateY(-1px);
+}
+
+/* Polished gold lettering for names and headings. */
+.metal-gold {
+  background: linear-gradient(180deg, #FFE7A3 0%, #E2B04A 50%, #B9831F 80%, #F0C866 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+:root:not(.dark) .metal-gold {
+  background: linear-gradient(180deg, #A9791B 0%, #7A570F 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* A thin gold rule with a centre dot, used under section titles. */
+.deco-rule {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--primary);
+}
+.deco-rule::before,
+.deco-rule::after {
+  content: '';
+  height: 1px;
+  width: 3rem;
+  background: currentColor;
+  opacity: 0.6;
 }
 
 /* Glassmorphism & Elevation Utilities */
@@ -114,28 +141,9 @@ body {
 .btn-primary {
   background-color: var(--theme-primary, var(--primary));
   color: var(--primary-foreground);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 8px 22px -10px var(--primary-ring);
   /* Only colour and lift animate; animating size made the button look squashed while the layout settled. */
   transition: filter 0.2s ease-in-out, transform 0.2s ease-in-out, background-color 0.2s ease-in-out;
-}
-
-/* Brushed-silver lettering, like the logo's wordmark. `.metal-silver-dark` is for panels that
-   stay black in light mode too. */
-.metal-silver,
-.metal-silver-dark {
-  background: linear-gradient(180deg, #FFFFFF 0%, var(--silver) 55%, #8A8882 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.metal-silver-dark {
-  --silver: #C9C7C1;
-}
-
-:root:not(.dark) .metal-silver {
-  background: none;
-  color: var(--foreground);
 }
 
 .btn-primary:hover {
@@ -187,15 +195,22 @@ body {
 .home-theme .font-display {
   font-family: var(--font-display), Georgia, serif;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.02em;
 }
 
 /* Soft warm wash behind the hero and reviews */
 .home-theme .hero-wash {
   background:
-    radial-gradient(ellipse 70% 60% at 85% 0%, var(--primary-light), transparent 70%),
-    radial-gradient(ellipse 60% 50% at 0% 100%, var(--muted), transparent 70%),
+    radial-gradient(ellipse 70% 70% at 80% 10%, var(--gold-glow), transparent 70%),
+    radial-gradient(ellipse 50% 50% at 0% 100%, var(--primary-light), transparent 70%),
     var(--background);
+}
+
+/* Art Deco sunburst, only behind the homepage hero. */
+.home-theme .hero-rays {
+  background: repeating-conic-gradient(from 0deg at 50% 0%, transparent 0deg 6deg, var(--primary-light) 6deg 7deg);
+  mask-image: radial-gradient(ellipse 70% 80% at 50% 0%, #000 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 80% at 50% 0%, #000 30%, transparent 75%);
 }
 
 .home-theme .eyebrow {
@@ -214,8 +229,10 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 9999px;
+  border-radius: 2px;
   font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--primary-foreground);
   background: var(--theme-primary, var(--primary));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 10px 24px -12px var(--primary-ring);
@@ -277,4 +294,14 @@ body {
     padding: 0 !important;
     max-width: none !important;
   }
+}
+
+/* Admin pages in Arabic: Cairo for the letters (Latin text in it still uses Jost). */
+.admin-arabic,
+.admin-arabic .font-display {
+  font-family: var(--font-arabic), var(--font-sans), system-ui, sans-serif;
+  letter-spacing: 0;
+}
+.admin-arabic .uppercase {
+  letter-spacing: 0;
 }

@@ -6,6 +6,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Sidebar, MobileNav, ADMIN_ONLY_ROUTES, BARBER_HOME } from '@/components/layout/Sidebar';
 import { Navbar } from '@/components/layout/Navbar';
 import { useAuth } from '@/context/AuthContext';
+import { LanguageProvider, useT } from '@/context/LanguageContext';
+import { PageTranslator } from '@/components/admin/PageTranslator';
 import { ShieldAlert, LogIn, RefreshCw } from 'lucide-react';
 
 function GateMessage({ title, message, children }: { title: string; message: string; children?: React.ReactNode }) {
@@ -25,10 +27,32 @@ function GateMessage({ title, message, children }: { title: string; message: str
   );
 }
 
+// The shop manager can switch these pages to Arabic (right to left); the customer side stays English.
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <LanguageProvider>
+      <LanguageShell>
+        <AdminGate>{children}</AdminGate>
+      </LanguageShell>
+    </LanguageProvider>
+  );
+}
+
+function LanguageShell({ children }: { children: React.ReactNode }) {
+  const { lang, dir } = useT();
+  return (
+    <div lang={lang} dir={dir} className={lang === 'ar' ? 'admin-arabic' : undefined}>
+      <PageTranslator lang={lang} />
+      {children}
+    </div>
+  );
+}
+
+function AdminGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated, isLoading, isAdmin, isStaff, isBarber, logout } = useAuth();
+  const { t } = useT();
 
   // A barber only has their own appointments; any other admin page goes there.
   const barberElsewhere = isAuthenticated && isBarber && pathname !== BARBER_HOME;
@@ -47,15 +71,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!isAuthenticated) {
     return (
       <GateMessage
-        title="Sign In Required"
-        message="Your session has expired or you are not signed in. Please sign in to access salon records."
+        title={t('Sign In Required')}
+        message={t('Your session has expired or you are not signed in. Please sign in to access salon records.')}
       >
         <Link
           href="/login"
           className="w-full btn-primary py-3 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm"
         >
           <LogIn className="w-4 h-4" />
-          <span>Go to Sign In</span>
+          <span>{t('Go to Sign In')}</span>
         </Link>
       </GateMessage>
     );
@@ -64,20 +88,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!isAdmin && !isStaff) {
     return (
       <GateMessage
-        title="Staff Area"
-        message="This part of the site is only for salon owners and staff. Your account is a customer account."
+        title={t('Staff Area')}
+        message={t('This part of the site is only for salon owners and staff. Your account is a customer account.')}
       >
         <Link
           href="/customer/profile"
           className="w-full btn-primary py-3 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm"
         >
-          <span>Go to My Profile</span>
+          <span>{t('Go to My Profile')}</span>
         </Link>
         <button
           onClick={logout}
           className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-[var(--muted)] text-[var(--foreground)] border border-[var(--border)]"
         >
-          Sign out
+          {t('Sign out')}
         </button>
       </GateMessage>
     );
@@ -94,12 +118,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const isOwnerOnlyRoute = ADMIN_ONLY_ROUTES.some((r) => pathname === r || pathname?.startsWith(`${r}/`));
   if (isOwnerOnlyRoute && !isAdmin) {
     return (
-      <GateMessage title="Owner Only" message="Only the salon owner or an administrator can open this page.">
+      <GateMessage title={t('Owner Only')} message={t('Only the salon owner or an administrator can open this page.')}>
         <Link
           href="/admin/dashboard"
           className="w-full btn-primary py-3 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm"
         >
-          <span>Back to Dashboard</span>
+          <span>{t('Back to Dashboard')}</span>
         </Link>
       </GateMessage>
     );
