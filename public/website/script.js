@@ -193,4 +193,45 @@ document.querySelectorAll('.carousel').forEach((box) => {
   onScroll();
 })();
 
+// Slide things in as they scroll into view: from below, the left or the right.
+(function reveal() {
+  const plan = [
+    ['.intro .framed', 'left'], ['.intro__text', 'right'],
+    ['.kicker', 'up'], ['.ornament', 'zoom'], ['.section-title', 'up'], ['.section-sub', 'up'],
+    ['.price-list', 'left'], ['.feature', 'right'],
+    ['.barbers .carousel', 'up'],
+    ['.about__side', 'left'], ['.about__main', 'right'],
+    ['.script-title', 'up'], ['.rating', 'zoom'], ['.carousel--reviews', 'up'], ['.rating__link', 'up'],
+    ['.info-card', 'up'], ['.cta-title', 'up'], ['main .center', 'up'],
+    ['.footer__logo', 'zoom'], ['.footer__col', 'up'],
+  ];
+  const items = [];
+  plan.forEach(([sel, dir]) => document.querySelectorAll(sel).forEach((el, i) => {
+    if (el.hasAttribute('data-reveal') || el.closest('[data-reveal]')) return;
+    el.setAttribute('data-reveal', dir);
+    // Cards side by side come in one after another.
+    if (/info-card|footer__col/.test(sel)) el.style.setProperty('--d', `${i * 0.15}s`);
+    items.push(el);
+  }));
+  const show = (el) => el.classList.add('is-in');
+  if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    items.forEach(show);
+    return;
+  }
+  const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+    if (e.isIntersecting) { show(e.target); io.unobserve(e.target); }
+  }), { rootMargin: '0px 0px -12% 0px', threshold: 0.12 });
+  items.forEach((el) => io.observe(el));
+  // Fast scrolling or a menu link can jump past things: show anything already above the fold.
+  let left = items;
+  const catchUp = () => {
+    left = left.filter((el) => {
+      if (el.getBoundingClientRect().top < innerHeight * 0.9) { show(el); io.unobserve(el); return false; }
+      return true;
+    });
+    if (!left.length) window.removeEventListener('scroll', catchUp);
+  };
+  window.addEventListener('scroll', catchUp, { passive: true });
+})();
+
 document.getElementById('year').textContent = new Date().getFullYear();
