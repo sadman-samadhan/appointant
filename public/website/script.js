@@ -32,13 +32,14 @@ const MENU = [
   const list = document.getElementById('price-list');
   if (!list) return;
   const html = [];
-  for (const section of MENU) {
-    html.push(`<li class="group">${section.group}</li>`);
+  MENU.forEach((section, i) => {
+    // No group titles on the page, just a thin line between groups.
+    if (i) html.push('<li class="group" aria-hidden="true"></li>');
     for (const item of section.items) {
       html.push(`<li><span class="name">${item.name.replace(/&/g, '&amp;')}</span><span class="price">$${item.price}</span></li>`);
       if (item.note) html.push(`<li class="note">${item.note}</li>`);
     }
-  }
+  });
   list.innerHTML = html.join('');
 })();
 
