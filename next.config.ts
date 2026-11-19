@@ -5,9 +5,13 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname),
   // Small self-contained server for the Docker image (see Dockerfile).
   output: 'standalone',
-  // The shop's plain website lives in public/website; show it at /website.
+  // The shop's plain website: public/website (Amatic SC titles) at /website,
+  // public/website2 (Pacifico titles) at /website2.
   async rewrites() {
-    return [{ source: '/website', destination: '/website/index.html' }];
+    return [
+      { source: '/website', destination: '/website/index.html' },
+      { source: '/website2', destination: '/website2/index.html' },
+    ];
   },
   images: {
     remotePatterns: [
