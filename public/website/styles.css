@@ -476,3 +476,6 @@ html[data-font="pacifico"] :is(.nav__brand span, .hero__name, .kicker, .section-
   font-weight: 400; font-size-adjust: cap-height .62; text-transform: none; letter-spacing: 0;
   padding: .12em .25em .2em; line-height: 1.35;
 }
+/* Menu links in the top bar and the phone menu use the same title font. */
+.nav__side a, .nav__mobile a { font-family: var(--display); font-weight: 700; font-size-adjust: cap-height .78; letter-spacing: .04em; }
+html[data-font="pacifico"] :is(.nav__side a, .nav__mobile a) { font-weight: 400; font-size-adjust: cap-height .62; letter-spacing: 0; }
