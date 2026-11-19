@@ -14,8 +14,6 @@
   --serif: 'Playfair Display', Georgia, serif;
   --serif-sc: 'Playfair Display SC', 'Playfair Display', Georgia, serif;
   --sans: 'Poppins', system-ui, sans-serif;
-  /* Font for the big gold titles. /website2 swaps it for Pacifico (html[data-font=pacifico]). */
-  --display: 'Amatic SC', 'Playfair Display SC', cursive;
   /* soft paper grain */
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
@@ -95,7 +93,7 @@ h1, h2, h3, h4, p { margin: 0; }
 }
 .hero__titles::before { transform-origin: right; }
 .hero__titles::after { background: linear-gradient(270deg, transparent, #dcb65e); transform-origin: left; }
-.hero__name { font-size: 120px; line-height: 1.1; }
+.hero__name { font-family: var(--serif-sc); font-weight: 600; font-size: 84px; line-height: 1.15; padding: .04em .08em; }
 .hero__points {
   max-width: 1080px; margin: 50px auto 0;
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px;
@@ -320,7 +318,7 @@ h1, h2, h3, h4, p { margin: 0; }
 @media (max-width: 1024px) {
   .nav__side a { padding: 22px 10px; font-size: 16px; }
   .nav__brand span { font-size: 24px; }
-  .hero__name { font-size: 96px; }
+  .hero__name { font-size: 64px; }
   .hero__points { font-size: 19px; gap: 24px; }
   .kicker { font-size: 56px; }
   .section-title { font-size: 44px; }
@@ -368,7 +366,7 @@ h1, h2, h3, h4, p { margin: 0; }
   .hero__inner { padding-top: 10px; }
   .hero__titles { gap: 12px; }
   .hero__titles::before, .hero__titles::after { max-width: 40px; }
-  .hero__name { font-size: 64px; }
+  .hero__name { font-size: 44px; }
   .hero__points { grid-template-columns: 1fr; gap: 22px; font-size: 19px; margin-top: 36px; }
 
   .tear { height: 80px; margin-top: -79px; }
@@ -463,19 +461,3 @@ main, .footer { overflow-x: clip; }
   .js [data-reveal] { opacity: 1; transform: none; transition: none; }
 }
 
-/* ---------- Display font for the big gold titles ----------
-   Sizes stay as set above; font-size-adjust keeps the capital letters about as tall as before,
-   whichever font is used. A little padding stops the shine being cut off at the letter tips. */
-.nav__brand span, .hero__name, .kicker, .section-title, .about__title, .script-title,
-.feature h3, .footer__col h3, .about__side h2 {
-  font-family: var(--display); font-weight: 700; font-size-adjust: cap-height .78;
-  padding: .06em .12em; letter-spacing: .02em;
-}
-html[data-font="pacifico"] { --display: 'Pacifico', 'Playfair Display', cursive; }
-html[data-font="pacifico"] :is(.nav__brand span, .hero__name, .kicker, .section-title, .about__title, .script-title, .feature h3, .footer__col h3, .about__side h2) {
-  font-weight: 400; font-size-adjust: cap-height .62; text-transform: none; letter-spacing: 0;
-  padding: .12em .25em .2em; line-height: 1.35;
-}
-/* Menu links in the top bar and the phone menu use the same title font. */
-.nav__side a, .nav__mobile a { font-family: var(--display); font-weight: 700; font-size-adjust: cap-height .78; letter-spacing: .04em; }
-html[data-font="pacifico"] :is(.nav__side a, .nav__mobile a) { font-weight: 400; font-size-adjust: cap-height .62; letter-spacing: 0; }

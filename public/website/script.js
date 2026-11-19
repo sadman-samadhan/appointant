@@ -1,46 +1,33 @@
 // AM Barbershop menu. Prices in CAD, from the shop's booking site (ambarbershop.barberly.app).
 // To change a price or add a service, edit this list.
 const MENU = [
-  { group: 'Signature', items: [
-    { name: 'AM Treatment', price: 120, note: 'Haircut, shaving or beard trim, face massage, scalp massage and shampoo condition.' },
-    { name: 'Luxury Shaving', price: 65 },
-    { name: 'Wolf Cut', price: 65 },
-  ]},
-  { group: 'Haircuts', items: [
-    { name: 'Regular Haircut', price: 30 },
-    { name: 'Skin & Taper Fade', price: 30 },
-    { name: 'Blowout Taper', price: 30 },
-    { name: 'Textured Haircut', price: 30 },
-    { name: 'Senior Haircut', price: 25 },
-    { name: 'Kids Haircut (7 to 12 years)', price: 25 },
-    { name: 'Kids Haircut (under 7 years)', price: 25 },
-  ]},
-  { group: 'Combos', items: [
-    { name: 'Haircut & Shaving', price: 52 },
-    { name: 'Haircut & Beard Trim', price: 50 },
-    { name: 'Head Shave & Beard Trim', price: 50 },
-  ]},
-  { group: 'Beard, Shave & Face', items: [
-    { name: 'Head Shaving', price: 30 },
-    { name: 'Hot Towel Shave', price: 30 },
-    { name: 'Beard Trim', price: 25 },
-    { name: 'Facial Massage', price: 30 },
-  ]},
+  // Same order as the services page on the booking site.
+  { name: 'Regular Haircut', price: 30 },
+  { name: 'Skin & Taper Fade', price: 30 },
+  { name: 'Blowout Taper', price: 30 },
+  { name: 'Textured Haircut', price: 30 },
+  { name: 'Wolf Cut', price: 65 },
+  { name: 'Haircut & Beard Trim', price: 50 },
+  { name: 'Haircut & Shaving', price: 52 },
+  { name: 'Head Shave & Beard Trim', price: 50 },
+  { name: 'Head Shaving', price: 30 },
+  { name: 'Hot Towel Shave', price: 30 },
+  { name: 'Kids Haircut 7 to 12 years old', price: 25 },
+  { name: 'Kids Haircut 0 to 7 years old', price: 25 },
+  { name: 'Beard Trim', price: 25 },
+  { name: 'Senior Haircut', price: 25 },
+  { name: 'Facial Massage', price: 30 },
+  { name: 'Luxury Shaving', price: 65 },
+  { name: 'AM Treatment', price: 120, note: 'Haircut, shaving or beard trim, face massage, scalp massage and shampoo condition.' },
 ];
 
 (function renderMenu() {
   const list = document.getElementById('price-list');
   if (!list) return;
-  const html = [];
-  MENU.forEach((section, i) => {
-    // No group titles on the page, just a thin line between groups.
-    if (i) html.push('<li class="group" aria-hidden="true"></li>');
-    for (const item of section.items) {
-      html.push(`<li><span class="name">${item.name.replace(/&/g, '&amp;')}</span><span class="price">$${item.price}</span></li>`);
-      if (item.note) html.push(`<li class="note">${item.note}</li>`);
-    }
-  });
-  list.innerHTML = html.join('');
+  list.innerHTML = MENU.map((item) =>
+    `<li><span class="name">${item.name.replace(/&/g, '&amp;')}</span><span class="price">$${item.price}</span></li>` +
+    (item.note ? `<li class="note">${item.note}</li>` : '')
+  ).join('');
 })();
 
 // Phone menu
