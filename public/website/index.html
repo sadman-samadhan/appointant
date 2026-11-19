@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AM Barbershop | Fredericton</title>
+  <meta name="description" content="AM Barbershop on York Street, Fredericton. Fades, textured cuts, hot towel shaves, beard trims and the signature AM Treatment. Walk-ins welcome." />
+  <link rel="icon" href="/website/images/am-icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Playfair+Display+SC:wght@600;700&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/website/styles.css" />
+</head>
+<body>
+  <!-- Gold ornament reused under each big section title -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="ornament" viewBox="0 0 120 24">
+      <g fill="#C9A24A">
+        <circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/>
+        <circle cx="100" cy="12" r="2"/><circle cx="108" cy="12" r="2"/><circle cx="116" cy="12" r="2"/>
+      </g>
+      <g fill="none" stroke="#C9A24A" stroke-width="2.2" stroke-linecap="round">
+        <circle cx="40" cy="6.5" r="4.5"/><circle cx="40" cy="17.5" r="4.5"/>
+        <path d="M44 8.5 L86 14.5 M44 15.5 L86 9.5"/>
+      </g>
+    </symbol>
+  </svg>
+
+  <header class="nav" id="top">
+    <div class="nav__inner">
+      <nav class="nav__side nav__side--left" aria-label="Main">
+        <a href="#top" class="is-active">Home</a>
+        <a href="#services">Services</a>
+        <a href="#barbers">Barbers</a>
+      </nav>
+      <a href="#top" class="nav__brand" aria-label="AM Barbershop home">
+        <img src="/website/images/am-logo.svg" alt="" width="58" height="36" />
+        <span>AM Barbershop</span>
+      </a>
+      <nav class="nav__side nav__side--right" aria-label="More">
+        <a href="https://ambarbershop.barberly.app" target="_blank" rel="noopener">Book</a>
+        <a href="#contact">Contact</a>
+        <a href="#reviews">Reviews</a>
+      </nav>
+      <button class="nav__toggle" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+    <nav class="nav__mobile" id="mobile-menu" aria-label="Mobile" hidden>
+      <a href="#top">Home</a>
+      <a href="#services">Services</a>
+      <a href="#barbers">Barbers</a>
+      <a href="https://ambarbershop.barberly.app" target="_blank" rel="noopener">Book</a>
+      <a href="#reviews">Reviews</a>
+      <a href="#contact">Contact</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- HERO -->
+    <section class="hero">
+      <div class="hero__inner">
+        <img class="hero__logo" src="/website/images/am-logo.svg" alt="AM Barbershop logo" width="300" height="184" />
+        <div class="hero__titles">
+          <h2 class="hero__name">AM Barbershop</h2>
+          <h1 class="hero__slogan">The Black &amp; Gold Barbershop Experience</h1>
+        </div>
+      </div>
+      <div class="hero__points">
+        <p>Right on <a href="#contact">York Street</a> in downtown Fredericton.</p>
+        <p>Fades, hot towel shaves and the signature AM <a href="#services">Treatment</a>.</p>
+        <p>Walk-ins welcome, or book online with your favourite <a href="#barbers">barber</a>.</p>
+      </div>
+    </section>
+
+    <div class="tear tear--to-light tear--a" aria-hidden="true"><i></i></div>
+
+    <!-- INTRO -->
+    <section class="paper intro">
+      <div class="intro__inner">
+        <figure class="framed">
+          <img src="/website/images/shop.jpg" alt="Inside AM Barbershop: gold barber chairs with the AM logo" width="1220" height="915" loading="lazy" />
+        </figure>
+        <div class="intro__text">
+          <p class="intro__lead">
+            A great cut starts with a barber who takes the time to get it right.<br />
+            Sharp fades, clean lines and textured cuts, done with care.<br />
+            Hot towels, straight razors and a chair you won&rsquo;t want to leave.<br />
+            Walk in looking good. Walk out looking sharp.
+          </p>
+          <a class="book-btn" href="https://ambarbershop.barberly.app" target="_blank" rel="noopener"><span>Book Now</span></a>
+        </div>
+      </div>
+    </section>
+
+    <div class="tear tear--to-dark tear--b tear--flip" aria-hidden="true"><i></i></div>
+
+    <!-- SERVICES -->
+    <section class="dark services" id="services">
+      <h4 class="kicker">Services</h4>
+      <svg class="ornament" aria-hidden="true"><use href="#ornament"/></svg>
+      <h2 class="section-title">Sharp cuts, clean shaves.</h2>
+      <p class="section-sub">
+        Haircuts, fades, hot towel shaves, beard trims and facial massage.<br />
+        Child friendly and wheelchair accessible. Student and senior discounts. Walk-ins welcome.
+      </p>
+
+      <div class="services__grid">
+        <ul class="price-list" id="price-list"><!-- filled from the list in script.js --></ul>
+        <figure class="feature">
+          <img src="/website/images/sulaiman.jpg" alt="Sulaiman, stylist at AM Barbershop" width="550" height="784" loading="lazy" />
+          <figcaption>
+            <h3>Sulaiman</h3>
+            <p>Stylist at AM Barbershop</p>
+          </figcaption>
+        </figure>
+      </div>
+
+      <div class="center"><a class="book-btn" href="https://ambarbershop.barberly.app" target="_blank" rel="noopener"><span>Book Now</span></a></div>
+    </section>
+
+    <div class="tear tear--to-light tear--c" aria-hidden="true"><i></i></div>
+
+    <!-- BARBERS -->
+    <section class="paper barbers" id="barbers">
+      <h4 class="kicker">Barbers</h4>
+      <svg class="ornament" aria-hidden="true"><use href="#ornament"/></svg>
+      <h2 class="section-title section-title--dark">Meet your barbers!</h2>
+      <p class="section-sub section-sub--dark">
+        Three barbers who know their craft. Pick your favourite when you book,
+        or come in and take the next open chair.
+      </p>
+
+      <div class="carousel">
+        <button class="carousel__arrow carousel__arrow--prev" aria-label="Previous barber">&#8249;</button>
+        <div class="carousel__track" tabindex="0">
+          <article class="card">
+            <img src="/website/images/sulaiman.jpg" alt="Sulaiman" width="550" height="784" loading="lazy" />
+            <p class="card__tag">Stylist</p>
+            <a class="card__name" href="https://ambarbershop.barberly.app" target="_blank" rel="noopener">Sulaiman</a>
+            <p class="card__cta">Book with Sulaiman</p>
+          </article>
+          <article class="card">
+            <img src="/website/images/amen.jpg" alt="Amen at work in the shop" width="550" height="806" loading="lazy" />
+            <p class="card__tag">Stylist</p>
+            <a class="card__name" href="https://ambarbershop.barberly.app" target="_blank" rel="noopener">Amen</a>
+            <p class="card__cta">Book with Amen</p>
+          </article>
+          <article class="card">
+            <img src="/website/images/mou.jpg" alt="Mou" width="550" height="733" loading="lazy" />
+            <p class="card__tag">Barber</p>
+            <a class="card__name" href="https://ambarbershop.barberly.app" target="_blank" rel="noopener">Mou</a>
+            <p class="card__cta">Book with Mou</p>
+          </article>
+        </div>
+        <button class="carousel__arrow carousel__arrow--next" aria-label="Next barber">&#8250;</button>
+      </div>
+      <div class="carousel__dots" aria-hidden="true"></div>
+    </section>
+
+    <div class="tear tear--to-dark tear--a tear--flip" aria-hidden="true"><i></i></div>
+
+    <!-- ABOUT -->
+    <section class="dark about">
+      <div class="about__box">
+        <div class="about__side">
+          <h2>Google Reviews</h2>
+          <p>Rated 4.9 out of 5 on Google!</p>
+          <div class="about__badge">
+            <span class="about__score">4.9</span>
+            <span class="stars stars--gold" aria-label="4.9 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span>
+            <span class="about__count">369 reviews</span>
+          </div>
+        </div>
+        <div class="about__main">
+          <h2 class="about__title">AM Barbershop</h2>
+          <p>At AM Barbershop we know you want to look and feel your best.</p>
+          <p>That takes regular grooming from barbers who know what they are doing.</p>
+          <p>Our shop on York Street is all black and gold, with comfortable chairs and a relaxed, friendly feel. Come in for a quick clean-up or take your time with the full treatment.</p>
+          <p>We offer <strong>fades, textured cuts and wolf cuts</strong>, kids cuts, head shaves, <strong>hot towel shaves</strong>, beard trims and facial massage. Our signature <strong>AM Treatment</strong> brings it all together: a haircut, shave or beard trim, face massage, scalp massage and shampoo.</p>
+          <p>Here&rsquo;s how it works: book online or walk in, tell your barber what you&rsquo;re after, and walk out the door looking fresh and feeling good.</p>
+          <div class="center"><a class="book-btn" href="https://ambarbershop.barberly.app" target="_blank" rel="noopener"><span>Book Now</span></a></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="tear tear--to-light tear--b" aria-hidden="true"><i></i></div>
+
+    <!-- VISIT / REVIEWS -->
+    <section class="paper visit" id="reviews">
+      <h2 class="script-title">What Our Clients Say</h2>
+      <div class="rating">
+        <p class="rating__big">EXCELLENT</p>
+        <span class="stars stars--yellow" aria-label="4.9 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span>
+        <p>Based on <strong>369 reviews</strong></p>
+        <p class="google-word" aria-label="Google"><span>G</span><span>o</span><span>o</span><span>g</span><span>l</span><span>e</span></p>
+      </div>
+
+      <div class="carousel carousel--reviews">
+        <button class="carousel__arrow carousel__arrow--prev" aria-label="Previous review">&#8249;</button>
+        <div class="carousel__track" tabindex="0" id="review-track"><!-- filled from the list in script.js --></div>
+        <button class="carousel__arrow carousel__arrow--next" aria-label="Next review">&#8250;</button>
+      </div>
+      <div class="carousel__dots" aria-hidden="true"></div>
+      <a class="rating__link" href="https://www.google.com/maps/place/AM+Barbershop/@45.9624528,-66.6434929,17z/data=!4m6!3m5!1s0xa88fad3560c07517:0xc2fe69d0964022c9!8m2!3d45.9624528!4d-66.6434929" target="_blank" rel="noopener">Read all 369 reviews on Google</a>
+
+      <h2 class="script-title script-title--second">Visit Our Shop</h2>
+
+      <div class="info-cards">
+        <article class="info-card">
+          <h3>Opening hours</h3>
+          <ul class="hours">
+            <li><span>Monday to Saturday</span><span>9:00 AM to 7:00 PM</span></li>
+            <li><span>Sunday</span><span>Closed</span></li>
+          </ul>
+        </article>
+        <article class="info-card">
+          <h3>Find us</h3>
+          <p>80 York Street<br />Fredericton, New Brunswick<br />E3B 3N5</p>
+          <a class="info-card__link" href="https://www.google.com/maps/search/?api=1&amp;query=80+York+Street+Fredericton+NB+E3B+3N5" target="_blank" rel="noopener">Get directions</a>
+        </article>
+        <article class="info-card">
+          <h3>Call us</h3>
+          <p>Questions or group bookings?<br />Give us a call.</p>
+          <a class="info-card__link" href="tel:+15062625539">(506) 262-5539</a>
+        </article>
+      </div>
+
+      <h2 class="cta-title">Book your next appointment today!</h2>
+      <div class="center"><a class="book-btn" href="https://ambarbershop.barberly.app" target="_blank" rel="noopener"><span>Book Now</span></a></div>
+    </section>
+
+    <div class="tear tear--to-dark tear--c tear--flip" aria-hidden="true"><i></i></div>
+  </main>
+
+  <footer class="footer" id="contact">
+    <div class="footer__inner">
+      <img class="footer__logo" src="/website/images/am-icon.svg" alt="AM Barbershop" width="210" height="210" loading="lazy" />
+      <div class="footer__col">
+        <h3>York Street</h3>
+        <p>80 York Street<br />Fredericton, New Brunswick</p>
+        <p class="footer__phone"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.6a1 1 0 0 1-.25 1z"/></svg><a href="tel:+15062625539">506-262-5539</a></p>
+      </div>
+      <div class="footer__col">
+        <h3>Hours</h3>
+        <p>Monday to Saturday<br />9:00 AM to 7:00 PM</p>
+        <p>Sunday: Closed</p>
+      </div>
+    </div>
+    <p class="footer__legal">&copy; <span id="year">2026</span> AM Barbershop. All rights reserved.</p>
+  </footer>
+
+  <a href="#top" class="to-top" aria-label="Back to top">&#8963;</a>
+
+  <script src="/website/script.js"></script>
+</body>
+</html>
