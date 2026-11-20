@@ -190,7 +190,7 @@ document.querySelectorAll('.carousel').forEach((box) => {
     ['.barbers .carousel', 'up'],
     ['.about__side', 'left'], ['.about__main', 'right'],
     ['.script-title', 'up'], ['.rating', 'zoom'], ['.carousel--reviews', 'up'], ['.rating__link', 'up'],
-    ['.info-card', 'up'], ['.cta-title', 'up'], ['main .center', 'up'],
+    ['.product', 'up'], ['.info-card', 'up'], ['.cta-title', 'up'], ['main .center', 'up'],
     ['.footer__logo', 'zoom'], ['.footer__col', 'up'],
   ];
   const items = [];
@@ -198,7 +198,7 @@ document.querySelectorAll('.carousel').forEach((box) => {
     if (el.hasAttribute('data-reveal') || el.closest('[data-reveal]')) return;
     el.setAttribute('data-reveal', dir);
     // Cards side by side come in one after another.
-    if (/info-card|footer__col/.test(sel)) el.style.setProperty('--d', `${i * 0.15}s`);
+    if (/info-card|footer__col|product/.test(sel)) el.style.setProperty('--d', `${(sel === '.product' ? i % 3 : i) * 0.15}s`);
     items.push(el);
   }));
   const show = (el) => el.classList.add('is-in');

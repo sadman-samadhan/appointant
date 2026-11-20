@@ -213,7 +213,24 @@ h1, h2, h3, h4, p { margin: 0; }
 .carousel__dots button.is-on { background: #000; }
 
 /* ---------- About ---------- */
-.about { padding-top: 60px; padding-bottom: 160px; }
+.about { padding-top: 60px; padding-bottom: 40px; }
+
+/* ---------- Products the shop sells ---------- */
+.products { padding-top: 70px; }
+.products__grid {
+  max-width: 1180px; margin: 50px auto 0;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px;
+}
+.product { margin: 0; background: #0d0b08; border: 1px solid #3a3122; display: flex; flex-direction: column; transition: border-color .3s; }
+.product:hover { border-color: var(--gold); }
+.product__img { aspect-ratio: 4 / 3; background: #000; overflow: hidden; }
+.product__img img { width: 100%; height: 100%; object-fit: cover; transition: transform .6s; }
+.product:first-child .product__img img { object-fit: contain; }
+.product:hover .product__img img { transform: scale(1.04); }
+.product figcaption { padding: 18px 18px 22px; text-align: center; }
+.product__brand { font-family: var(--sans); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: var(--gold-soft); opacity: .75; }
+.product h3 { font-weight: 600; font-size: 22px; line-height: 1.25; color: var(--gold); margin-top: 6px; }
+.product p { font-family: var(--sans); font-size: 14px; line-height: 1.5; margin-top: 8px; }
 .about__box {
   max-width: 1120px; margin: 0 auto; border: 2px solid var(--red);
   display: grid; grid-template-columns: 410px 1fr;
@@ -387,7 +404,13 @@ h1, h2, h3, h4, p { margin: 0; }
   .paper { padding: 26px 16px 110px; }
   .dark { padding: 34px 16px 110px; }
   .visit-shop { padding-bottom: 60px; }
-  .about { padding-bottom: 110px; }
+  .about { padding-bottom: 30px; }
+  .products { padding-top: 40px; }
+  .products__grid { grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 30px; }
+  .product figcaption { padding: 12px 8px 14px; }
+  .product__brand { font-size: 10px; letter-spacing: 1.5px; }
+  .product h3 { font-size: 16px; }
+  .product p { font-size: 12px; }
   .kicker { font-size: 44px; }
   .section-title { font-size: 32px; }
   .section-sub { font-size: 18px; }
