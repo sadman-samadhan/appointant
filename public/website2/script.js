@@ -198,7 +198,7 @@ document.querySelectorAll('.carousel').forEach((box) => {
     if (el.hasAttribute('data-reveal') || el.closest('[data-reveal]')) return;
     el.setAttribute('data-reveal', dir);
     // Cards side by side come in one after another.
-    if (/info-card|footer__col|product/.test(sel)) el.style.setProperty('--d', `${(sel === '.product' ? i % 3 : i) * 0.15}s`);
+    if (/info-card|footer__col|product/.test(sel)) el.style.setProperty('--d', `${(sel === '.product' ? i % 4 : i) * 0.15}s`);
     items.push(el);
   }));
   const show = (el) => el.classList.add('is-in');
