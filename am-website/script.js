@@ -18,7 +18,7 @@ const MENU = [
   { name: 'Senior Haircut', price: 25 },
   { name: 'Facial Massage', price: 30 },
   { name: 'Luxury Shaving', price: 65 },
-  { name: 'AM Treatment', price: 120, note: 'Haircut, shaving or beard trim, face massage, scalp massage and shampoo condition.' },
+  { name: 'AM Treatment', price: 120 },
 ];
 
 (function renderMenu() {
